@@ -79,10 +79,12 @@ linters:
     # / library / harness edges and pull in third-party deps as needed.
     depguard:
       rules:
-        # node/, emit/, meta/, directive/, writer/, position/, opt/ are
-        # the language-agnostic core. They may import each other and
-        # general-purpose stdlib, but nothing language-specific (go/ast,
-        # go/types, go/format, text/template) and no frontend/backend.
+        # node/, emit/, meta/, directive/, writer/, opt/ are the
+        # language-agnostic data-model layer. They may import each other,
+        # general-purpose stdlib, and the foundation primitives under
+        # core/ (position, naming, diag) — never anything language-specific
+        # (go/ast, go/types, go/format, text/template) and no frontend or
+        # backend.
         agnostic:
           list-mode: strict
           files:
@@ -91,7 +93,6 @@ linters:
             - "**/meta/**"
             - "**/directive/**"
             - "**/writer/**"
-            - "**/position/**"
             - "**/opt/**"
           allow:
             - $gostd
@@ -100,8 +101,10 @@ linters:
             - go.thesmos.sh/eidos/meta
             - go.thesmos.sh/eidos/directive
             - go.thesmos.sh/eidos/writer
-            - go.thesmos.sh/eidos/position
             - go.thesmos.sh/eidos/opt
+            - go.thesmos.sh/eidos/core/position
+            - go.thesmos.sh/eidos/core/diag
+            - go.thesmos.sh/eidos/core/naming
             - github.com/google/go-cmp
           deny:
             - pkg: go/ast
@@ -117,9 +120,9 @@ linters:
             - pkg: text/template
               desc: "templating belongs in backend/<lang>/ (spec §3)"
 
-        # core/* (store, plugin, pipeline, sink, cache, diag, naming):
-        # imports the agnostic packages and other core/* packages only;
-        # never a specific frontend or backend.
+        # core/* (position, naming, diag, store, plugin, pipeline, sink,
+        # cache): imports the agnostic packages and other core/* packages
+        # only; never a specific frontend or backend.
         core:
           list-mode: strict
           files:
@@ -131,7 +134,6 @@ linters:
             - go.thesmos.sh/eidos/meta
             - go.thesmos.sh/eidos/directive
             - go.thesmos.sh/eidos/writer
-            - go.thesmos.sh/eidos/position
             - go.thesmos.sh/eidos/opt
             - go.thesmos.sh/eidos/core
             - github.com/google/go-cmp
