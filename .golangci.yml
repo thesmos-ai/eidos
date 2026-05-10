@@ -74,15 +74,14 @@ linters:
       disable-dec-order-check: true
       disable-init-func-first-check: false
 
-    # Layering enforcement per spec §3. Files matched by no rule are
-    # unrestricted — cmd/, cli/, config/, testpipe/ live at the binary
-    # / library / harness edges and pull in third-party deps as needed.
+    # Layering enforcement. Files matched by no rule are unrestricted —
+    # cmd/, cli/, config/, testpipe/ live at the binary / library /
+    # harness edges and pull in third-party deps as needed.
     depguard:
       rules:
-        # node/, emit/, directive/, writer/, opt/ are the
-        # language-agnostic data-model layer. They may import each other,
-        # general-purpose stdlib, and the foundation primitives under
-        # core/ (position, naming, diag, meta) — never anything
+        # node/ and emit/ are the language-agnostic data-model layer.
+        # They may import each other, general-purpose stdlib, and any
+        # foundation primitive under core/ — never anything
         # language-specific (go/ast, go/types, go/format, text/template)
         # and no frontend or backend.
         agnostic:
@@ -90,34 +89,25 @@ linters:
           files:
             - "**/node/**"
             - "**/emit/**"
-            - "**/directive/**"
-            - "**/writer/**"
-            - "**/opt/**"
           allow:
             - $gostd
             - go.thesmos.sh/eidos/node
             - go.thesmos.sh/eidos/emit
-            - go.thesmos.sh/eidos/core/meta
-            - go.thesmos.sh/eidos/directive
-            - go.thesmos.sh/eidos/writer
-            - go.thesmos.sh/eidos/opt
-            - go.thesmos.sh/eidos/core/position
-            - go.thesmos.sh/eidos/core/diag
-            - go.thesmos.sh/eidos/core/naming
+            - go.thesmos.sh/eidos/core/
             - github.com/google/go-cmp
           deny:
             - pkg: go/ast
-              desc: "language-specific stdlib belongs in frontend/<lang>/ (spec §3)"
+              desc: "language-specific stdlib belongs in frontend/<lang>/"
             - pkg: go/types
-              desc: "language-specific stdlib belongs in frontend/<lang>/ (spec §3)"
+              desc: "language-specific stdlib belongs in frontend/<lang>/"
             - pkg: go/parser
-              desc: "language-specific stdlib belongs in frontend/<lang>/ (spec §3)"
+              desc: "language-specific stdlib belongs in frontend/<lang>/"
             - pkg: go/token
-              desc: "language-specific stdlib belongs in frontend/<lang>/ (spec §3)"
+              desc: "language-specific stdlib belongs in frontend/<lang>/"
             - pkg: go/format
-              desc: "go/format belongs in backend/<lang>/ (spec §3)"
+              desc: "go/format belongs in backend/<lang>/"
             - pkg: text/template
-              desc: "templating belongs in backend/<lang>/ (spec §3)"
+              desc: "templating belongs in backend/<lang>/"
 
         # core/* (position, naming, diag, meta, store, plugin, pipeline,
         # sink, cache): imports the agnostic packages and other core/*
@@ -132,9 +122,6 @@ linters:
             - $gostd
             - go.thesmos.sh/eidos/node
             - go.thesmos.sh/eidos/emit
-            - go.thesmos.sh/eidos/directive
-            - go.thesmos.sh/eidos/writer
-            - go.thesmos.sh/eidos/opt
             - go.thesmos.sh/eidos/core/
             - github.com/google/go-cmp
 
@@ -147,9 +134,9 @@ linters:
             - "**/plugins/**"
           deny:
             - pkg: go.thesmos.sh/eidos/frontend
-              desc: "plugins must not depend on a specific frontend; read facts via meta keys (spec §3)"
+              desc: "plugins must not depend on a specific frontend; read facts via meta keys"
             - pkg: go.thesmos.sh/eidos/backend
-              desc: "plugins must not depend on a specific backend; ship templates instead (spec §3)"
+              desc: "plugins must not depend on a specific backend; ship templates instead"
 
         # Frontends never import other frontends or any backend.
         frontends:
@@ -158,7 +145,7 @@ linters:
             - "**/frontend/**"
           deny:
             - pkg: go.thesmos.sh/eidos/backend
-              desc: "frontends and backends must not import each other (spec §3)"
+              desc: "frontends and backends must not import each other"
 
         # Backends never import other backends or any frontend.
         backends:
@@ -167,7 +154,7 @@ linters:
             - "**/backend/**"
           deny:
             - pkg: go.thesmos.sh/eidos/frontend
-              desc: "frontends and backends must not import each other (spec §3)"
+              desc: "frontends and backends must not import each other"
 
     forbidigo:
       analyze-types: true
