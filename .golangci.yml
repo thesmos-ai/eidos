@@ -79,18 +79,17 @@ linters:
     # / library / harness edges and pull in third-party deps as needed.
     depguard:
       rules:
-        # node/, emit/, meta/, directive/, writer/, opt/ are the
+        # node/, emit/, directive/, writer/, opt/ are the
         # language-agnostic data-model layer. They may import each other,
         # general-purpose stdlib, and the foundation primitives under
-        # core/ (position, naming, diag) — never anything language-specific
-        # (go/ast, go/types, go/format, text/template) and no frontend or
-        # backend.
+        # core/ (position, naming, diag, meta) — never anything
+        # language-specific (go/ast, go/types, go/format, text/template)
+        # and no frontend or backend.
         agnostic:
           list-mode: strict
           files:
             - "**/node/**"
             - "**/emit/**"
-            - "**/meta/**"
             - "**/directive/**"
             - "**/writer/**"
             - "**/opt/**"
@@ -98,7 +97,7 @@ linters:
             - $gostd
             - go.thesmos.sh/eidos/node
             - go.thesmos.sh/eidos/emit
-            - go.thesmos.sh/eidos/meta
+            - go.thesmos.sh/eidos/core/meta
             - go.thesmos.sh/eidos/directive
             - go.thesmos.sh/eidos/writer
             - go.thesmos.sh/eidos/opt
@@ -120,9 +119,11 @@ linters:
             - pkg: text/template
               desc: "templating belongs in backend/<lang>/ (spec §3)"
 
-        # core/* (position, naming, diag, store, plugin, pipeline, sink,
-        # cache): imports the agnostic packages and other core/* packages
-        # only; never a specific frontend or backend.
+        # core/* (position, naming, diag, meta, store, plugin, pipeline,
+        # sink, cache): imports the agnostic packages and other core/*
+        # packages only; never a specific frontend or backend.
+        # The trailing slash on go.thesmos.sh/eidos/core/ makes it a
+        # prefix pattern that matches any core subpackage.
         core:
           list-mode: strict
           files:
@@ -131,11 +132,10 @@ linters:
             - $gostd
             - go.thesmos.sh/eidos/node
             - go.thesmos.sh/eidos/emit
-            - go.thesmos.sh/eidos/meta
             - go.thesmos.sh/eidos/directive
             - go.thesmos.sh/eidos/writer
             - go.thesmos.sh/eidos/opt
-            - go.thesmos.sh/eidos/core
+            - go.thesmos.sh/eidos/core/
             - github.com/google/go-cmp
 
         # plugins/ consume meta keys (set by frontends) and ship their
