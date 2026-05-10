@@ -1,0 +1,423 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
+package store_test
+
+import (
+	"errors"
+	"testing"
+
+	"go.thesmos.sh/eidos/core/directive"
+	"go.thesmos.sh/eidos/core/position"
+	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/store"
+)
+
+// makeUserEmitPackage builds a representative [emit.Package] with
+// one file, two structs, an interface, function, variable, constant,
+// enum, and alias — mirrored from the node-side fixture so emit
+// tests exercise the same shape.
+func makeUserEmitPackage() *emit.Package {
+	target := emit.Target{Dir: "internal/users", Filename: "user_gen.go", Package: "users"}
+	dir := directiveAt("repo", position.At("user.go", 1, 1))
+	user := &emit.Struct{
+		BaseEmit: emit.BaseEmit{DirectiveList: []*directive.Directive{dir}},
+		Name:     "User",
+		Package:  "users",
+		Fields: []*emit.Field{
+			{Name: "ID", Type: emit.Builtin("string")},
+			{Name: "Email", Type: emit.Builtin("string")},
+		},
+		Methods: []*emit.Method{{Name: "Validate"}},
+		Target:  target,
+	}
+	addr := &emit.Struct{
+		Name: "Address", Package: "users",
+		Fields: []*emit.Field{{Name: "City", Type: emit.Builtin("string")}},
+		Target: target,
+	}
+	repo := &emit.Interface{
+		Name: "Repo", Package: "users",
+		Methods: []*emit.Method{{Name: "Get"}, {Name: "Save"}},
+		Target:  target,
+	}
+	open := &emit.Function{Name: "Open", Package: "users", Target: target}
+	def := &emit.Variable{Name: "Default", Package: "users", Target: target}
+	pi := &emit.Constant{Name: "Pi", Package: "users", Target: target}
+	status := &emit.Enum{
+		Name: "Status", Package: "users",
+		Variants: []*emit.EnumVariant{{Name: "Active"}, {Name: "Inactive"}},
+		Target:   target,
+	}
+	id := &emit.Alias{Name: "ID", Package: "users", File: target}
+	file := &emit.File{Name: "user_gen.go", Package: "users", Dir: "internal/users"}
+	return &emit.Package{
+		Name: "users", Path: "github.com/example/users", Dir: "internal/users",
+		Files:      []*emit.File{file},
+		Imports:    []*emit.Import{{Path: "context"}},
+		Structs:    []*emit.Struct{user, addr},
+		Interfaces: []*emit.Interface{repo},
+		Functions:  []*emit.Function{open},
+		Variables:  []*emit.Variable{def},
+		Constants:  []*emit.Constant{pi},
+		Enums:      []*emit.Enum{status},
+		Aliases:    []*emit.Alias{id},
+	}
+}
+
+func TestEmitView_AddPackage(t *testing.T) {
+	t.Parallel()
+
+	t.Run("indexes every emit kind from the supplied package", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		assertNoError(t, s.Emit().AddPackage(makeUserEmitPackage()))
+
+		v := s.Emit()
+		if v.Packages().Len() != 1 {
+			t.Fatalf("Packages = %d, want 1", v.Packages().Len())
+		}
+		if v.Files().Len() != 1 {
+			t.Fatalf("Files = %d, want 1", v.Files().Len())
+		}
+		if v.Imports().Len() != 1 {
+			t.Fatalf("Imports = %d, want 1", v.Imports().Len())
+		}
+		if v.Structs().Len() != 2 {
+			t.Fatalf("Structs = %d, want 2", v.Structs().Len())
+		}
+		if v.Interfaces().Len() != 1 {
+			t.Fatalf("Interfaces = %d, want 1", v.Interfaces().Len())
+		}
+		if v.Methods().Len() != 3 {
+			t.Fatalf("Methods = %d, want 3", v.Methods().Len())
+		}
+		if v.Fields().Len() != 3 {
+			t.Fatalf("Fields = %d, want 3", v.Fields().Len())
+		}
+		if v.Functions().Len() != 1 {
+			t.Fatalf("Functions = %d, want 1", v.Functions().Len())
+		}
+		if v.Variables().Len() != 1 {
+			t.Fatalf("Variables = %d, want 1", v.Variables().Len())
+		}
+		if v.Constants().Len() != 1 {
+			t.Fatalf("Constants = %d, want 1", v.Constants().Len())
+		}
+		if v.Enums().Len() != 1 {
+			t.Fatalf("Enums = %d, want 1", v.Enums().Len())
+		}
+		if v.EnumVariants().Len() != 2 {
+			t.Fatalf("EnumVariants = %d, want 2", v.EnumVariants().Len())
+		}
+		if v.Aliases().Len() != 1 {
+			t.Fatalf("Aliases = %d, want 1", v.Aliases().Len())
+		}
+	})
+
+	t.Run("looks up entries by qualified name", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		assertNoError(t, s.Emit().AddPackage(makeUserEmitPackage()))
+
+		if _, ok := s.Emit().Structs().ByQName("users.User"); !ok {
+			t.Fatalf("Struct lookup by qname failed")
+		}
+		if _, ok := s.Emit().Methods().ByQName("users.User.Validate"); !ok {
+			t.Fatalf("Method lookup by qname failed")
+		}
+		if _, ok := s.Emit().Files().ByQName("internal/users/user_gen.go"); !ok {
+			t.Fatalf("File lookup by qname failed")
+		}
+	})
+
+	t.Run("returns ErrNilEntry for a nil package", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		if err := s.Emit().AddPackage(nil); !errors.Is(err, store.ErrNilEntry) {
+			t.Fatalf("AddPackage(nil) = %v, want ErrNilEntry", err)
+		}
+	})
+}
+
+func TestEmitView_AddPackage_DuplicateDetection(t *testing.T) {
+	t.Parallel()
+
+	t.Run("rejects duplicate package paths", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		assertNoError(t, s.Emit().AddPackage(makeUserEmitPackage()))
+		if err := s.Emit().AddPackage(makeUserEmitPackage()); !errors.Is(err, store.ErrDuplicateQName) {
+			t.Fatalf("got %v, want ErrDuplicateQName", err)
+		}
+	})
+
+	t.Run("rejects duplicate file paths", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		dup := &emit.Package{
+			Name: "x", Path: "x", Dir: "x",
+			Files: []*emit.File{
+				{Name: "a.go", Dir: "x", Package: "x"},
+				{Name: "a.go", Dir: "x", Package: "x"},
+			},
+		}
+		if err := s.Emit().AddPackage(dup); !errors.Is(err, store.ErrDuplicateQName) {
+			t.Fatalf("got %v, want ErrDuplicateQName", err)
+		}
+	})
+
+	t.Run("rejects duplicate struct qnames", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		dup := &emit.Package{
+			Name: "x", Path: "x",
+			Structs: []*emit.Struct{
+				{Name: "A", Package: "x"},
+				{Name: "A", Package: "x"},
+			},
+		}
+		if err := s.Emit().AddPackage(dup); !errors.Is(err, store.ErrDuplicateQName) {
+			t.Fatalf("got %v, want ErrDuplicateQName", err)
+		}
+	})
+
+	t.Run("rejects duplicate field qnames", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		dup := &emit.Package{
+			Name: "x", Path: "x",
+			Structs: []*emit.Struct{{
+				Name: "A", Package: "x",
+				Fields: []*emit.Field{{Name: "F"}, {Name: "F"}},
+			}},
+		}
+		if err := s.Emit().AddPackage(dup); !errors.Is(err, store.ErrDuplicateQName) {
+			t.Fatalf("got %v, want ErrDuplicateQName", err)
+		}
+	})
+
+	t.Run("rejects duplicate struct method qnames", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		dup := &emit.Package{
+			Name: "x", Path: "x",
+			Structs: []*emit.Struct{{
+				Name: "A", Package: "x",
+				Methods: []*emit.Method{{Name: "M"}, {Name: "M"}},
+			}},
+		}
+		if err := s.Emit().AddPackage(dup); !errors.Is(err, store.ErrDuplicateQName) {
+			t.Fatalf("got %v, want ErrDuplicateQName", err)
+		}
+	})
+
+	t.Run("rejects duplicate interface qnames", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		dup := &emit.Package{
+			Name: "x", Path: "x",
+			Interfaces: []*emit.Interface{
+				{Name: "I", Package: "x"},
+				{Name: "I", Package: "x"},
+			},
+		}
+		if err := s.Emit().AddPackage(dup); !errors.Is(err, store.ErrDuplicateQName) {
+			t.Fatalf("got %v, want ErrDuplicateQName", err)
+		}
+	})
+
+	t.Run("rejects duplicate interface method qnames", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		dup := &emit.Package{
+			Name: "x", Path: "x",
+			Interfaces: []*emit.Interface{{
+				Name: "I", Package: "x",
+				Methods: []*emit.Method{{Name: "M"}, {Name: "M"}},
+			}},
+		}
+		if err := s.Emit().AddPackage(dup); !errors.Is(err, store.ErrDuplicateQName) {
+			t.Fatalf("got %v, want ErrDuplicateQName", err)
+		}
+	})
+
+	t.Run("rejects duplicate function qnames", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		dup := &emit.Package{
+			Name: "x", Path: "x",
+			Functions: []*emit.Function{
+				{Name: "F", Package: "x"},
+				{Name: "F", Package: "x"},
+			},
+		}
+		if err := s.Emit().AddPackage(dup); !errors.Is(err, store.ErrDuplicateQName) {
+			t.Fatalf("got %v, want ErrDuplicateQName", err)
+		}
+	})
+
+	t.Run("rejects duplicate variable qnames", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		dup := &emit.Package{
+			Name: "x", Path: "x",
+			Variables: []*emit.Variable{
+				{Name: "V", Package: "x"},
+				{Name: "V", Package: "x"},
+			},
+		}
+		if err := s.Emit().AddPackage(dup); !errors.Is(err, store.ErrDuplicateQName) {
+			t.Fatalf("got %v, want ErrDuplicateQName", err)
+		}
+	})
+
+	t.Run("rejects duplicate constant qnames", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		dup := &emit.Package{
+			Name: "x", Path: "x",
+			Constants: []*emit.Constant{
+				{Name: "C", Package: "x"},
+				{Name: "C", Package: "x"},
+			},
+		}
+		if err := s.Emit().AddPackage(dup); !errors.Is(err, store.ErrDuplicateQName) {
+			t.Fatalf("got %v, want ErrDuplicateQName", err)
+		}
+	})
+
+	t.Run("rejects duplicate enum qnames", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		dup := &emit.Package{
+			Name: "x", Path: "x",
+			Enums: []*emit.Enum{
+				{Name: "E", Package: "x"},
+				{Name: "E", Package: "x"},
+			},
+		}
+		if err := s.Emit().AddPackage(dup); !errors.Is(err, store.ErrDuplicateQName) {
+			t.Fatalf("got %v, want ErrDuplicateQName", err)
+		}
+	})
+
+	t.Run("rejects duplicate enum variant qnames", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		dup := &emit.Package{
+			Name: "x", Path: "x",
+			Enums: []*emit.Enum{{
+				Name: "E", Package: "x",
+				Variants: []*emit.EnumVariant{{Name: "V"}, {Name: "V"}},
+			}},
+		}
+		if err := s.Emit().AddPackage(dup); !errors.Is(err, store.ErrDuplicateQName) {
+			t.Fatalf("got %v, want ErrDuplicateQName", err)
+		}
+	})
+
+	t.Run("rejects duplicate alias qnames", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		dup := &emit.Package{
+			Name: "x", Path: "x",
+			Aliases: []*emit.Alias{
+				{Name: "A", Package: "x"},
+				{Name: "A", Package: "x"},
+			},
+		}
+		if err := s.Emit().AddPackage(dup); !errors.Is(err, store.ErrDuplicateQName) {
+			t.Fatalf("got %v, want ErrDuplicateQName", err)
+		}
+	})
+}
+
+func TestEmitView_AddPackage_FileImports(t *testing.T) {
+	t.Parallel()
+
+	t.Run("file-level imports register through the imports bucket", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		pkg := &emit.Package{
+			Name: "x", Path: "x", Dir: "x",
+			Files: []*emit.File{{
+				Name: "a.go", Dir: "x", Package: "x",
+				Imports: []*emit.Import{{Path: "fmt"}},
+			}},
+			Imports: []*emit.Import{{Path: "context"}},
+		}
+		assertNoError(t, s.Emit().AddPackage(pkg))
+		if s.Emit().Imports().Len() != 2 {
+			t.Fatalf("Imports = %d, want 2", s.Emit().Imports().Len())
+		}
+	})
+
+	t.Run("repeated file-level imports dedup silently", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		pkg := &emit.Package{
+			Name: "x", Path: "x", Dir: "x",
+			Files: []*emit.File{
+				{Name: "a.go", Dir: "x", Package: "x", Imports: []*emit.Import{{Path: "fmt"}}},
+				{Name: "b.go", Dir: "x", Package: "x", Imports: []*emit.Import{{Path: "fmt"}}},
+			},
+		}
+		assertNoError(t, s.Emit().AddPackage(pkg))
+		if s.Emit().Imports().Len() != 1 {
+			t.Fatalf("Imports = %d, want 1 (deduped)", s.Emit().Imports().Len())
+		}
+	})
+}
+
+func TestEmitView_ByPackage(t *testing.T) {
+	t.Parallel()
+
+	t.Run("collects every recorded entity under the package path", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		assertNoError(t, s.Emit().AddPackage(makeUserEmitPackage()))
+		got := s.Emit().ByPackage().Get("github.com/example/users")
+		if len(got) == 0 {
+			t.Fatalf("ByPackage should return non-empty for the recorded package")
+		}
+	})
+}
+
+func TestEmitView_ByDirective(t *testing.T) {
+	t.Parallel()
+
+	t.Run("collects entities carrying the named directive", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		assertNoError(t, s.Emit().AddPackage(makeUserEmitPackage()))
+		got := s.Emit().ByDirective().Get("repo")
+		if len(got) != 1 {
+			t.Fatalf("ByDirective(repo) = %d, want 1", len(got))
+		}
+	})
+}
+
+func TestEmitView_ByTarget(t *testing.T) {
+	t.Parallel()
+
+	t.Run("groups routable emit entities under their Target", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		assertNoError(t, s.Emit().AddPackage(makeUserEmitPackage()))
+		target := emit.Target{Dir: "internal/users", Filename: "user_gen.go", Package: "users"}
+		got := s.Emit().ByTarget().Get(target)
+		if len(got) == 0 {
+			t.Fatalf("ByTarget should return entries for the routed Target")
+		}
+	})
+
+	t.Run("returns nil for an unknown Target", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		assertNoError(t, s.Emit().AddPackage(makeUserEmitPackage()))
+		if s.Emit().ByTarget().Get(emit.Target{Dir: "missing"}) != nil {
+			t.Fatalf("ByTarget for unknown Target should be nil")
+		}
+	})
+}

@@ -1,0 +1,305 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
+package store
+
+import (
+	"fmt"
+
+	"go.thesmos.sh/eidos/core/directive"
+	"go.thesmos.sh/eidos/emit"
+)
+
+// EmitView is the output-side view onto the [Store]. Generators
+// populate it during the generator phase via [EmitView.AddPackage];
+// later generators and the backend query it through the per-kind
+// buckets and cross-cutting indices.
+//
+// The index layout mirrors [NodeView]: per-kind buckets for typed
+// access plus cross-cutting indices for queries that span kinds. An
+// additional "by target" index supports the backend's group-by-file
+// rendering convention (multiple emit entities sharing a [emit.Target]
+// compose into the same output file).
+//
+// Methods are safe for concurrent use.
+type EmitView struct {
+	packages     *Bucket[*emit.Package]
+	files        *Bucket[*emit.File]
+	imports      *Bucket[*emit.Import]
+	structs      *Bucket[*emit.Struct]
+	interfaces   *Bucket[*emit.Interface]
+	methods      *Bucket[*emit.Method]
+	fields       *Bucket[*emit.Field]
+	functions    *Bucket[*emit.Function]
+	variables    *Bucket[*emit.Variable]
+	constants    *Bucket[*emit.Constant]
+	enums        *Bucket[*emit.Enum]
+	enumVariants *Bucket[*emit.EnumVariant]
+	aliases      *Bucket[*emit.Alias]
+
+	byPackage   *MultiIndex[string, emit.Node]
+	byDirective *MultiIndex[directive.Name, emit.Node]
+	byTarget    *MultiIndex[emit.Target, emit.Node]
+}
+
+// newEmitView constructs an empty EmitView with all buckets and
+// indices ready for use.
+func newEmitView() *EmitView {
+	return &EmitView{
+		packages:     NewBucket[*emit.Package](),
+		files:        NewBucket[*emit.File](),
+		imports:      NewBucket[*emit.Import](),
+		structs:      NewBucket[*emit.Struct](),
+		interfaces:   NewBucket[*emit.Interface](),
+		methods:      NewBucket[*emit.Method](),
+		fields:       NewBucket[*emit.Field](),
+		functions:    NewBucket[*emit.Function](),
+		variables:    NewBucket[*emit.Variable](),
+		constants:    NewBucket[*emit.Constant](),
+		enums:        NewBucket[*emit.Enum](),
+		enumVariants: NewBucket[*emit.EnumVariant](),
+		aliases:      NewBucket[*emit.Alias](),
+		byPackage:    NewMultiIndex[string, emit.Node](),
+		byDirective:  NewMultiIndex[directive.Name, emit.Node](),
+		byTarget:     NewMultiIndex[emit.Target, emit.Node](),
+	}
+}
+
+// AddPackage records p and every declaration it contains in the
+// view's per-kind buckets and cross-cutting indices. Returns
+// [ErrNilEntry] when p is nil; returns [ErrDuplicateQName] (wrapped
+// with the offending qualified name) when any entry collides with a
+// previously-recorded entry.
+//
+// Entries are added in the package's declaration order: files first,
+// then imports, then declarations as held by the [emit.Package].
+// Each routable declaration is also recorded under its [emit.Target]
+// in [EmitView.ByTarget] for backend file grouping.
+func (v *EmitView) AddPackage(p *emit.Package) error {
+	if p == nil {
+		return ErrNilEntry
+	}
+
+	if err := v.packages.Add(p.Path, p); err != nil {
+		return err
+	}
+	v.indexCommon(p, p.Path, emit.Target{})
+
+	for _, f := range p.Files {
+		if err := v.addFile(f, p.Path); err != nil {
+			return err
+		}
+	}
+	for _, imp := range p.Imports {
+		_ = v.imports.Add(imp.Path, imp) //nolint:errcheck // intentional dedup
+		v.indexCommon(imp, p.Path, emit.Target{})
+	}
+	for _, s := range p.Structs {
+		if err := v.addStruct(s, p.Path); err != nil {
+			return err
+		}
+	}
+	for _, i := range p.Interfaces {
+		if err := v.addInterface(i, p.Path); err != nil {
+			return err
+		}
+	}
+	for _, fn := range p.Functions {
+		if err := v.addFunction(fn, p.Path); err != nil {
+			return err
+		}
+	}
+	for _, vd := range p.Variables {
+		if err := v.addVariable(vd, p.Path); err != nil {
+			return err
+		}
+	}
+	for _, c := range p.Constants {
+		if err := v.addConstant(c, p.Path); err != nil {
+			return err
+		}
+	}
+	for _, e := range p.Enums {
+		if err := v.addEnum(e, p.Path); err != nil {
+			return err
+		}
+	}
+	for _, a := range p.Aliases {
+		if err := v.addAlias(a, p.Path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// indexCommon updates the cross-cutting indices for n.
+// A zero-value [emit.Target] skips the by-target indexing — callers
+// pass the entity's Target when it is routable, or the zero value
+// for entities (Package, Import) that route alongside their owner.
+func (v *EmitView) indexCommon(n emit.Node, pkgPath string, target emit.Target) {
+	v.byPackage.Add(pkgPath, n)
+	for _, d := range n.Directives() {
+		v.byDirective.Add(d.Name, n)
+	}
+	if !target.IsZero() {
+		v.byTarget.Add(target, n)
+	}
+}
+
+func (v *EmitView) addFile(f *emit.File, pkgPath string) error {
+	if err := v.files.Add(f.Path(), f); err != nil {
+		return err
+	}
+	v.indexCommon(f, pkgPath, f.Target())
+	for _, imp := range f.Imports {
+		_ = v.imports.Add(imp.Path, imp) //nolint:errcheck // intentional dedup
+		v.indexCommon(imp, pkgPath, emit.Target{})
+	}
+	return nil
+}
+
+func (v *EmitView) addStruct(s *emit.Struct, pkgPath string) error {
+	qname := s.QName()
+	if err := v.structs.Add(qname, s); err != nil {
+		return err
+	}
+	v.indexCommon(s, pkgPath, s.Target)
+	for _, f := range s.Fields {
+		if err := v.fields.Add(qname+"."+f.Name, f); err != nil {
+			return err
+		}
+		v.indexCommon(f, pkgPath, emit.Target{})
+	}
+	for _, m := range s.Methods {
+		if err := v.addMethod(m, qname, pkgPath, s.Target); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *EmitView) addInterface(i *emit.Interface, pkgPath string) error {
+	qname := i.QName()
+	if err := v.interfaces.Add(qname, i); err != nil {
+		return err
+	}
+	v.indexCommon(i, pkgPath, i.Target)
+	for _, m := range i.Methods {
+		if err := v.addMethod(m, qname, pkgPath, i.Target); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *EmitView) addMethod(m *emit.Method, ownerQName, pkgPath string, target emit.Target) error {
+	qname := fmt.Sprintf("%s.%s", ownerQName, m.Name)
+	if err := v.methods.Add(qname, m); err != nil {
+		return err
+	}
+	v.indexCommon(m, pkgPath, target)
+	return nil
+}
+
+func (v *EmitView) addFunction(f *emit.Function, pkgPath string) error {
+	if err := v.functions.Add(f.QName(), f); err != nil {
+		return err
+	}
+	v.indexCommon(f, pkgPath, f.Target)
+	return nil
+}
+
+func (v *EmitView) addVariable(vd *emit.Variable, pkgPath string) error {
+	if err := v.variables.Add(vd.QName(), vd); err != nil {
+		return err
+	}
+	v.indexCommon(vd, pkgPath, vd.Target)
+	return nil
+}
+
+func (v *EmitView) addConstant(c *emit.Constant, pkgPath string) error {
+	if err := v.constants.Add(c.QName(), c); err != nil {
+		return err
+	}
+	v.indexCommon(c, pkgPath, c.Target)
+	return nil
+}
+
+func (v *EmitView) addEnum(e *emit.Enum, pkgPath string) error {
+	qname := e.QName()
+	if err := v.enums.Add(qname, e); err != nil {
+		return err
+	}
+	v.indexCommon(e, pkgPath, e.Target)
+	for _, vt := range e.Variants {
+		if err := v.enumVariants.Add(qname+"."+vt.Name, vt); err != nil {
+			return err
+		}
+		v.indexCommon(vt, pkgPath, e.Target)
+	}
+	return nil
+}
+
+func (v *EmitView) addAlias(a *emit.Alias, pkgPath string) error {
+	if err := v.aliases.Add(a.QName(), a); err != nil {
+		return err
+	}
+	v.indexCommon(a, pkgPath, a.File)
+	return nil
+}
+
+// Packages returns the per-kind bucket for [emit.Package].
+func (v *EmitView) Packages() *Bucket[*emit.Package] { return v.packages }
+
+// Files returns the per-kind bucket for [emit.File]. Files are keyed
+// by their full path ("<dir>/<name>").
+func (v *EmitView) Files() *Bucket[*emit.File] { return v.files }
+
+// Imports returns the per-kind bucket for [emit.Import]. Imports
+// dedup by package path; the first appearance wins the bucket entry.
+func (v *EmitView) Imports() *Bucket[*emit.Import] { return v.imports }
+
+// Structs returns the per-kind bucket for [emit.Struct].
+func (v *EmitView) Structs() *Bucket[*emit.Struct] { return v.structs }
+
+// Interfaces returns the per-kind bucket for [emit.Interface].
+func (v *EmitView) Interfaces() *Bucket[*emit.Interface] { return v.interfaces }
+
+// Methods returns the per-kind bucket for [emit.Method]. Methods are
+// keyed by "<owner-qname>.<method-name>".
+func (v *EmitView) Methods() *Bucket[*emit.Method] { return v.methods }
+
+// Fields returns the per-kind bucket for [emit.Field]. Fields are
+// keyed by "<struct-qname>.<field-name>".
+func (v *EmitView) Fields() *Bucket[*emit.Field] { return v.fields }
+
+// Functions returns the per-kind bucket for [emit.Function].
+func (v *EmitView) Functions() *Bucket[*emit.Function] { return v.functions }
+
+// Variables returns the per-kind bucket for [emit.Variable].
+func (v *EmitView) Variables() *Bucket[*emit.Variable] { return v.variables }
+
+// Constants returns the per-kind bucket for [emit.Constant].
+func (v *EmitView) Constants() *Bucket[*emit.Constant] { return v.constants }
+
+// Enums returns the per-kind bucket for [emit.Enum].
+func (v *EmitView) Enums() *Bucket[*emit.Enum] { return v.enums }
+
+// EnumVariants returns the per-kind bucket for [emit.EnumVariant].
+// Variants are keyed by "<enum-qname>.<variant-name>".
+func (v *EmitView) EnumVariants() *Bucket[*emit.EnumVariant] { return v.enumVariants }
+
+// Aliases returns the per-kind bucket for [emit.Alias].
+func (v *EmitView) Aliases() *Bucket[*emit.Alias] { return v.aliases }
+
+// ByPackage returns the cross-cutting "by declaring package" index.
+func (v *EmitView) ByPackage() *MultiIndex[string, emit.Node] { return v.byPackage }
+
+// ByDirective returns the cross-cutting "by directive presence"
+// index.
+func (v *EmitView) ByDirective() *MultiIndex[directive.Name, emit.Node] { return v.byDirective }
+
+// ByTarget returns the cross-cutting "by output target" index. The
+// backend uses this index to group emit entities into the
+// appropriate output files.
+func (v *EmitView) ByTarget() *MultiIndex[emit.Target, emit.Node] { return v.byTarget }
