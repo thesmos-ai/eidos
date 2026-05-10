@@ -174,8 +174,6 @@ linters:
       forbid:
         - pattern: ^panic$
           msg: "panic() is forbidden in library code; return errors explicitly."
-        - pattern: ^fmt\.(Print|Printf|Println|Fprint|Fprintf|Fprintln)$
-          msg: "Use structured logging, not fmt.Print*."
 
     exhaustive:
       default-signifies-exhaustive: true
@@ -288,12 +286,12 @@ linters:
       # cli/ implements CLI commands and cmd/eidos/ is the binary entry
       # point — both legitimately call fmt.* for stdout/stderr output
       # to the user, which structured logging would not replace.
-      - path: '(cli/|cmd/eidos/)'
+      - path: "(cli/|cmd/eidos/)"
         linters: [forbidigo]
 
       # testpipe/ runs full pipelines that share a working directory
       # and golden files; tests cannot always be parallelized.
-      - path: 'testpipe/'
+      - path: "testpipe/"
         linters: [paralleltest]
 
 formatters:

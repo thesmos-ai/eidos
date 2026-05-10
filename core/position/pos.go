@@ -25,6 +25,23 @@ type Pos struct {
 	Offset int    `json:"offset,omitempty"`
 }
 
+// At returns a Pos for file at the given 1-based line and column,
+// with no byte offset recorded. It is the most common way to
+// construct a Pos in code — diagnostic emitters, test fixtures, and
+// any consumer that does not need offset precision should prefer it
+// over struct-literal construction.
+func At(file string, line, column int) Pos {
+	return Pos{File: file, Line: line, Column: column}
+}
+
+// AtOffset returns a Pos with byte-offset precision. Use this when
+// the originating source supplies offset information (e.g. a Go
+// frontend translating from go/token); use [At] when offset is
+// irrelevant.
+func AtOffset(file string, line, column, offset int) Pos {
+	return Pos{File: file, Line: line, Column: column, Offset: offset}
+}
+
 // IsZero reports whether p carries no positional information.
 //
 // A position with only File set is not zero — the file is known even
