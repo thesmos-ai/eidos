@@ -6,19 +6,18 @@ package emit
 import "go.thesmos.sh/eidos/core/directive"
 
 // TypeParam is one generic type parameter of a [Struct], [Interface],
-// [Function], [Method], or [Alias]. The Constraint is the union /
-// interface ref the parameter must satisfy (Go's `T any` or
-// `T comparable`).
+// [Function], [Method], or [Alias]. The Constraint is the structured
+// bound the parameter must satisfy.
 type TypeParam struct {
 	BaseEmit
 
 	// Name is the parameter identifier (e.g. "T", "K", "V").
 	Name string
 
-	// Constraint is the type that bounds the parameter. nil
-	// indicates no explicit constraint; generators that want a
-	// universal bound typically stamp BuiltinRef("any").
-	Constraint Ref
+	// Constraint is the structured bound on the parameter. nil
+	// indicates no explicit constraint (the implicit "any" of
+	// languages with implicit bounds); see [Constraint.IsAny].
+	Constraint *Constraint
 
 	// Owner is the declaration this type parameter belongs to.
 	Owner Node
@@ -27,6 +26,9 @@ type TypeParam struct {
 // Kind returns [KindTypeParam].
 func (*TypeParam) Kind() directive.Kind { return KindTypeParam }
 
-// IsConstrained reports whether the parameter declares an explicit
-// constraint.
-func (p *TypeParam) IsConstrained() bool { return p.Constraint != nil }
+// IsConstrained reports whether the parameter declares any explicit
+// bound. A nil Constraint or one whose [Constraint.IsAny] returns
+// true reads as unconstrained.
+func (p *TypeParam) IsConstrained() bool {
+	return p.Constraint != nil && !p.Constraint.IsAny()
+}

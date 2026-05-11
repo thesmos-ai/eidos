@@ -139,11 +139,14 @@ func TestFunctionBuilder_TypeParam(t *testing.T) {
 	t.Run("declares a generic type parameter with owner wired", func(t *testing.T) {
 		t.Parallel()
 		got := captureFirstFunction(t, func(b *storefixture.FunctionBuilder) {
-			b.TypeParam("T", storefixture.Named("any"))
+			b.TypeParam("T", storefixture.Constraint(storefixture.Named("comparable")))
 		})
 		tp := got.TypeParams[0]
 		if tp.Name != "T" || tp.Owner != got {
 			t.Fatalf("TypeParam wiring wrong: %+v", tp)
+		}
+		if !tp.Constraint.IsComparable() {
+			t.Fatalf("constraint should reflect comparable bound")
 		}
 	})
 }

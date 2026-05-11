@@ -118,7 +118,7 @@ func TestStructBuilder_TypeParam(t *testing.T) {
 
 	t.Run("declares a generic type parameter with owner wired", func(t *testing.T) {
 		t.Parallel()
-		constraint := storefixture.Named("any")
+		constraint := storefixture.Constraint(storefixture.PkgNamed("fmt", "Stringer"))
 		var captured *node.Struct
 		storefixture.New().Struct("S", func(b *storefixture.StructBuilder) {
 			b.TypeParam("T", constraint)
@@ -130,6 +130,21 @@ func TestStructBuilder_TypeParam(t *testing.T) {
 		tp := captured.TypeParams[0]
 		if tp.Name != "T" || tp.Constraint != constraint || tp.Owner != captured {
 			t.Fatalf("TypeParam wiring wrong: %+v", tp)
+		}
+	})
+
+	t.Run("accepts nil constraint as an implicit any bound", func(t *testing.T) {
+		t.Parallel()
+		var captured *node.Struct
+		storefixture.New().Struct("S", func(b *storefixture.StructBuilder) {
+			b.TypeParam("T", nil)
+			captured = b.Node()
+		})
+		if !captured.IsGeneric() {
+			t.Fatalf("struct should be generic even with nil constraint")
+		}
+		if captured.TypeParams[0].Constraint != nil {
+			t.Fatalf("nil constraint should be stored verbatim")
 		}
 	})
 }

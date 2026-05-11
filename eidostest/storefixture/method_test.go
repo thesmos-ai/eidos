@@ -143,7 +143,7 @@ func TestMethodBuilder_TypeParam(t *testing.T) {
 	t.Run("declares a generic type parameter with owner wired", func(t *testing.T) {
 		t.Parallel()
 		got := captureFirstMethod(t, func(b *storefixture.MethodBuilder) {
-			b.TypeParam("T", storefixture.Named("any"))
+			b.TypeParam("T", storefixture.Constraint(storefixture.PkgNamed("fmt", "Stringer")))
 		})
 		if !got.IsGeneric() {
 			t.Fatalf("method should be generic")
@@ -151,6 +151,9 @@ func TestMethodBuilder_TypeParam(t *testing.T) {
 		tp := got.TypeParams[0]
 		if tp.Name != "T" || tp.Owner != got {
 			t.Fatalf("TypeParam wiring wrong: %+v", tp)
+		}
+		if tp.Constraint == nil || len(tp.Constraint.Embedded) != 1 {
+			t.Fatalf("constraint should carry one embedded ref; got %+v", tp.Constraint)
 		}
 	})
 }

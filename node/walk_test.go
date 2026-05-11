@@ -11,39 +11,19 @@ import (
 	"go.thesmos.sh/eidos/node"
 )
 
-// recordingVisitor collects the directive.Kind of every node Walk
-// visits, in visit order. Tests assert on the resulting slice.
-type recordingVisitor struct {
-	kinds *[]directive.Kind
-}
-
-func (r recordingVisitor) Visit(n node.Node) node.Visitor {
-	*r.kinds = append(*r.kinds, n.Kind())
-	return r
-}
-
-func recordWalk(n node.Node) []directive.Kind {
-	var kinds []directive.Kind
-	node.Walk(n, recordingVisitor{kinds: &kinds})
-	return kinds
-}
-
 func TestWalk_NilNodeIsNoop(t *testing.T) {
 	t.Parallel()
 
 	t.Run("nil node yields no visits", func(t *testing.T) {
 		t.Parallel()
-		var kinds []directive.Kind
-		node.Walk(nil, recordingVisitor{kinds: &kinds})
-		if len(kinds) != 0 {
-			t.Fatalf("nil node should not be visited; got %v", kinds)
+		got := recordWalk(nil)
+		if len(got) != 0 {
+			t.Fatalf("nil node should not be visited; got %v", got)
 		}
 	})
 
 	t.Run("nil visitor yields no visits", func(t *testing.T) {
 		t.Parallel()
-		// The Walk call returns immediately; nothing observable to
-		// assert beyond not panicking.
 		node.Walk(&node.Struct{}, nil)
 	})
 }
@@ -225,61 +205,105 @@ func TestWalk_AliasDescent(t *testing.T) {
 func TestWalk_TypeRefVariants(t *testing.T) {
 	t.Parallel()
 
-	t.Run("Pointer/Slice/Array/Chan descend into Elem", func(t *testing.T) {
+	t.Run("composite refs descend into their structural children", func(t *testing.T) {
 		t.Parallel()
 		cases := []struct {
 			name string
 			ref  *node.TypeRef
+			want int
 		}{
-			{"Pointer", &node.TypeRef{TypeKind: node.TypeRefPointer, Elem: namedRef("", "int")}},
-			{"Slice", &node.TypeRef{TypeKind: node.TypeRefSlice, Elem: namedRef("", "int")}},
-			{"Array", &node.TypeRef{TypeKind: node.TypeRefArray, ArrayLen: 3, Elem: namedRef("", "int")}},
-			{"Chan", &node.TypeRef{TypeKind: node.TypeRefChan, Elem: namedRef("", "int")}},
+			{
+				"Pointer visits Elem",
+				&node.TypeRef{TypeKind: node.TypeRefPointer, Elem: namedRef("", "int")},
+				2,
+			},
+			{
+				"Slice visits Elem",
+				&node.TypeRef{TypeKind: node.TypeRefSlice, Elem: namedRef("", "int")},
+				2,
+			},
+			{
+				"Array visits Elem",
+				&node.TypeRef{TypeKind: node.TypeRefArray, ArrayLen: 3, Elem: namedRef("", "int")},
+				2,
+			},
+			{
+				"Map visits MapKey and MapValue",
+				&node.TypeRef{
+					TypeKind: node.TypeRefMap,
+					MapKey:   namedRef("", "string"),
+					MapValue: namedRef("", "int"),
+				},
+				3,
+			},
+			{
+				"Func visits parameters and returns",
+				&node.TypeRef{
+					TypeKind:    node.TypeRefFunc,
+					FuncParams:  []*node.TypeRef{namedRef("", "int")},
+					FuncReturns: []*node.TypeRef{namedRef("", "error")},
+				},
+				3,
+			},
+			{
+				"Named visits TypeArgs",
+				&node.TypeRef{
+					TypeKind: node.TypeRefNamed,
+					Name:     "Container",
+					TypeArgs: []*node.TypeRef{namedRef("", "int"), namedRef("", "string")},
+				},
+				3,
+			},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
-				got := recordWalk(tc.ref)
-				if !slices.Equal(got, []directive.Kind{node.KindTypeRef, node.KindTypeRef}) {
-					t.Fatalf("expected two TypeRef visits; got %v", got)
+				if got := recordWalk(tc.ref); len(got) != tc.want {
+					t.Fatalf("expected %d visits; got %v", tc.want, got)
 				}
 			})
 		}
 	})
 
-	t.Run("Map visits MapKey and MapValue", func(t *testing.T) {
+	t.Run("TypeParam ref is a leaf", func(t *testing.T) {
 		t.Parallel()
-		r := &node.TypeRef{
-			TypeKind: node.TypeRefMap,
-			MapKey:   namedRef("", "string"),
-			MapValue: namedRef("", "int"),
-		}
-		got := recordWalk(r)
-		if len(got) != 3 {
-			t.Fatalf("expected three visits (root + key + value); got %v", got)
+		got := recordWalk(&node.TypeRef{TypeKind: node.TypeRefTypeParam, Name: "T"})
+		if len(got) != 1 || got[0] != node.KindTypeRef {
+			t.Fatalf("TypeParam ref should be a leaf; got %v", got)
 		}
 	})
 
-	t.Run("Func visits parameters and returns", func(t *testing.T) {
+	t.Run("AnonStruct visits inline Fields then Embeds", func(t *testing.T) {
 		t.Parallel()
 		r := &node.TypeRef{
-			TypeKind:    node.TypeRefFunc,
-			FuncParams:  []*node.TypeRef{namedRef("", "int")},
-			FuncReturns: []*node.TypeRef{namedRef("", "error")},
+			TypeKind: node.TypeRefAnonStruct,
+			Fields:   []*node.Field{{Name: "ID", Type: namedRef("", "string")}},
+			Embeds:   []*node.Embed{{Type: namedRef("io", "Reader")}},
 		}
 		got := recordWalk(r)
-		if len(got) != 3 {
-			t.Fatalf("expected three visits (root + param + return); got %v", got)
+		want := []directive.Kind{
+			node.KindTypeRef, node.KindField, node.KindTypeRef,
+			node.KindEmbed, node.KindTypeRef,
+		}
+		if !slices.Equal(got, want) {
+			t.Fatalf("visit order = %v, want %v", got, want)
 		}
 	})
 
-	t.Run("Named visits TypeArgs", func(t *testing.T) {
+	t.Run("AnonInterface visits inline Methods then Embeds", func(t *testing.T) {
 		t.Parallel()
-		r := namedRef("", "Container")
-		r.TypeArgs = []*node.TypeRef{namedRef("", "int"), namedRef("", "string")}
+		r := &node.TypeRef{
+			TypeKind: node.TypeRefAnonInterface,
+			Methods:  []*node.Method{{Name: "Read"}},
+			Embeds:   []*node.Embed{{Type: namedRef("io", "Reader")}},
+		}
 		got := recordWalk(r)
-		if len(got) != 3 {
-			t.Fatalf("expected three visits (root + 2 type args); got %v", got)
+		want := []directive.Kind{
+			node.KindTypeRef, node.KindMethod,
+			node.KindEmbed, node.KindTypeRef,
+		}
+		if !slices.Equal(got, want) {
+			t.Fatalf("visit order = %v, want %v", got, want)
 		}
 	})
 }
@@ -287,30 +311,48 @@ func TestWalk_TypeRefVariants(t *testing.T) {
 func TestWalk_LeafKinds(t *testing.T) {
 	t.Parallel()
 
-	t.Run("Variable, Constant, Embed, Field, Param descend into their type", func(t *testing.T) {
+	t.Run("nodes carrying a single Type ref descend into it", func(t *testing.T) {
 		t.Parallel()
 		ref := namedRef("", "int")
-		cases := []node.Node{
-			&node.Variable{Type: ref},
-			&node.Constant{Type: ref},
-			&node.Embed{Type: ref},
-			&node.Field{Type: ref},
-			&node.Param{Type: ref},
+		cases := []struct {
+			name string
+			n    node.Node
+		}{
+			{"Variable", &node.Variable{Type: ref}},
+			{"Constant", &node.Constant{Type: ref}},
+			{"Embed", &node.Embed{Type: ref}},
+			{"Field", &node.Field{Type: ref}},
+			{"Param", &node.Param{Type: ref}},
 		}
-		for _, n := range cases {
-			got := recordWalk(n)
-			if len(got) != 2 {
-				t.Fatalf("%s expected to visit itself + Type; got %v", n.Kind(), got)
-			}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+				got := recordWalk(tc.n)
+				if len(got) != 2 {
+					t.Fatalf("%s expected to visit itself + Type; got %v", tc.n.Kind(), got)
+				}
+			})
 		}
 	})
 
-	t.Run("TypeParam descends into Constraint when present", func(t *testing.T) {
+	t.Run("TypeParam descends into Constraint.Embedded entries", func(t *testing.T) {
 		t.Parallel()
-		tp := &node.TypeParam{Name: "T", Constraint: namedRef("", "any")}
+		tp := &node.TypeParam{
+			Name:       "T",
+			Constraint: constraintFrom(namedRef("fmt", "Stringer"), namedRef("", "comparable")),
+		}
 		got := recordWalk(tp)
-		if len(got) != 2 {
-			t.Fatalf("expected TypeParam + Constraint; got %v", got)
+		want := []directive.Kind{node.KindTypeParam, node.KindTypeRef, node.KindTypeRef}
+		if !slices.Equal(got, want) {
+			t.Fatalf("visit order = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("TypeParam without Constraint is a leaf", func(t *testing.T) {
+		t.Parallel()
+		got := recordWalk(&node.TypeParam{Name: "T"})
+		if len(got) != 1 || got[0] != node.KindTypeParam {
+			t.Fatalf("unconstrained TypeParam should be a leaf; got %v", got)
 		}
 	})
 

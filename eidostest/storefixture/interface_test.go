@@ -108,12 +108,15 @@ func TestInterfaceBuilder_TypeParam(t *testing.T) {
 		t.Parallel()
 		var captured *node.Interface
 		storefixture.New().Interface("I", func(b *storefixture.InterfaceBuilder) {
-			b.TypeParam("T", storefixture.Named("any"))
+			b.TypeParam("T", storefixture.Constraint(storefixture.Named("comparable")))
 			captured = b.Node()
 		})
 		tp := captured.TypeParams[0]
 		if tp.Name != "T" || tp.Owner != captured {
 			t.Fatalf("TypeParam wiring wrong: %+v", tp)
+		}
+		if !tp.Constraint.IsComparable() {
+			t.Fatalf("constraint should reflect comparable bound")
 		}
 	})
 }

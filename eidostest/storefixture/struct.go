@@ -49,11 +49,11 @@ func (b *StructBuilder) Directive(d *directive.Directive) *StructBuilder {
 	return b
 }
 
-// TypeParam declares a generic type parameter on the struct. Pass nil
-// for constraint to omit it; a real frontend stamps an `any`-shaped
-// ref when source omits the constraint, but the fixture does not
-// synthesise this — tests should pass the constraint they care about.
-func (b *StructBuilder) TypeParam(name string, constraint *node.TypeRef) *StructBuilder {
+// TypeParam declares a generic type parameter on the struct. Pass
+// nil for constraint to represent an implicit "any" bound (Go's
+// `[T]`-style unconstrained parameter). Use [Constraint] to build
+// an explicit named-bound constraint.
+func (b *StructBuilder) TypeParam(name string, constraint *node.Constraint) *StructBuilder {
 	b.s.TypeParams = append(b.s.TypeParams, &node.TypeParam{
 		Name:       name,
 		Constraint: constraint,

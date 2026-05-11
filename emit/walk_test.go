@@ -339,12 +339,16 @@ func TestWalk_ParamAndTypeParamDescent(t *testing.T) {
 		}
 	})
 
-	t.Run("TypeParam descends into Constraint when present", func(t *testing.T) {
+	t.Run("TypeParam descends into Constraint.Embedded entries", func(t *testing.T) {
 		t.Parallel()
-		tp := &emit.TypeParam{Name: "T", Constraint: builtinRef("any")}
+		tp := &emit.TypeParam{
+			Name:       "T",
+			Constraint: constraintFrom(externalRef("fmt", "Stringer"), builtinRef("comparable")),
+		}
 		got := recordWalk(tp)
-		if !slices.Equal(got, []directive.Kind{emit.KindTypeParam, emit.KindBuiltinRef}) {
-			t.Fatalf("visit order = %v", got)
+		want := []directive.Kind{emit.KindTypeParam, emit.KindExternalRef, emit.KindBuiltinRef}
+		if !slices.Equal(got, want) {
+			t.Fatalf("visit order = %v, want %v", got, want)
 		}
 	})
 
@@ -412,19 +416,24 @@ func TestWalk_BuiltinRefIsLeaf(t *testing.T) {
 func TestWalk_CompositeRefVariants(t *testing.T) {
 	t.Parallel()
 
-	t.Run("Pointer/Slice/Array/Chan visit Elem", func(t *testing.T) {
+	t.Run("Pointer/Slice/Array visit Elem", func(t *testing.T) {
 		t.Parallel()
-		cases := []*emit.CompositeRef{
-			emit.Ptr(builtinRef("int")),
-			emit.SliceOf(builtinRef("int")),
-			emit.ArrayOf(builtinRef("int"), 8),
-			emit.ChanOf(builtinRef("int")),
+		cases := []struct {
+			name string
+			ref  *emit.CompositeRef
+		}{
+			{"Pointer", emit.Ptr(builtinRef("int"))},
+			{"Slice", emit.SliceOf(builtinRef("int"))},
+			{"Array", emit.ArrayOf(builtinRef("int"), 8)},
 		}
-		for _, r := range cases {
-			got := recordWalk(r)
-			if !slices.Equal(got, []directive.Kind{emit.KindCompositeRef, emit.KindBuiltinRef}) {
-				t.Fatalf("composite Elem should be visited; got %v", got)
-			}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+				got := recordWalk(tc.ref)
+				if !slices.Equal(got, []directive.Kind{emit.KindCompositeRef, emit.KindBuiltinRef}) {
+					t.Fatalf("composite Elem should be visited; got %v", got)
+				}
+			})
 		}
 	})
 

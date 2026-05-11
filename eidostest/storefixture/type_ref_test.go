@@ -139,17 +139,86 @@ func TestMap(t *testing.T) {
 	})
 }
 
-func TestChan(t *testing.T) {
+func TestTypeParamRef(t *testing.T) {
 	t.Parallel()
 
-	t.Run("produces a Chan ref over elem", func(t *testing.T) {
+	t.Run("produces a TypeParam-kind ref carrying the parameter name", func(t *testing.T) {
 		t.Parallel()
-		r := storefixture.Chan(storefixture.Named("int"))
-		if !r.IsChan() {
-			t.Fatalf("expected chan ref, got %+v", r)
+		r := storefixture.TypeParamRef("T")
+		if !r.IsTypeParam() {
+			t.Fatalf("expected TypeParam ref, got %+v", r)
 		}
-		if r.Elem == nil || r.Elem.Name != "int" {
-			t.Fatalf("chan element wrong: %+v", r.Elem)
+		if r.Name != "T" {
+			t.Fatalf("Name = %q, want %q", r.Name, "T")
+		}
+	})
+}
+
+func TestAnonStruct(t *testing.T) {
+	t.Parallel()
+
+	t.Run("produces an AnonStruct ref with fields wired to the ref", func(t *testing.T) {
+		t.Parallel()
+		field := &node.Field{Name: "ID", Type: storefixture.Named("string")}
+		embed := &node.Embed{Type: storefixture.PkgNamed("io", "Reader")}
+		r := storefixture.AnonStruct([]*node.Field{field}, []*node.Embed{embed})
+		if !r.IsAnonStruct() {
+			t.Fatalf("expected AnonStruct ref, got %+v", r)
+		}
+		if field.Owner != r {
+			t.Fatalf("Field.Owner should be wired to the AnonStruct ref")
+		}
+		if embed.Owner != r {
+			t.Fatalf("Embed.Owner should be wired to the AnonStruct ref")
+		}
+	})
+}
+
+func TestAnonInterface(t *testing.T) {
+	t.Parallel()
+
+	t.Run("produces an AnonInterface ref with methods wired to the ref", func(t *testing.T) {
+		t.Parallel()
+		method := &node.Method{Name: "Read"}
+		embed := &node.Embed{Type: storefixture.PkgNamed("io", "Reader")}
+		r := storefixture.AnonInterface([]*node.Method{method}, []*node.Embed{embed})
+		if !r.IsAnonInterface() {
+			t.Fatalf("expected AnonInterface ref, got %+v", r)
+		}
+		if method.Owner != r {
+			t.Fatalf("Method.Owner should be wired to the AnonInterface ref")
+		}
+		if embed.Owner != r {
+			t.Fatalf("Embed.Owner should be wired to the AnonInterface ref")
+		}
+	})
+}
+
+func TestConstraint(t *testing.T) {
+	t.Parallel()
+
+	t.Run("produces a Constraint with the supplied embeds", func(t *testing.T) {
+		t.Parallel()
+		c := storefixture.Constraint(
+			storefixture.PkgNamed("fmt", "Stringer"),
+			storefixture.Named("comparable"),
+		)
+		if c.IsAny() {
+			t.Fatalf("constraint with embeds should not be IsAny")
+		}
+		if !c.IsComparable() {
+			t.Fatalf("constraint should reflect comparable bound")
+		}
+		if len(c.Embedded) != 2 {
+			t.Fatalf("expected 2 embeds, got %d", len(c.Embedded))
+		}
+	})
+
+	t.Run("zero embeds produces an IsAny constraint", func(t *testing.T) {
+		t.Parallel()
+		c := storefixture.Constraint()
+		if !c.IsAny() {
+			t.Fatalf("constraint with no embeds should be IsAny")
 		}
 	})
 }

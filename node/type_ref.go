@@ -6,37 +6,65 @@ package node
 import "go.thesmos.sh/eidos/core/directive"
 
 // TypeRefKind discriminates the variant forms a [TypeRef] can take.
-// The set covers the type shapes common to Go, Rust, TypeScript, and
-// similar systems languages; truly language-specific quirks ride on
-// the TypeRef's metadata rather than being elevated to first-class
-// fields.
+// The set covers the type shapes shared across general-purpose
+// languages — Go, Rust, TypeScript, and similar — without elevating
+// truly language-specific quirks to first-class fields. Language-
+// specific facts ride on the [TypeRef]'s metadata via the `<lang>.*`
+// namespace convention (`go.isChannel`, `go.chanDir`, etc.).
 type TypeRefKind int
 
-// TypeRef variants in declaration order. Add new variants at the end
-// so existing ordinals stay stable.
+// TypeRef variants. New variants append to the end so existing
+// ordinals stay stable for callers that switch on the discriminator.
 const (
 	// TypeRefNamed is a reference by qualified name (Package.Name),
-	// optionally with generic type arguments. Covers all
-	// user-defined types and basic types ("int", "string", "any").
+	// optionally with generic type arguments. Covers user-defined
+	// types, language built-ins ("int", "string", "any"), and
+	// channels-as-named-refs (frontends stamp `<lang>.isChannel` etc.
+	// on the ref to recover the channel facts without leaking
+	// channel-as-primitive into the model).
 	TypeRefNamed TypeRefKind = iota
+
 	// TypeRefPointer is a pointer to a referenced type (Go's *T,
-	// Rust's &T / &mut T modelled via metadata).
+	// Rust's &T / Box<T>).
 	TypeRefPointer
-	// TypeRefSlice is an ordered, variable-length sequence
-	// (Go's []T, Rust's Vec<T> / [T], TypeScript's Array<T>).
+
+	// TypeRefSlice is an ordered, variable-length sequence (Go's
+	// []T, Rust's Vec<T>, TypeScript's Array<T>).
 	TypeRefSlice
-	// TypeRefArray is a fixed-length sequence (Go's [N]T,
-	// Rust's [T; N]).
+
+	// TypeRefArray is a fixed-length sequence (Go's [N]T, Rust's
+	// [T; N]).
 	TypeRefArray
-	// TypeRefMap is an associative container (Go's map[K]V,
-	// Rust's HashMap<K, V>).
+
+	// TypeRefMap is an associative container (Go's map[K]V, Rust's
+	// HashMap<K, V>).
 	TypeRefMap
+
 	// TypeRefFunc is a function type with parameter and return
 	// types.
 	TypeRefFunc
-	// TypeRefChan is a channel type (Go-specific; other backends
-	// may reject these or map them via plugins).
-	TypeRefChan
+
+	// TypeRefTypeParam is a use-site reference to a generic type
+	// parameter declared on the enclosing decl (e.g. the `T` in
+	// `func (l *List[T]) Get() T`). [TypeRef.Name] carries the
+	// parameter's identifier. Distinguishing a type-param use from
+	// a real Named ref preserves the semantic difference for
+	// generators that need to know which `T`s are type parameters
+	// vs which are types named "T".
+	TypeRefTypeParam
+
+	// TypeRefAnonStruct is an anonymous struct type expression,
+	// e.g. `struct{ Name string }` appearing as a field type or a
+	// function parameter type. [TypeRef.Fields] / [TypeRef.Embeds]
+	// carry the inline structure.
+	TypeRefAnonStruct
+
+	// TypeRefAnonInterface is an anonymous interface type
+	// expression, e.g. `interface{ Read([]byte) (int, error) }`
+	// appearing as a field or parameter type. [TypeRef.Methods] /
+	// [TypeRef.Embeds] / [TypeRef.TypeSet] carry the inline
+	// structure.
+	TypeRefAnonInterface
 )
 
 // String returns the lower-case textual form of k for diagnostics.
@@ -54,8 +82,12 @@ func (k TypeRefKind) String() string {
 		return "map"
 	case TypeRefFunc:
 		return "func"
-	case TypeRefChan:
-		return "chan"
+	case TypeRefTypeParam:
+		return "type_param"
+	case TypeRefAnonStruct:
+		return "anon_struct"
+	case TypeRefAnonInterface:
+		return "anon_interface"
 	default:
 		return "type_ref_kind(?)"
 	}
@@ -66,7 +98,7 @@ func (k TypeRefKind) String() string {
 // discriminator determines which fields are meaningful.
 //
 // Most fields are nil / zero unless the kind uses them. The frontend
-// populates only the relevant ones for each variant.
+// populates only the relevant ones per variant.
 type TypeRef struct {
 	BaseNode
 
@@ -78,15 +110,17 @@ type TypeRef struct {
 	// builtin or in-package types). Empty for non-Named variants.
 	Package string
 
-	// Name is the type identifier for Named refs. Empty for
-	// non-Named variants.
+	// Name is the type identifier for Named refs and the type-param
+	// identifier for TypeRefTypeParam refs. Empty for composite and
+	// anonymous-type variants.
 	Name string
 
 	// TypeArgs are generic type arguments for Named refs that are
-	// generic instantiations (Go's `Map[string, int]`).
+	// generic instantiations (Go's `Map[string, int]`). Empty for
+	// non-Named variants.
 	TypeArgs []*TypeRef
 
-	// Elem is the element type for Pointer / Slice / Array / Chan.
+	// Elem is the element type for Pointer / Slice / Array.
 	Elem *TypeRef
 
 	// ArrayLen is the length of an Array. Zero for slices and
@@ -106,6 +140,20 @@ type TypeRef struct {
 	// FuncReturns are the return types of a Func variant in source
 	// order.
 	FuncReturns []*TypeRef
+
+	// Fields are the inline fields of an [TypeRefAnonStruct]. Each
+	// field's [Field.Owner] is the enclosing TypeRef so consumers
+	// walking up from a field locate the anonymous host.
+	Fields []*Field
+
+	// Methods are the inline methods of an [TypeRefAnonInterface].
+	// Each method's [Method.Owner] is the enclosing TypeRef.
+	Methods []*Method
+
+	// Embeds are the embedded types of an [TypeRefAnonStruct] or
+	// [TypeRefAnonInterface] in source order. Each embed's
+	// [Embed.Owner] is the enclosing TypeRef.
+	Embeds []*Embed
 }
 
 // Kind returns [KindTypeRef] regardless of TypeRefKind — TypeRefKind
@@ -140,12 +188,22 @@ func (r *TypeRef) IsMap() bool { return r.TypeKind == TypeRefMap }
 // IsFunc reports whether the ref is a function type.
 func (r *TypeRef) IsFunc() bool { return r.TypeKind == TypeRefFunc }
 
-// IsChan reports whether the ref is a channel type.
-func (r *TypeRef) IsChan() bool { return r.TypeKind == TypeRefChan }
+// IsTypeParam reports whether the ref is a use-site reference to a
+// generic type parameter (e.g. the `T` in `func Get() T`).
+func (r *TypeRef) IsTypeParam() bool { return r.TypeKind == TypeRefTypeParam }
+
+// IsAnonStruct reports whether the ref is an anonymous struct
+// type expression.
+func (r *TypeRef) IsAnonStruct() bool { return r.TypeKind == TypeRefAnonStruct }
+
+// IsAnonInterface reports whether the ref is an anonymous
+// interface type expression.
+func (r *TypeRef) IsAnonInterface() bool { return r.TypeKind == TypeRefAnonInterface }
 
 // Equal reports whether r and other refer to the same type
 // structurally — same kind, same package + name + type args (for
-// Named refs), same recursive shape (for composite refs).
+// Named refs), same recursive shape (for composite refs), same
+// inline structure (for anonymous-type variants).
 //
 // Equal compares structural type identity only; it does not consider
 // position, doc comments, directives, or metadata. Two refs that
@@ -165,7 +223,7 @@ func (r *TypeRef) Equal(other *TypeRef) bool {
 	switch r.TypeKind {
 	case TypeRefNamed:
 		return r.equalNamed(other)
-	case TypeRefPointer, TypeRefSlice, TypeRefChan:
+	case TypeRefPointer, TypeRefSlice:
 		return r.Elem.Equal(other.Elem)
 	case TypeRefArray:
 		return r.ArrayLen == other.ArrayLen && r.Elem.Equal(other.Elem)
@@ -174,6 +232,12 @@ func (r *TypeRef) Equal(other *TypeRef) bool {
 	case TypeRefFunc:
 		return equalRefSlice(r.FuncParams, other.FuncParams) &&
 			equalRefSlice(r.FuncReturns, other.FuncReturns)
+	case TypeRefTypeParam:
+		return r.Name == other.Name
+	case TypeRefAnonStruct:
+		return r.equalAnonStruct(other)
+	case TypeRefAnonInterface:
+		return r.equalAnonInterface(other)
 	default:
 		return false
 	}
@@ -188,6 +252,57 @@ func (r *TypeRef) equalNamed(other *TypeRef) bool {
 	return equalRefSlice(r.TypeArgs, other.TypeArgs)
 }
 
+// equalAnonStruct compares anonymous-struct typerefs by their inline
+// field + embed shape. Field tags are part of identity (Go's
+// reflection considers tags significant for struct identity).
+func (r *TypeRef) equalAnonStruct(other *TypeRef) bool {
+	if len(r.Fields) != len(other.Fields) || len(r.Embeds) != len(other.Embeds) {
+		return false
+	}
+	for i, f := range r.Fields {
+		o := other.Fields[i]
+		if f.Name != o.Name || f.Tag != o.Tag || !f.Type.Equal(o.Type) {
+			return false
+		}
+	}
+	for i, e := range r.Embeds {
+		if !e.Type.Equal(other.Embeds[i].Type) {
+			return false
+		}
+	}
+	return true
+}
+
+// equalAnonInterface compares anonymous-interface typerefs by their
+// inline method + embed shape. Method-set order is significant for
+// source faithfulness even though Go's type identity is
+// order-insensitive — callers that want order-insensitive
+// comparison sort the methods first.
+//
+// Language-specific shapes (Go's `~int | ~string` type-set inside an
+// anonymous interface used as a constraint) ride on metadata stamped
+// by the originating frontend rather than first-class fields.
+func (r *TypeRef) equalAnonInterface(other *TypeRef) bool {
+	if len(r.Methods) != len(other.Methods) || len(r.Embeds) != len(other.Embeds) {
+		return false
+	}
+	for i, m := range r.Methods {
+		o := other.Methods[i]
+		if m.Name != o.Name {
+			return false
+		}
+		if !paramsEqual(m.Params, o.Params) || !equalRefSlice(m.Returns, o.Returns) {
+			return false
+		}
+	}
+	for i, e := range r.Embeds {
+		if !e.Type.Equal(other.Embeds[i].Type) {
+			return false
+		}
+	}
+	return true
+}
+
 // equalRefSlice compares two TypeRef slices element-wise for
 // structural equality.
 func equalRefSlice(a, b []*TypeRef) bool {
@@ -196,6 +311,20 @@ func equalRefSlice(a, b []*TypeRef) bool {
 	}
 	for i := range a {
 		if !a[i].Equal(b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// paramsEqual compares two Param slices by type (parameter names
+// are not part of a method's type identity in Go).
+func paramsEqual(a, b []*Param) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Variadic != b[i].Variadic || !a[i].Type.Equal(b[i].Type) {
 			return false
 		}
 	}

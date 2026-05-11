@@ -113,7 +113,7 @@ func walkChildren(n Node, v Visitor) {
 	case *Param:
 		Walk(x.Type, v)
 	case *TypeParam:
-		Walk(x.Constraint, v)
+		walkTypeParam(x, v)
 	case *Enum:
 		walkEnum(x, v)
 	case *EnumVariant:
@@ -269,9 +269,18 @@ func walkAlias(a *Alias, v Visitor) {
 	Walk(a.Target, v)
 }
 
+func walkTypeParam(tp *TypeParam, v Visitor) {
+	if tp.Constraint == nil {
+		return
+	}
+	for _, e := range tp.Constraint.Embedded {
+		Walk(e, v)
+	}
+}
+
 func walkCompositeRef(r *CompositeRef, v Visitor) {
 	switch r.Shape {
-	case ShapePointer, ShapeSlice, ShapeArray, ShapeChan:
+	case ShapePointer, ShapeSlice, ShapeArray:
 		Walk(r.Elem, v)
 	case ShapeMap:
 		Walk(r.MapKey, v)

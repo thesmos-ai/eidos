@@ -38,13 +38,16 @@ func (f VisitorFunc) Visit(n Node) Visitor { return f(n) }
 //   - [Method] / [Function]: visits TypeParams, Params, Returns.
 //   - [Field]: visits the Field's Type.
 //   - [Param]: visits the Param's Type.
-//   - [TypeParam]: visits the Constraint.
+//   - [TypeParam]: visits every entry in the Constraint's Embedded
+//     ref list when a Constraint is set. [Constraint] itself is not
+//     a [Node].
 //   - [Enum]: visits Underlying, then Variants.
 //   - [Alias]: visits TypeParams, then Target.
 //   - [Variable] / [Constant]: visits Type when present.
 //   - [Embed]: visits the embedded Type.
 //   - [TypeRef]: visits TypeArgs / Elem / MapKey / MapValue /
-//     FuncParams / FuncReturns according to TypeKind.
+//     FuncParams / FuncReturns / inline Fields / Methods / Embeds
+//     according to TypeKind.
 //   - [EnumVariant]: leaf (no children).
 //
 // Walk is iterative-recursive in style; for very deep node graphs the
@@ -64,7 +67,7 @@ func Walk(n Node, v Visitor) {
 // isNilNode reports whether n is nil OR a non-nil interface wrapping a
 // nil pointer (Go's typed-nil case). Walk uses this to handle the
 // common pattern where callers pass an optional sub-node like
-// [Variable.Type] or [TypeParam.Constraint] without a manual guard.
+// [Variable.Type] without a manual guard.
 func isNilNode(n Node) bool {
 	if n == nil {
 		return true
@@ -94,7 +97,7 @@ func walkChildren(n Node, v Visitor) {
 	case *Param:
 		Walk(x.Type, v)
 	case *TypeParam:
-		Walk(x.Constraint, v)
+		walkTypeParam(x, v)
 	case *Enum:
 		Walk(x.Underlying, v)
 		for _, vt := range x.Variants {
@@ -203,13 +206,22 @@ func walkFunction(f *Function, v Visitor) {
 	}
 }
 
+func walkTypeParam(tp *TypeParam, v Visitor) {
+	if tp.Constraint == nil {
+		return
+	}
+	for _, e := range tp.Constraint.Embedded {
+		Walk(e, v)
+	}
+}
+
 func walkTypeRef(r *TypeRef, v Visitor) {
 	switch r.TypeKind {
 	case TypeRefNamed:
 		for _, t := range r.TypeArgs {
 			Walk(t, v)
 		}
-	case TypeRefPointer, TypeRefSlice, TypeRefArray, TypeRefChan:
+	case TypeRefPointer, TypeRefSlice, TypeRefArray:
 		Walk(r.Elem, v)
 	case TypeRefMap:
 		Walk(r.MapKey, v)
@@ -221,5 +233,24 @@ func walkTypeRef(r *TypeRef, v Visitor) {
 		for _, ret := range r.FuncReturns {
 			Walk(ret, v)
 		}
+	case TypeRefAnonStruct:
+		for _, f := range r.Fields {
+			Walk(f, v)
+		}
+		for _, e := range r.Embeds {
+			Walk(e, v)
+		}
+	case TypeRefAnonInterface:
+		for _, m := range r.Methods {
+			Walk(m, v)
+		}
+		for _, e := range r.Embeds {
+			Walk(e, v)
+		}
+	case TypeRefTypeParam:
+		// A use-site type-param reference is a leaf — there are no
+		// further refs to descend into. The reference's Name
+		// identifies which type parameter it points at; the
+		// declaration itself is reachable via the enclosing decl.
 	}
 }

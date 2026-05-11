@@ -125,7 +125,7 @@ func TestAliasBuilder_TypeParam(t *testing.T) {
 	t.Run("declares a generic type parameter with owner wired", func(t *testing.T) {
 		t.Parallel()
 		got := captureFirstAlias(t, func(b *storefixture.AliasBuilder) {
-			b.TypeParam("T", storefixture.Named("any"))
+			b.TypeParam("T", storefixture.Constraint(storefixture.Named("comparable")))
 		})
 		if !got.IsGeneric() {
 			t.Fatalf("alias should be generic")
@@ -133,6 +133,9 @@ func TestAliasBuilder_TypeParam(t *testing.T) {
 		tp := got.TypeParams[0]
 		if tp.Name != "T" || tp.Owner != got {
 			t.Fatalf("TypeParam wiring wrong: %+v", tp)
+		}
+		if !tp.Constraint.IsComparable() {
+			t.Fatalf("constraint should reflect comparable bound")
 		}
 	})
 }

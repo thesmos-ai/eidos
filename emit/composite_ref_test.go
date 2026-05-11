@@ -22,7 +22,6 @@ func TestCompositeShape_String(t *testing.T) {
 		{"Array", emit.ShapeArray, "array"},
 		{"Map", emit.ShapeMap, "map"},
 		{"Func", emit.ShapeFunc, "func"},
-		{"Chan", emit.ShapeChan, "chan"},
 		{"unknown stringifies with a marker", emit.CompositeShape(99), "composite_shape(?)"},
 	}
 
@@ -87,18 +86,6 @@ func TestMapOf(t *testing.T) {
 		}
 		if r.MapKey == nil || r.MapValue == nil {
 			t.Fatalf("MapKey/MapValue must be populated")
-		}
-	})
-}
-
-func TestChanOf(t *testing.T) {
-	t.Parallel()
-
-	t.Run("wraps elem in a channel composite", func(t *testing.T) {
-		t.Parallel()
-		r := emit.ChanOf(emit.Builtin("int"))
-		if r.Shape != emit.ShapeChan {
-			t.Fatalf("Shape = %s, want chan", r.Shape)
 		}
 	})
 }

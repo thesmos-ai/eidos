@@ -27,8 +27,12 @@ type Field struct {
 	// still add additional tag entries.
 	Tag string
 
-	// Owner is the [Struct] that declares this field.
-	Owner *Struct
+	// Owner is the host that declares this field. Always a
+	// concrete [Node] — typically *[Struct] for fields on
+	// declared structs, but generators emitting plugin-defined
+	// emit kinds may set Owner to their own host type. Set by the
+	// constructing generator.
+	Owner Node
 
 	slotMap
 }

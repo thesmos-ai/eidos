@@ -39,8 +39,10 @@ func (b *InterfaceBuilder) Directive(d *directive.Directive) *InterfaceBuilder {
 	return b
 }
 
-// TypeParam declares a generic type parameter on the interface.
-func (b *InterfaceBuilder) TypeParam(name string, constraint *node.TypeRef) *InterfaceBuilder {
+// TypeParam declares a generic type parameter on the interface. Pass
+// nil for an implicit "any" bound, or use [Constraint] for an
+// explicit named-bound constraint.
+func (b *InterfaceBuilder) TypeParam(name string, constraint *node.Constraint) *InterfaceBuilder {
 	b.i.TypeParams = append(b.i.TypeParams, &node.TypeParam{
 		Name:       name,
 		Constraint: constraint,

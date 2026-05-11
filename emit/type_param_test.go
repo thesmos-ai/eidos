@@ -24,19 +24,39 @@ func TestTypeParam_Kind(t *testing.T) {
 func TestTypeParam_IsConstrained(t *testing.T) {
 	t.Parallel()
 
-	t.Run("reports true when Constraint is set", func(t *testing.T) {
-		t.Parallel()
-		tp := &emit.TypeParam{Name: "T", Constraint: builtinRef("any")}
-		if !tp.IsConstrained() {
-			t.Fatalf("constrained param should report IsConstrained true")
-		}
-	})
+	cases := []struct {
+		name string
+		tp   emit.TypeParam
+		want bool
+	}{
+		{
+			"nil Constraint is unconstrained",
+			emit.TypeParam{Name: "T"},
+			false,
+		},
+		{
+			"empty Constraint is unconstrained",
+			emit.TypeParam{Name: "T", Constraint: &emit.Constraint{Raw: "any"}},
+			false,
+		},
+		{
+			"named bound makes the param constrained",
+			emit.TypeParam{Name: "T", Constraint: constraintFrom(externalRef("fmt", "Stringer"))},
+			true,
+		},
+		{
+			"comparable bound makes the param constrained",
+			emit.TypeParam{Name: "T", Constraint: constraintFrom(builtinRef("comparable"))},
+			true,
+		},
+	}
 
-	t.Run("reports false when Constraint is nil", func(t *testing.T) {
-		t.Parallel()
-		tp := &emit.TypeParam{Name: "T"}
-		if tp.IsConstrained() {
-			t.Fatalf("unconstrained param should report IsConstrained false")
-		}
-	})
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tc.tp.IsConstrained(); got != tc.want {
+				t.Fatalf("IsConstrained() = %v, want %v (param: %+v)", got, tc.want, tc.tp)
+			}
+		})
+	}
 }

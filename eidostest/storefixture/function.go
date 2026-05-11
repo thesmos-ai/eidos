@@ -64,8 +64,10 @@ func (b *FunctionBuilder) Return(t *node.TypeRef) *FunctionBuilder {
 	return b
 }
 
-// TypeParam declares a generic type parameter on the function.
-func (b *FunctionBuilder) TypeParam(name string, constraint *node.TypeRef) *FunctionBuilder {
+// TypeParam declares a generic type parameter on the function. Pass
+// nil for an implicit "any" bound, or use [Constraint] for an
+// explicit named-bound constraint.
+func (b *FunctionBuilder) TypeParam(name string, constraint *node.Constraint) *FunctionBuilder {
 	b.f.TypeParams = append(b.f.TypeParams, &node.TypeParam{
 		Name:       name,
 		Constraint: constraint,

@@ -6,27 +6,28 @@ package emit
 import "go.thesmos.sh/eidos/core/directive"
 
 // CompositeShape discriminates the variant a [CompositeRef] takes.
-// The set covers the common composite type shapes across Go, Rust,
-// and similar systems languages.
+// The set covers composite type shapes common to general-purpose
+// languages — Go, Rust, TypeScript, and similar. Language-specific
+// composites (Go-style channels, Rust enum variants with payloads,
+// etc.) ride on plugin-defined emit kinds rather than first-class
+// variants here.
 type CompositeShape int
 
 // CompositeShape variants in declaration order.
 const (
-	// ShapePointer is a pointer to another ref (Go's *T).
+	// ShapePointer is a pointer to another ref.
 	ShapePointer CompositeShape = iota
-	// ShapeSlice is a variable-length sequence (Go's []T).
+	// ShapeSlice is a variable-length sequence.
 	ShapeSlice
-	// ShapeArray is a fixed-length sequence (Go's [N]T). Length is
-	// stored in [CompositeRef.ArrayLen].
+	// ShapeArray is a fixed-length sequence. Length is stored in
+	// [CompositeRef.ArrayLen].
 	ShapeArray
-	// ShapeMap is an associative container (Go's map[K]V).
-	// MapKey / MapValue hold the key and value refs.
+	// ShapeMap is an associative container. MapKey / MapValue hold
+	// the key and value refs.
 	ShapeMap
 	// ShapeFunc is a function type. FuncParams and FuncReturns hold
 	// the parameter and return refs.
 	ShapeFunc
-	// ShapeChan is a channel type (Go's chan T).
-	ShapeChan
 )
 
 // String returns the lower-case textual form of s for diagnostics.
@@ -42,8 +43,6 @@ func (s CompositeShape) String() string {
 		return "map"
 	case ShapeFunc:
 		return "func"
-	case ShapeChan:
-		return "chan"
 	default:
 		return "composite_shape(?)"
 	}
@@ -51,17 +50,16 @@ func (s CompositeShape) String() string {
 
 // CompositeRef wraps an inner [Ref] with a composite shape. The
 // [CompositeShape] discriminator selects which fields are
-// meaningful — Pointer / Slice / Chan use Elem alone; Array uses
-// Elem + ArrayLen; Map uses MapKey + MapValue; Func uses FuncParams
-// + FuncReturns.
+// meaningful — Pointer / Slice use Elem; Array uses Elem +
+// ArrayLen; Map uses MapKey + MapValue; Func uses FuncParams +
+// FuncReturns.
 type CompositeRef struct {
 	BaseEmit
 
 	// Shape discriminates the composite variant.
 	Shape CompositeShape
 
-	// Elem is the element ref for Pointer / Slice / Array / Chan
-	// shapes.
+	// Elem is the element ref for Pointer / Slice / Array shapes.
 	Elem Ref
 
 	// ArrayLen is the length of a fixed-size array. Meaningful only
@@ -112,13 +110,6 @@ func ArrayOf(elem Ref, length int) *CompositeRef {
 //	emit.MapOf(emit.Builtin("string"), emit.Internal(userStruct))
 func MapOf(key, value Ref) *CompositeRef {
 	return &CompositeRef{Shape: ShapeMap, MapKey: key, MapValue: value}
-}
-
-// ChanOf wraps elem in a channel composite.
-//
-//	emit.ChanOf(emit.External("context", "Context")) // chan context.Context
-func ChanOf(elem Ref) *CompositeRef {
-	return &CompositeRef{Shape: ShapeChan, Elem: elem}
 }
 
 // FuncOf builds a function composite with the given parameter and

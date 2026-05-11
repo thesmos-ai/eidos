@@ -43,6 +43,13 @@ func externalRef(pkg, name string) *emit.ExternalRef {
 	return emit.External(pkg, name)
 }
 
+// constraintFrom builds a [emit.Constraint] embedding refs as named
+// bounds. Used by tests that need a quick generic-constraint instance
+// without manual struct-literal noise.
+func constraintFrom(refs ...emit.Ref) *emit.Constraint {
+	return &emit.Constraint{Embedded: refs}
+}
+
 // recordingVisitor collects the directive.Kind of every node Walk
 // visits, in visit order. Tests assert on the resulting slice.
 type recordingVisitor struct {

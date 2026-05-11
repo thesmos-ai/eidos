@@ -89,7 +89,9 @@ func (b *MethodBuilder) Return(t *node.TypeRef) *MethodBuilder {
 
 // TypeParam declares a generic type parameter on the method. Rare in
 // Go; methods normally inherit type parameters from their receiver.
-func (b *MethodBuilder) TypeParam(name string, constraint *node.TypeRef) *MethodBuilder {
+// Pass nil for an implicit "any" bound, or use [Constraint] for an
+// explicit named-bound constraint.
+func (b *MethodBuilder) TypeParam(name string, constraint *node.Constraint) *MethodBuilder {
 	b.m.TypeParams = append(b.m.TypeParams, &node.TypeParam{
 		Name:       name,
 		Constraint: constraint,

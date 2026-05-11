@@ -23,7 +23,9 @@ func TestTypeRefKind_String(t *testing.T) {
 		{"Array", node.TypeRefArray, "array"},
 		{"Map", node.TypeRefMap, "map"},
 		{"Func", node.TypeRefFunc, "func"},
-		{"Chan", node.TypeRefChan, "chan"},
+		{"TypeParam", node.TypeRefTypeParam, "type_param"},
+		{"AnonStruct", node.TypeRefAnonStruct, "anon_struct"},
+		{"AnonInterface", node.TypeRefAnonInterface, "anon_interface"},
 		{"unknown stringifies with a marker", node.TypeRefKind(99), "type_ref_kind(?)"},
 	}
 
@@ -83,39 +85,45 @@ func TestTypeRef_IsGeneric(t *testing.T) {
 func TestTypeRef_KindPredicates(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	predicates := []struct {
 		name string
-		ref  *node.TypeRef
-		isP  bool
-		isSl bool
-		isAr bool
-		isMa bool
-		isFn bool
-		isCh bool
+		kind node.TypeRefKind
+		pred func(*node.TypeRef) bool
 	}{
-		{"Pointer", &node.TypeRef{TypeKind: node.TypeRefPointer}, true, false, false, false, false, false},
-		{"Slice", &node.TypeRef{TypeKind: node.TypeRefSlice}, false, true, false, false, false, false},
-		{"Array", &node.TypeRef{TypeKind: node.TypeRefArray}, false, false, true, false, false, false},
-		{"Map", &node.TypeRef{TypeKind: node.TypeRefMap}, false, false, false, true, false, false},
-		{"Func", &node.TypeRef{TypeKind: node.TypeRefFunc}, false, false, false, false, true, false},
-		{"Chan", &node.TypeRef{TypeKind: node.TypeRefChan}, false, false, false, false, false, true},
-		{"Named", namedRef("", "int"), false, false, false, false, false, false},
+		{"IsPointer", node.TypeRefPointer, (*node.TypeRef).IsPointer},
+		{"IsSlice", node.TypeRefSlice, (*node.TypeRef).IsSlice},
+		{"IsArray", node.TypeRefArray, (*node.TypeRef).IsArray},
+		{"IsMap", node.TypeRefMap, (*node.TypeRef).IsMap},
+		{"IsFunc", node.TypeRefFunc, (*node.TypeRef).IsFunc},
+		{"IsTypeParam", node.TypeRefTypeParam, (*node.TypeRef).IsTypeParam},
+		{"IsAnonStruct", node.TypeRefAnonStruct, (*node.TypeRef).IsAnonStruct},
+		{"IsAnonInterface", node.TypeRefAnonInterface, (*node.TypeRef).IsAnonInterface},
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			r := tc.ref
-			switch {
-			case r.IsPointer() != tc.isP,
-				r.IsSlice() != tc.isSl,
-				r.IsArray() != tc.isAr,
-				r.IsMap() != tc.isMa,
-				r.IsFunc() != tc.isFn,
-				r.IsChan() != tc.isCh:
-				t.Fatalf("predicates mismatch: %+v", r)
-			}
-		})
+	kinds := []node.TypeRefKind{
+		node.TypeRefNamed,
+		node.TypeRefPointer,
+		node.TypeRefSlice,
+		node.TypeRefArray,
+		node.TypeRefMap,
+		node.TypeRefFunc,
+		node.TypeRefTypeParam,
+		node.TypeRefAnonStruct,
+		node.TypeRefAnonInterface,
+	}
+
+	for _, k := range kinds {
+		for _, p := range predicates {
+			name := p.name + "_on_" + k.String()
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+				ref := &node.TypeRef{TypeKind: k}
+				want := k == p.kind
+				if got := p.pred(ref); got != want {
+					t.Fatalf("%s on %s = %v, want %v", p.name, k, got, want)
+				}
+			})
+		}
 	}
 }
 
@@ -187,18 +195,12 @@ func TestTypeRef_Equal(t *testing.T) {
 		}
 	})
 
-	t.Run("Slice and Chan compare by Elem", func(t *testing.T) {
+	t.Run("Slice refs compare by Elem", func(t *testing.T) {
 		t.Parallel()
 		a := &node.TypeRef{TypeKind: node.TypeRefSlice, Elem: namedRef("", "byte")}
 		b := &node.TypeRef{TypeKind: node.TypeRefSlice, Elem: namedRef("", "byte")}
 		if !a.Equal(b) {
 			t.Fatalf("slices with same Elem should be equal")
-		}
-
-		c := &node.TypeRef{TypeKind: node.TypeRefChan, Elem: namedRef("", "int")}
-		d := &node.TypeRef{TypeKind: node.TypeRefChan, Elem: namedRef("", "int")}
-		if !c.Equal(d) {
-			t.Fatalf("chans with same Elem should be equal")
 		}
 	})
 
@@ -292,6 +294,142 @@ func TestTypeRef_Equal(t *testing.T) {
 		b.TypeArgs = []*node.TypeRef{namedRef("", "string")}
 		if a.Equal(b) {
 			t.Fatalf("generic named refs with different args should not be equal")
+		}
+	})
+
+	t.Run("TypeParam refs compare by Name", func(t *testing.T) {
+		t.Parallel()
+		a := &node.TypeRef{TypeKind: node.TypeRefTypeParam, Name: "T"}
+		b := &node.TypeRef{TypeKind: node.TypeRefTypeParam, Name: "T"}
+		c := &node.TypeRef{TypeKind: node.TypeRefTypeParam, Name: "U"}
+		if !a.Equal(b) {
+			t.Fatalf("TypeParam refs with same Name should be equal")
+		}
+		if a.Equal(c) {
+			t.Fatalf("TypeParam refs with different Names should not be equal")
+		}
+	})
+
+	t.Run("AnonStruct refs compare by inline fields and embeds", func(t *testing.T) {
+		t.Parallel()
+		a := &node.TypeRef{TypeKind: node.TypeRefAnonStruct, Fields: []*node.Field{
+			{Name: "ID", Type: namedRef("", "string")},
+		}}
+		b := &node.TypeRef{TypeKind: node.TypeRefAnonStruct, Fields: []*node.Field{
+			{Name: "ID", Type: namedRef("", "string")},
+		}}
+		c := &node.TypeRef{TypeKind: node.TypeRefAnonStruct, Fields: []*node.Field{
+			{Name: "ID", Type: namedRef("", "int")},
+		}}
+		d := &node.TypeRef{TypeKind: node.TypeRefAnonStruct, Fields: []*node.Field{
+			{Name: "ID", Type: namedRef("", "string"), Tag: `json:"id"`},
+		}}
+		e := &node.TypeRef{TypeKind: node.TypeRefAnonStruct, Fields: []*node.Field{
+			{Name: "ID", Type: namedRef("", "string")},
+			{Name: "Name", Type: namedRef("", "string")},
+		}}
+		f := &node.TypeRef{TypeKind: node.TypeRefAnonStruct, Embeds: []*node.Embed{{Type: namedRef("io", "Reader")}}}
+		g := &node.TypeRef{TypeKind: node.TypeRefAnonStruct, Embeds: []*node.Embed{{Type: namedRef("io", "Reader")}}}
+		h := &node.TypeRef{TypeKind: node.TypeRefAnonStruct, Embeds: []*node.Embed{{Type: namedRef("io", "Writer")}}}
+		if !a.Equal(b) {
+			t.Fatalf("anon structs with same fields should be equal")
+		}
+		if a.Equal(c) {
+			t.Fatalf("anon structs with different field types should not be equal")
+		}
+		if a.Equal(d) {
+			t.Fatalf("anon structs differing only in tag should not be equal")
+		}
+		if a.Equal(e) {
+			t.Fatalf("anon structs with different field counts should not be equal")
+		}
+		if !f.Equal(g) {
+			t.Fatalf("anon structs with same embeds should be equal")
+		}
+		if f.Equal(h) {
+			t.Fatalf("anon structs with different embeds should not be equal")
+		}
+	})
+
+	t.Run("AnonInterface refs compare by inline methods and embeds", func(t *testing.T) {
+		t.Parallel()
+
+		readByte := anonInterfaceWithRead(
+			[]*node.Param{{Name: "p", Type: byteSliceRef()}},
+			[]*node.TypeRef{namedRef("", "int"), namedRef("", "error")},
+			false,
+		)
+		readByteCopy := anonInterfaceWithRead(
+			[]*node.Param{{Name: "p", Type: byteSliceRef()}},
+			[]*node.TypeRef{namedRef("", "int"), namedRef("", "error")},
+			false,
+		)
+		readString := anonInterfaceWithRead(
+			[]*node.Param{{Name: "p", Type: namedRef("", "string")}},
+			[]*node.TypeRef{namedRef("", "int"), namedRef("", "error")},
+			false,
+		)
+		writeByte := anonInterfaceWithMethod(
+			"Write",
+			[]*node.Param{{Name: "p", Type: byteSliceRef()}},
+			[]*node.TypeRef{namedRef("", "int"), namedRef("", "error")},
+			false,
+		)
+		readByteSingleReturn := anonInterfaceWithRead(
+			[]*node.Param{{Name: "p", Type: byteSliceRef()}},
+			[]*node.TypeRef{namedRef("", "int")},
+			false,
+		)
+		readTwoParams := anonInterfaceWithRead(
+			[]*node.Param{
+				{Name: "p", Type: byteSliceRef()},
+				{Name: "n", Type: namedRef("", "int")},
+			},
+			[]*node.TypeRef{namedRef("", "int"), namedRef("", "error")},
+			false,
+		)
+		readVariadic := anonInterfaceWithRead(
+			[]*node.Param{{Name: "p", Type: byteSliceRef()}},
+			[]*node.TypeRef{namedRef("", "int"), namedRef("", "error")},
+			true,
+		)
+		embedsReader := &node.TypeRef{
+			TypeKind: node.TypeRefAnonInterface,
+			Embeds:   []*node.Embed{{Type: namedRef("io", "Reader")}},
+		}
+		embedsReaderCopy := &node.TypeRef{
+			TypeKind: node.TypeRefAnonInterface,
+			Embeds:   []*node.Embed{{Type: namedRef("io", "Reader")}},
+		}
+		embedsWriter := &node.TypeRef{
+			TypeKind: node.TypeRefAnonInterface,
+			Embeds:   []*node.Embed{{Type: namedRef("io", "Writer")}},
+		}
+		empty := &node.TypeRef{TypeKind: node.TypeRefAnonInterface}
+
+		cases := []struct {
+			name      string
+			a, b      *node.TypeRef
+			wantEqual bool
+		}{
+			{"same method shape", readByte, readByteCopy, true},
+			{"different param type", readByte, readString, false},
+			{"different method name", readByte, writeByte, false},
+			{"different return count", readByte, readByteSingleReturn, false},
+			{"different param count", readByte, readTwoParams, false},
+			{"variadic differs from non-variadic", readByte, readVariadic, false},
+			{"same embeds", embedsReader, embedsReaderCopy, true},
+			{"different embeds", embedsReader, embedsWriter, false},
+			{"different method counts", empty, readByte, false},
+			{"different embed counts", empty, embedsReader, false},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+				if got := tc.a.Equal(tc.b); got != tc.wantEqual {
+					t.Fatalf("Equal = %v, want %v (a=%+v b=%+v)", got, tc.wantEqual, tc.a, tc.b)
+				}
+			})
 		}
 	})
 

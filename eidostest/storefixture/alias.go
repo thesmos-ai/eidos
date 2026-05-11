@@ -50,8 +50,10 @@ func (b *AliasBuilder) True() *AliasBuilder {
 	return b
 }
 
-// TypeParam declares a generic type parameter on the alias.
-func (b *AliasBuilder) TypeParam(name string, constraint *node.TypeRef) *AliasBuilder {
+// TypeParam declares a generic type parameter on the alias. Pass
+// nil for an implicit "any" bound, or use [Constraint] for an
+// explicit named-bound constraint.
+func (b *AliasBuilder) TypeParam(name string, constraint *node.Constraint) *AliasBuilder {
 	b.a.TypeParams = append(b.a.TypeParams, &node.TypeParam{
 		Name:       name,
 		Constraint: constraint,
