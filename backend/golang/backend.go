@@ -76,11 +76,29 @@ func (b *Backend) Render(ctx *plugin.BackendContext) error {
 			continue
 		}
 		body = finaliseBody(body, target, ps, tracked)
-		if err := ctx.Sink.Write(target, body); err != nil {
+		out := composeFile(ctx, entities, body)
+		if err := ctx.Sink.Write(target, out); err != nil {
 			return fmt.Errorf("%s: sink write %s: %w", Name, target.JoinPath(), err)
 		}
 	}
 	return nil
+}
+
+// composeFile wraps the finalised body bytes in the canonical
+// header / footer envelope: the run-context header (layout item 1),
+// the body (items 2–8), and the provenance-hash footer (item 9).
+// The hash is computed over the body bytes exactly as written, so
+// two runs over the same input produce byte-identical files —
+// header and footer included, given the header carries no
+// timestamp.
+func composeFile(ctx *plugin.BackendContext, entities []emit.Node, body []byte) []byte {
+	header := renderHeader(ctx, entities)
+	footer := renderFooter(ctx, body)
+	out := make([]byte, 0, len(header)+len(body)+len(footer))
+	out = append(out, header...)
+	out = append(out, body...)
+	out = append(out, footer...)
+	return out
 }
 
 // packageDocsFor returns the doc-comment lines rendered above the

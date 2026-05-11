@@ -12,7 +12,9 @@ import (
 
 	"go.thesmos.sh/eidos/backend/golang"
 	"go.thesmos.sh/eidos/core/diag"
+	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/sink"
 	"go.thesmos.sh/eidos/store"
@@ -87,6 +89,42 @@ func emitPackage(pkgPath string, structs ...*emit.Struct) *emit.Package {
 // errSinkBoom is the sentinel a [failingSink] returns to exercise
 // the backend's sink-error propagation path.
 var errSinkBoom = errors.New("backend/golang test: simulated sink failure")
+
+// stubPluginVersion is a minimal [plugin.Plugin] + [plugin.Versioned]
+// implementation used to populate [plugin.BackendContext.Plugins]
+// for header-rendering tests without dragging in real plugin types.
+type stubPluginVersion struct {
+	name    string
+	version string
+}
+
+func (s stubPluginVersion) Name() string    { return s.name }
+func (s stubPluginVersion) Version() string { return s.version }
+
+// stubPluginNoVersion is a [plugin.Plugin] that does NOT satisfy
+// [plugin.Versioned] — used to verify the header's Plugins line
+// renders the bare Name when no version is available.
+type stubPluginNoVersion struct {
+	name string
+}
+
+func (s stubPluginNoVersion) Name() string { return s.name }
+
+// structWithOrigin builds a one-field struct whose origin is a
+// node.Struct carrying the supplied source-file path. Used by
+// header tests that exercise the per-entity origin derivation
+// path of the Source: line.
+func structWithOrigin(name, pkgPath string, target emit.Target, sourceFile string) *emit.Struct {
+	return &emit.Struct{
+		BaseEmit: emit.BaseEmit{
+			OriginNode: &node.Struct{
+				BaseNode: node.BaseNode{SourcePos: position.Pos{File: sourceFile}},
+			},
+		},
+		Name: name, Package: pkgPath, Target: target,
+		Fields: []*emit.Field{{Name: "F", Type: emit.Builtin("int")}},
+	}
+}
 
 // failingSink satisfies [sink.Sink] by always returning
 // [errSinkBoom] from Write.

@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -295,11 +297,26 @@ func (p *Pipeline) runBackend(s *store.Store, dst sink.Sink) {
 		Lang:    p.backend.Language(),
 		Plugins: p.registeredPlugins(),
 		Ordered: p.orderedPlugins(),
+		Command: commandLine(),
 	}
 	if err := p.backend.Render(ctx); err != nil {
 		p.reportPluginError(ps, p.backend.Name(), "backend", err)
 	}
 	p.recordCacheKey(p.backend.Name(), r)
+}
+
+// commandLine returns the CLI-style rendering of the current
+// process's arguments, used to populate
+// [plugin.BackendContext.Command] for generated-file headers. When
+// the host has no positional arguments (typically library / test
+// invocations), returns "(library)" — a stable marker that signals
+// programmatic use without leaking test-runner flags into the
+// generated output.
+func commandLine() string {
+	if len(os.Args) <= 1 {
+		return "(library)"
+	}
+	return strings.Join(os.Args[1:], " ")
 }
 
 // logPhaseStart writes a verbose-mode Info diagnostic announcing

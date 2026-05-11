@@ -165,6 +165,74 @@ func TestBackend_Render(t *testing.T) {
 func TestBackend_Golden(t *testing.T) {
 	t.Parallel()
 
+	t.Run("envelope_full — Source / Plugins / Command + hash footer", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		ctx.Command = "eidos run --config example.yaml"
+		ctx.SourcesOverride = []string{"./internal/users/user.go", "./internal/users/types.go"}
+		ctx.Plugins = []plugin.Plugin{
+			stubPluginVersion{name: "repogen", version: "1.2.3"},
+			stubPluginVersion{name: "mockgen", version: "0.5.0"},
+		}
+		target := emit.Target{Dir: "users", Filename: "user.go", Package: "users"}
+		addEmitPackage(t, ctx, emitPackage("users", emitStructWithFields(
+			"users", "User", target,
+			fieldSpec{name: "ID", builtin: "int"},
+			fieldSpec{name: "Name", builtin: "string"},
+		)))
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "envelope_full.go.golden"))
+	})
+
+	t.Run("envelope_branded — Brand substitutes header marker and footer EOGC", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		ctx.Brand = "acmegen"
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		addEmitPackage(t, ctx, emitPackage("x", emitStructWithFields(
+			"x", "X", target,
+			fieldSpec{name: "F", builtin: "int"},
+		)))
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "envelope_branded.go.golden"))
+	})
+
+	t.Run("envelope_customised — HeaderPrefix/Suffix + FooterSuffix", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		ctx.HeaderPrefix = []string{
+			"//go:build linux",
+			"",
+			"// Copyright 2026 Acme Industries.",
+			"// SPDX-License-Identifier: MIT",
+		}
+		ctx.HeaderSuffix = []string{"// Reviewed-By: platform-team"}
+		ctx.FooterSuffix = []string{"// Signed-Off-By: release-bot"}
+		ctx.Command = "eidos run"
+		target := emit.Target{Dir: "users", Filename: "user.go", Package: "users"}
+		addEmitPackage(t, ctx, emitPackage("users", emitStructWithFields(
+			"users", "User", target,
+			fieldSpec{name: "ID", builtin: "int"},
+		)))
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "envelope_customised.go.golden"))
+	})
+
+	t.Run("envelope_minimal — bare DO NOT EDIT + body + hash", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		// No Command, no SourcesOverride, no Plugins. The header
+		// collapses to the DO NOT EDIT line alone.
+		ctx.Plugins = nil
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		addEmitPackage(t, ctx, emitPackage("x", emitStructWithFields(
+			"x", "X", target,
+			fieldSpec{name: "F", builtin: "int"},
+		)))
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "envelope_minimal.go.golden"))
+	})
+
 	t.Run("struct_simple — no imports", func(t *testing.T) {
 		t.Parallel()
 		ctx, mem, d := newBackendContext(t)
