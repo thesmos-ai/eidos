@@ -26,7 +26,11 @@ type Import struct {
 	// Owner is the [File] (per-file declaration) or [Package]
 	// (deduplicated union) the import belongs to. Populated by the
 	// constructing frontend.
-	Owner Node
+	//
+	// Owner is excluded from JSON encoding to break the host →
+	// child cycle. Deserialized graphs re-wire Owner via
+	// [RewireOwners].
+	Owner Node `json:"-"`
 }
 
 // Kind reports [KindImport].

@@ -31,7 +31,11 @@ type File struct {
 
 	// Owner is the [Package] this file belongs to. Populated by
 	// the constructing frontend.
-	Owner *Package
+	//
+	// Owner is excluded from JSON encoding to break the host →
+	// child cycle. Deserialized graphs re-wire Owner via
+	// [RewireOwners].
+	Owner *Package `json:"-"`
 }
 
 // Kind reports [KindFile].

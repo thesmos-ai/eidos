@@ -63,7 +63,11 @@ type Slot struct {
 	SlotName string
 
 	// Owner is the host emit node that exposes this slot.
-	Owner Node
+	//
+	// Owner is excluded from JSON encoding to break the host →
+	// slot cycle. Deserialized graphs re-wire Owner via
+	// [RewireOwners].
+	Owner Node `json:"-"`
 
 	// ElemKind, when non-empty, constrains [Slot.Append] to accept
 	// only items whose Kind() matches. An empty ElemKind accepts

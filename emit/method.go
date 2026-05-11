@@ -51,7 +51,11 @@ type Method struct {
 
 	// Owner is the [Struct] or [Interface] that declares this
 	// method.
-	Owner Node
+	//
+	// Owner is excluded from JSON encoding to break the host →
+	// child cycle. Deserialized graphs re-wire Owner via
+	// [RewireOwners].
+	Owner Node `json:"-"`
 
 	slotMap
 }

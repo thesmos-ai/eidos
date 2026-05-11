@@ -4,6 +4,7 @@
 package meta
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -118,12 +119,28 @@ func (k Key[T]) Name() string { return k.name }
 //
 // Type safety is enforced upstream: every name is bound to a single
 // Key[T] by the registry, so the stored value's concrete type is
-// always T for the registered key.
+// always T for the registered key. The one exception is a value
+// freshly unmarshalled by [Bag.UnmarshalJSON] — Bag preserves the
+// raw JSON bytes there because it lacks static type information at
+// that level. Get detects the raw form and decodes lazily into T,
+// then returns the typed result.
+//
+// A raw-JSON decode failure returns the zero T and false; callers
+// that need to distinguish "absent" from "corrupt" should inspect
+// [Bag.Winning] directly.
 func (k Key[T]) Get(b *Bag) (T, bool) {
 	raw, ok := b.RawValue(k.name)
 	if !ok {
 		var zero T
 		return zero, false
+	}
+	if rm, isRaw := raw.(json.RawMessage); isRaw {
+		var v T
+		if err := json.Unmarshal(rm, &v); err != nil {
+			var zero T
+			return zero, false
+		}
+		return v, true
 	}
 	return raw.(T), true
 }

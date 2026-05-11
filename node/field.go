@@ -27,7 +27,11 @@ type Field struct {
 	// field Owner is the *[Struct]; for a field inside an anonymous
 	// struct type at a use site Owner is the enclosing *[TypeRef].
 	// Populated by the constructing frontend.
-	Owner Node
+	//
+	// Owner is excluded from JSON encoding to break the cycle
+	// between a host and its children. Deserialized graphs re-wire
+	// Owner via [RewireOwners].
+	Owner Node `json:"-"`
 }
 
 // Kind returns [KindField].

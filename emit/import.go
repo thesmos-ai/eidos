@@ -24,7 +24,11 @@ type Import struct {
 	Alias string
 
 	// Owner is the [File] this import belongs to.
-	Owner *File
+	//
+	// Owner is excluded from JSON encoding to break the host →
+	// child cycle. Deserialized graphs re-wire Owner via
+	// [RewireOwners].
+	Owner *File `json:"-"`
 }
 
 // Kind returns [KindImport].

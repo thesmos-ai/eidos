@@ -32,7 +32,11 @@ type Field struct {
 	// declared structs, but generators emitting plugin-defined
 	// emit kinds may set Owner to their own host type. Set by the
 	// constructing generator.
-	Owner Node
+	//
+	// Owner is excluded from JSON encoding to break the host →
+	// child cycle. Deserialized graphs re-wire Owner via
+	// [RewireOwners].
+	Owner Node `json:"-"`
 
 	slotMap
 }

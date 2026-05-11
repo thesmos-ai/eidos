@@ -15,7 +15,11 @@ type Embed struct {
 	Type Ref
 
 	// Owner is the struct or interface doing the embedding.
-	Owner Node
+	//
+	// Owner is excluded from JSON encoding to break the host →
+	// child cycle. Deserialized graphs re-wire Owner via
+	// [RewireOwners].
+	Owner Node `json:"-"`
 }
 
 // Kind returns [KindEmbed].

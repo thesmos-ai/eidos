@@ -20,7 +20,11 @@ type TypeParam struct {
 	Constraint *Constraint
 
 	// Owner is the declaration this type parameter belongs to.
-	Owner Node
+	//
+	// Owner is excluded from JSON encoding to break the host →
+	// child cycle. Deserialized graphs re-wire Owner via
+	// [RewireOwners].
+	Owner Node `json:"-"`
 }
 
 // Kind returns [KindTypeParam].

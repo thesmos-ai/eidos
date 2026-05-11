@@ -24,7 +24,11 @@ type EnumVariant struct {
 
 	// Owner is the [Enum] this variant belongs to. Populated by
 	// the constructing frontend.
-	Owner *Enum
+	//
+	// Owner is excluded from JSON encoding to break the host →
+	// child cycle. Deserialized graphs re-wire Owner via
+	// [RewireOwners].
+	Owner *Enum `json:"-"`
 }
 
 // Kind returns [KindEnumVariant].

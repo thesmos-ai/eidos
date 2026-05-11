@@ -26,7 +26,11 @@ type Param struct {
 
 	// Owner is the [Function] or [Method] this parameter belongs to.
 	// Populated by the constructing generator.
-	Owner Node
+	//
+	// Owner is excluded from JSON encoding to break the host →
+	// child cycle. Deserialized graphs re-wire Owner via
+	// [RewireOwners].
+	Owner Node `json:"-"`
 }
 
 // Kind returns [KindParam].

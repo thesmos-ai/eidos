@@ -44,7 +44,11 @@ type File struct {
 	Imports []*Import
 
 	// Owner is the [Package] this file belongs to.
-	Owner *Package
+	//
+	// Owner is excluded from JSON encoding to break the host →
+	// child cycle. Deserialized graphs re-wire Owner via
+	// [RewireOwners].
+	Owner *Package `json:"-"`
 
 	slotMap
 }
