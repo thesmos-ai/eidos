@@ -13,6 +13,13 @@ import (
 	"go.thesmos.sh/eidos/store"
 )
 
+// loadCtx builds a [plugin.FrontendContext] referencing s plus a
+// discard diagnostic sink. Tests call frontends' Load via this
+// helper without rebuilding the context boilerplate per call.
+func loadCtx(s *store.Store, pattern string) *plugin.FrontendContext {
+	return &plugin.FrontendContext{Store: s, Diag: diag.Discard(), Pattern: pattern}
+}
+
 // fakeT is a [testing.TB] adapter used by tests that need to assert
 // against the test-failure side of [testpipe.Pipeline] without
 // failing the surrounding go-test invocation. fakeT records errors
@@ -131,4 +138,4 @@ type erroringFrontend struct {
 func (f *erroringFrontend) Name() string { return f.name }
 
 // Load returns the configured error verbatim.
-func (f *erroringFrontend) Load(_ string, _ *store.Store, _ *diag.Sink) error { return f.err }
+func (f *erroringFrontend) Load(_ *plugin.FrontendContext) error { return f.err }

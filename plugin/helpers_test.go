@@ -38,8 +38,8 @@ var stubKey = meta.NewKey("plugin.stub.annotated", meta.BoolParser)
 type stubFrontend struct{ name string }
 
 func (f *stubFrontend) Name() string { return f.name }
-func (*stubFrontend) Load(_ string, s *store.Store, _ *diag.Sink) error {
-	return s.Nodes().AddPackage(&node.Package{
+func (*stubFrontend) Load(ctx *plugin.FrontendContext) error {
+	return ctx.Store.Nodes().AddPackage(&node.Package{
 		Name: "x", Path: "x",
 		Structs: []*node.Struct{{Name: "User", Package: "x"}},
 	})
@@ -169,7 +169,11 @@ func makeStubReader(t *testing.T) (*store.Store, *store.Reader) {
 	s := store.New()
 	d := diag.New()
 	fe := &stubFrontend{name: "stub-fe"}
-	assertNoError(t, fe.Load("input", s, d))
+	assertNoError(t, fe.Load(&plugin.FrontendContext{
+		Store:   s,
+		Diag:    d,
+		Pattern: "input",
+	}))
 	return s, store.NewReader(s)
 }
 

@@ -129,7 +129,14 @@ func (p *Pipeline) runFrontends(s *store.Store, patterns []string) {
 func (p *Pipeline) invokeFrontend(fe plugin.Frontend, pattern string, s *store.Store) {
 	ps := p.diag.For(fe.Name())
 	defer diag.RecoverAs(ps, position.Pos{})
-	if err := fe.Load(pattern, s, p.diag); err != nil {
+	ctx := &plugin.FrontendContext{
+		Store:    s,
+		Diag:     p.diag,
+		Registry: p.registry,
+		Cache:    p.cache,
+		Pattern:  pattern,
+	}
+	if err := fe.Load(ctx); err != nil {
 		p.reportPluginError(ps, fe.Name(), fmt.Sprintf("frontend Load(%q)", pattern), err)
 	}
 }

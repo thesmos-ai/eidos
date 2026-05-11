@@ -59,8 +59,8 @@ func phaseLogs(d *diag.Sink) []string {
 // stubFE implements [plugin.Frontend].
 type stubFE struct{ name string }
 
-func (f *stubFE) Name() string                                    { return f.name }
-func (*stubFE) Load(_ string, _ *store.Store, _ *diag.Sink) error { return nil }
+func (f *stubFE) Name() string                       { return f.name }
+func (*stubFE) Load(_ *plugin.FrontendContext) error { return nil }
 
 // stubAnn implements [plugin.Annotator].
 type stubAnn struct{ name string }
@@ -94,9 +94,9 @@ type stubFEOptions struct {
 	Output string `eidos:"output,required"`
 }
 
-func (f *stubFEWithOpts) Name() string                                    { return f.name }
-func (*stubFEWithOpts) Load(_ string, _ *store.Store, _ *diag.Sink) error { return nil }
-func (*stubFEWithOpts) OptionsSchema() opt.Schema                         { return opt.Reflect(stubFEOptions{}) }
+func (f *stubFEWithOpts) Name() string                       { return f.name }
+func (*stubFEWithOpts) Load(_ *plugin.FrontendContext) error { return nil }
+func (*stubFEWithOpts) OptionsSchema() opt.Schema            { return opt.Reflect(stubFEOptions{}) }
 
 func (f *stubFEWithOpts) SetOptions(o opt.Options) error { return o.Decode(&f.opts) }
 
@@ -178,12 +178,12 @@ type recFE struct {
 }
 
 func (f *recFE) Name() string { return f.name }
-func (f *recFE) Load(pattern string, s *store.Store, _ *diag.Sink) error {
+func (f *recFE) Load(ctx *plugin.FrontendContext) error {
 	f.mu.Lock()
-	f.loaded = append(f.loaded, pattern)
+	f.loaded = append(f.loaded, ctx.Pattern)
 	f.mu.Unlock()
 	if f.loadFn != nil {
-		f.loadFn(s)
+		f.loadFn(ctx.Store)
 	}
 	return f.err
 }
@@ -263,10 +263,8 @@ type panickyFE struct {
 	msg  string
 }
 
-func (f *panickyFE) Name() string { return f.name }
-func (f *panickyFE) Load(_ string, _ *store.Store, _ *diag.Sink) error {
-	panic(f.msg)
-}
+func (f *panickyFE) Name() string                         { return f.name }
+func (f *panickyFE) Load(_ *plugin.FrontendContext) error { panic(f.msg) }
 
 // panickyAnn is an annotator that panics. Mirrors panickyFE for the
 // annotator phase.
@@ -335,9 +333,9 @@ type emitVersionedFE struct {
 	versions []string
 }
 
-func (f *emitVersionedFE) Name() string                                    { return f.name }
-func (*emitVersionedFE) Load(_ string, _ *store.Store, _ *diag.Sink) error { return nil }
-func (f *emitVersionedFE) EmitVersions() []string                          { return f.versions }
+func (f *emitVersionedFE) Name() string                       { return f.name }
+func (*emitVersionedFE) Load(_ *plugin.FrontendContext) error { return nil }
+func (f *emitVersionedFE) EmitVersions() []string             { return f.versions }
 
 // hasPanicMessage returns true if any diagnostic in d carries msg
 // in its detail (where the panic message and stack are stored) or

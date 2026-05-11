@@ -18,7 +18,7 @@ func TestFrontend_Contract(t *testing.T) {
 		t.Parallel()
 		var fe plugin.Frontend = &stubFrontend{name: "stub"}
 		s := store.New()
-		assertNoError(t, fe.Load("input", s, diag.New()))
+		assertNoError(t, fe.Load(&plugin.FrontendContext{Store: s, Diag: diag.New(), Pattern: "input"}))
 		if s.Nodes().Structs().Len() == 0 {
 			t.Fatalf("Load should have populated the source store")
 		}

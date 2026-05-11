@@ -4,26 +4,69 @@
 package plugin
 
 import (
+	"go.thesmos.sh/eidos/cache"
 	"go.thesmos.sh/eidos/core/diag"
+	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/store"
 )
 
 // Frontend is the role for plugins that parse input into the source
 // side of the [store.Store]. The pipeline runs every Frontend in
 // the frontend phase; multiple frontends may coexist (e.g. a Go
-// frontend alongside an OpenAPI schema frontend), and their loaded
+// frontend alongside an OpenAPI-schema frontend), and their loaded
 // packages share the same store.
 //
-// Load is called once per pipeline run with the user-supplied
-// pattern (typically a Go-style import path or filesystem glob).
+// Load is called once per pipeline run per user-supplied pattern.
 // Errors that prevent the frontend from making any progress are
 // returned directly; per-input issues are emitted as positioned
-// diagnostics on diag and execution continues.
+// diagnostics on ctx.Diag and execution continues with the next
+// pattern.
 type Frontend interface {
 	Plugin
 
-	// Load parses the input identified by pattern and records the
-	// resulting nodes in store.Nodes(). Per-input issues attach to
-	// diag; fatal failures return a non-nil error.
-	Load(pattern string, store *store.Store, diag *diag.Sink) error
+	// Load parses the input identified by ctx.Pattern and records
+	// the resulting nodes in ctx.Store.Nodes(). Per-input issues
+	// attach to ctx.Diag; fatal failures return a non-nil error.
+	Load(ctx *FrontendContext) error
+}
+
+// FrontendContext is the per-call context handed to every
+// [Frontend.Load] invocation. The pipeline constructs one per
+// (frontend, pattern) pair so a frontend handling multiple patterns
+// in a single run sees a fresh context per call.
+//
+// FrontendContext mirrors the shape of [AnnotatorContext] /
+// [GeneratorContext] / [BackendContext] in carrying Store and Diag;
+// it adds the directive registry and the cache so frontends can
+// validate parsed directives against the pipeline's schemas and
+// participate in skip-on-hit caching.
+type FrontendContext struct {
+	// Store is the shared in-memory database. Frontends write
+	// parsed declarations into Store.Nodes() via AddPackage.
+	Store *store.Store
+
+	// Diag is the diagnostic sink shared with every plugin in the
+	// run. Per-input issues attach here as positioned diagnostics.
+	Diag *diag.Sink
+
+	// Registry is the directive-schema registry built from every
+	// [pipeline.Builder.WithDirective] schema declared on the
+	// pipeline. Frontends look up registered schemas when validating
+	// parsed `+gen:` / `-gen:` directives; unregistered directives
+	// parse cleanly so in-development plugins remain forward-
+	// compatible.
+	Registry *directive.Registry
+
+	// Cache is the configured [cache.Cache] the pipeline runs with.
+	// Frontends compose a content-addressed key from their inputs +
+	// [Versioned.Version] (when implemented) and consult the cache
+	// to skip parsing on hit. May be the no-op [cache.None] when
+	// caching is disabled for the run; never nil.
+	Cache cache.Cache
+
+	// Pattern is the user-supplied input identifier for this Load
+	// call. Typically a Go-style import path ("./...",
+	// "github.com/foo/bar/...") or a filesystem glob. Frontends
+	// interpret it in a language-appropriate way.
+	Pattern string
 }

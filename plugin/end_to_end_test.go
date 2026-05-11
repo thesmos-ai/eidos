@@ -26,7 +26,7 @@ func TestPluginRoles_ComposeEndToEnd(t *testing.T) {
 		gen := &stubGenerator{name: "stub-gen"}
 		be := &stubBackend{name: "stub-be"}
 
-		assertNoError(t, fe.Load("input", s, d))
+		assertNoError(t, fe.Load(&plugin.FrontendContext{Store: s, Diag: d, Pattern: "input"}))
 		assertNoError(t, ann.Annotate(&plugin.AnnotatorContext{Store: s, Reader: r, Diag: d}))
 		assertNoError(t, gen.Generate(&plugin.GeneratorContext{Store: s, Reader: r, Diag: d}))
 		assertNoError(t, be.Render(&plugin.BackendContext{

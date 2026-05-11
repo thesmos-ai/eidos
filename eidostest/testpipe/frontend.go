@@ -6,10 +6,8 @@ package testpipe
 import (
 	"sync"
 
-	"go.thesmos.sh/eidos/core/diag"
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/plugin"
-	"go.thesmos.sh/eidos/store"
 )
 
 // frontendName is the [plugin.Plugin.Name] every [FromNodes] frontend
@@ -51,14 +49,14 @@ func (*nodesFrontend) Name() string { return frontendName }
 // Load adds every package to the store the first time it is called.
 // Subsequent calls return nil without touching the store; any
 // AddPackage error surfaces as a non-nil return.
-func (f *nodesFrontend) Load(_ string, s *store.Store, _ *diag.Sink) error {
+func (f *nodesFrontend) Load(ctx *plugin.FrontendContext) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.loaded {
 		return nil
 	}
 	for _, p := range f.pkgs {
-		if err := s.Nodes().AddPackage(p); err != nil {
+		if err := ctx.Store.Nodes().AddPackage(p); err != nil {
 			return err
 		}
 	}
