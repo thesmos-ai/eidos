@@ -27,24 +27,24 @@ type BaseEmit struct {
 	// SourcePos is the source position this emit value reflects.
 	// Frontends synthesising emit purely from plugin logic should
 	// use [position.Synthetic] tags.
-	SourcePos position.Pos
+	SourcePos position.Pos `json:"pos,omitzero"`
 
 	// DocLines holds doc comment text — either preserved from the
 	// originating source node or freshly authored by the generator.
-	DocLines []string
+	DocLines []string `json:"docs,omitempty"`
 
 	// DirectiveList holds the directives attached to this emit
 	// value (typically copied verbatim from the originating source
 	// node so backend rendering can re-read them).
-	DirectiveList []*directive.Directive
+	DirectiveList []*directive.Directive `json:"directives,omitempty"`
 
 	// MetaBag is the lazily-allocated metadata storage. Access via
 	// [BaseEmit.Meta] rather than touching the field directly.
-	MetaBag *meta.Bag
+	MetaBag *meta.Bag `json:"meta,omitempty"`
 
 	// OriginNode is the source [node.Node] this emit value was
 	// derived from. nil for purely-generated artifacts.
-	OriginNode node.Node
+	OriginNode node.Node `json:"-"`
 }
 
 // Pos returns [BaseEmit.SourcePos].

@@ -12,10 +12,10 @@ type EnumVariant struct {
 	BaseEmit
 
 	// Name is the variant identifier.
-	Name string
+	Name string `json:"name"`
 
 	// Value is the variant's value expression.
-	Value *Expr
+	Value *Expr `json:"value,omitempty"`
 
 	// Owner is the [Enum] this variant belongs to.
 	//

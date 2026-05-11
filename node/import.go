@@ -17,11 +17,11 @@ type Import struct {
 	BaseNode
 
 	// Path is the imported package path.
-	Path string
+	Path string `json:"path"`
 
 	// Alias is the explicit local name supplied at the import site,
 	// or empty when no alias was given.
-	Alias string
+	Alias string `json:"alias,omitempty"`
 
 	// Owner is the [File] (per-file declaration) or [Package]
 	// (deduplicated union) the import belongs to. Populated by the

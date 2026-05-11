@@ -12,25 +12,25 @@ type Struct struct {
 	BaseNode
 
 	// Name is the struct's identifier.
-	Name string
+	Name string `json:"name"`
 
 	// Package is the source package path. Empty for anonymous
 	// struct types declared inline.
-	Package string
+	Package string `json:"package,omitempty"`
 
 	// Fields are the named fields in source order.
-	Fields []*Field
+	Fields []*Field `json:"fields,omitempty"`
 
 	// Embeds are the embedded types in source order. Distinct from
 	// Fields; consumers that want a unified view can iterate both.
-	Embeds []*Embed
+	Embeds []*Embed `json:"embeds,omitempty"`
 
 	// Methods declared on this struct (and on its pointer receiver
 	// — frontends merge both sets).
-	Methods []*Method
+	Methods []*Method `json:"methods,omitempty"`
 
 	// TypeParams are the struct's generic type parameters.
-	TypeParams []*TypeParam
+	TypeParams []*TypeParam `json:"type_params,omitempty"`
 }
 
 // Kind returns [KindStruct].

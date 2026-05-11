@@ -12,20 +12,20 @@ type Constant struct {
 	BaseEmit
 
 	// Name is the constant identifier.
-	Name string
+	Name string `json:"name"`
 
 	// Package is the package name the rendered file declares.
-	Package string
+	Package string `json:"package,omitempty"`
 
 	// Type is the declared type. May be nil when the type is
 	// inferred from Value.
-	Type Ref
+	Type Ref `json:"-"`
 
 	// Value is the constant's value expression.
-	Value *Expr
+	Value *Expr `json:"value,omitempty"`
 
 	// Target identifies where the backend writes this constant.
-	Target Target
+	Target Target `json:"target,omitzero"`
 }
 
 // Kind returns [KindConstant].

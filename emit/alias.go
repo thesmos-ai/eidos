@@ -13,25 +13,25 @@ type Alias struct {
 	BaseEmit
 
 	// Name is the alias identifier.
-	Name string
+	Name string `json:"name"`
 
 	// Package is the package name the rendered file declares.
-	Package string
+	Package string `json:"package,omitempty"`
 
 	// Target is the type being aliased / re-defined.
-	Target Ref
+	Target Ref `json:"-"`
 
 	// IsAlias is true for `type X = Y` (alias), false for
 	// `type X Y` (new named type).
-	IsAlias bool
+	IsAlias bool `json:"is_alias,omitempty"`
 
 	// TypeParams are the alias's generic type parameters.
-	TypeParams []*TypeParam
+	TypeParams []*TypeParam `json:"type_params,omitempty"`
 
 	// File identifies where the backend writes this alias's
 	// rendered output. Named "File" rather than "Target" to avoid
 	// colliding with the [Alias.Target] type reference.
-	File Target
+	File Target `json:"file,omitzero"`
 }
 
 // Kind returns [KindAlias].

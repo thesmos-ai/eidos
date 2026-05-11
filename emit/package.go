@@ -25,49 +25,49 @@ type Package struct {
 	BaseEmit
 
 	// Name is the package's short name (Go's `package name`).
-	Name string
+	Name string `json:"name"`
 
 	// Path is the import path the package declares
 	// ("github.com/foo/bar/baz"). Empty for languages without
 	// import-path semantics.
-	Path string
+	Path string `json:"path,omitempty"`
 
 	// Dir is the output directory relative to the project root.
 	// Backends combine this with each declaration's [Target.Filename]
 	// to compute the final file path.
-	Dir string
+	Dir string `json:"dir,omitempty"`
 
 	// Files are the per-file metadata entries — one File per unique
 	// [Target] used by the declarations in this Package. Files carry
 	// per-file imports and "top"/"bottom"/"init" slots.
-	Files []*File
+	Files []*File `json:"files,omitempty"`
 
 	// Imports is the package-wide deduplicated import view.
 	// Per-file import blocks live on each [File.Imports].
-	Imports []*Import
+	Imports []*Import `json:"imports,omitempty"`
 
 	// Structs are the struct declarations.
-	Structs []*Struct
+	Structs []*Struct `json:"structs,omitempty"`
 
 	// Interfaces are the interface declarations.
-	Interfaces []*Interface
+	Interfaces []*Interface `json:"interfaces,omitempty"`
 
 	// Functions are the standalone (non-method) function
 	// declarations.
-	Functions []*Function
+	Functions []*Function `json:"functions,omitempty"`
 
 	// Variables are the package-level var declarations.
-	Variables []*Variable
+	Variables []*Variable `json:"variables,omitempty"`
 
 	// Constants are the package-level const declarations not
 	// gathered into an [Enum].
-	Constants []*Constant
+	Constants []*Constant `json:"constants,omitempty"`
 
 	// Enums are the enum declarations.
-	Enums []*Enum
+	Enums []*Enum `json:"enums,omitempty"`
 
 	// Aliases are the type-alias and type-definition declarations.
-	Aliases []*Alias
+	Aliases []*Alias `json:"aliases,omitempty"`
 
 	slotMap
 }

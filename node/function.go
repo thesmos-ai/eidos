@@ -12,19 +12,19 @@ type Function struct {
 	BaseNode
 
 	// Name is the function identifier.
-	Name string
+	Name string `json:"name"`
 
 	// Package is the source package path.
-	Package string
+	Package string `json:"package,omitempty"`
 
 	// Params are the function's positional parameters.
-	Params []*Param
+	Params []*Param `json:"params,omitempty"`
 
 	// Returns are the function's return types in source order.
-	Returns []*TypeRef
+	Returns []*TypeRef `json:"returns,omitempty"`
 
 	// TypeParams are the function's generic type parameters.
-	TypeParams []*TypeParam
+	TypeParams []*TypeParam `json:"type_params,omitempty"`
 }
 
 // Kind returns [KindFunction].

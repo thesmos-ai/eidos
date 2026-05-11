@@ -18,16 +18,16 @@ package emit
 type Target struct {
 	// Dir is the output directory relative to the project root
 	// (e.g. "internal/repo").
-	Dir string
+	Dir string `json:"dir,omitempty"`
 
 	// Filename is the base filename inside Dir
 	// (e.g. "user_repo_gen.go").
-	Filename string
+	Filename string `json:"filename,omitempty"`
 
 	// Package is the package name the rendered file declares
 	// (Go's `package repo`). Empty for languages without
 	// package declarations at the file level.
-	Package string
+	Package string `json:"package,omitempty"`
 }
 
 // IsZero reports whether t carries no routing information.

@@ -16,9 +16,9 @@ import "go.thesmos.sh/eidos/core/directive"
 // TypeArgs holds generic instantiation arguments where applicable.
 type ExternalRef struct {
 	BaseEmit
-	Package  string
-	Name     string
-	TypeArgs []Ref
+	Package  string `json:"package"`
+	Name     string `json:"name"`
+	TypeArgs []Ref `json:"-"`
 }
 
 // Kind returns [KindExternalRef].

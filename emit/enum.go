@@ -12,22 +12,22 @@ type Enum struct {
 	BaseEmit
 
 	// Name is the enum's type identifier.
-	Name string
+	Name string `json:"name"`
 
 	// Package is the package name the rendered file declares.
-	Package string
+	Package string `json:"package,omitempty"`
 
 	// Underlying is the enum's underlying type.
-	Underlying Ref
+	Underlying Ref `json:"-"`
 
 	// Variants are the declared variants in source order.
 	// Cross-cutting variant injection appends through
 	// [Enum.VariantsSlot].
-	Variants []*EnumVariant
+	Variants []*EnumVariant `json:"variants,omitempty"`
 
 	// Target identifies where the backend writes this enum's
 	// rendered output.
-	Target Target
+	Target Target `json:"target,omitzero"`
 
 	slotMap
 }

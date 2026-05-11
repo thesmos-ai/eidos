@@ -12,27 +12,27 @@ type Function struct {
 	BaseEmit
 
 	// Name is the function identifier.
-	Name string
+	Name string `json:"name"`
 
 	// Package is the package name the rendered file declares.
-	Package string
+	Package string `json:"package,omitempty"`
 
 	// Params are the function's positional parameters in source
 	// order.
-	Params []*Param
+	Params []*Param `json:"params,omitempty"`
 
 	// Returns are the function's return types in source order.
-	Returns []Ref
+	Returns []Ref `json:"-"`
 
 	// TypeParams are the function's generic type parameters.
-	TypeParams []*TypeParam
+	TypeParams []*TypeParam `json:"type_params,omitempty"`
 
 	// Body holds the function's statement body in source order.
-	Body []*Stmt
+	Body []*Stmt `json:"body,omitempty"`
 
 	// Target identifies where the backend writes this function's
 	// rendered output.
-	Target Target
+	Target Target `json:"target,omitzero"`
 
 	slotMap
 }

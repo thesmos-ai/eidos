@@ -15,14 +15,14 @@ type Param struct {
 
 	// Name is the parameter identifier. Empty for anonymous
 	// parameters in function-type fields and interface signatures.
-	Name string
+	Name string `json:"name,omitempty"`
 
 	// Type is the parameter's declared type.
-	Type Ref
+	Type Ref `json:"-"`
 
 	// Variadic reports whether this parameter is variadic — must
 	// be the last parameter in the parameter list.
-	Variadic bool
+	Variadic bool `json:"variadic,omitempty"`
 
 	// Owner is the [Function] or [Method] this parameter belongs to.
 	// Populated by the constructing generator.

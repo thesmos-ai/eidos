@@ -24,17 +24,17 @@ type Enum struct {
 	BaseNode
 
 	// Name is the enum's type identifier.
-	Name string
+	Name string `json:"name"`
 
 	// Package is the source package path.
-	Package string
+	Package string `json:"package,omitempty"`
 
 	// Underlying is the enum's underlying type (Go's `type Status
 	// int` would set this to a Named TypeRef for "int").
-	Underlying *TypeRef
+	Underlying *TypeRef `json:"underlying,omitempty"`
 
 	// Variants are the declared variants in source order.
-	Variants []*EnumVariant
+	Variants []*EnumVariant `json:"variants,omitempty"`
 }
 
 // Kind returns [KindEnum].

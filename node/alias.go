@@ -13,20 +13,27 @@ type Alias struct {
 	BaseNode
 
 	// Name is the alias identifier.
-	Name string
+	Name string `json:"name"`
 
 	// Package is the source package path.
-	Package string
+	Package string `json:"package,omitempty"`
 
 	// Target is the type being aliased / re-defined.
-	Target *TypeRef
+	Target *TypeRef `json:"target,omitempty"`
 
 	// IsAlias is true for `type X = Y` (type alias) and false for
 	// `type X Y` (new named type).
-	IsAlias bool
+	IsAlias bool `json:"is_alias,omitempty"`
 
 	// TypeParams are the alias's generic type parameters.
-	TypeParams []*TypeParam
+	TypeParams []*TypeParam `json:"type_params,omitempty"`
+
+	// Methods declared on this named type. Methods on Go's `type X
+	// Y` form attach here (Go allows methods on named types whose
+	// underlying type is anything — basic, slice, map, channel,
+	// etc.). True aliases (`type X = Y`) cannot carry methods of
+	// their own, so this slice is empty for [Alias.IsAlias] true.
+	Methods []*Method `json:"methods,omitempty"`
 }
 
 // Kind returns [KindAlias].
@@ -44,3 +51,25 @@ func (a *Alias) QName() string {
 // IsGeneric reports whether the alias declares generic type
 // parameters.
 func (a *Alias) IsGeneric() bool { return len(a.TypeParams) > 0 }
+
+// MethodByName returns the method named name, or nil when no such
+// method exists.
+func (a *Alias) MethodByName(name string) *Method {
+	for _, m := range a.Methods {
+		if m.Name == name {
+			return m
+		}
+	}
+	return nil
+}
+
+// MethodsWith returns methods matching pred in declaration order.
+func (a *Alias) MethodsWith(pred func(*Method) bool) []*Method {
+	out := make([]*Method, 0, len(a.Methods))
+	for _, m := range a.Methods {
+		if pred(m) {
+			out = append(out, m)
+		}
+	}
+	return out
+}

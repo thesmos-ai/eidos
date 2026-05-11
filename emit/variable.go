@@ -13,22 +13,22 @@ type Variable struct {
 	BaseEmit
 
 	// Name is the variable identifier.
-	Name string
+	Name string `json:"name"`
 
 	// Package is the package name the rendered file declares.
-	Package string
+	Package string `json:"package,omitempty"`
 
 	// Type is the declared type. May be nil when the type is
 	// inferred from Init.
-	Type Ref
+	Type Ref `json:"-"`
 
 	// Init is the initialiser expression. nil for declarations
 	// without an initialiser.
-	Init *Expr
+	Init *Expr `json:"init,omitempty"`
 
 	// Target identifies where the backend writes this variable's
 	// rendered output.
-	Target Target
+	Target Target `json:"target,omitzero"`
 }
 
 // Kind returns [KindVariable].

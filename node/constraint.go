@@ -28,13 +28,13 @@ type Constraint struct {
 	// Raw is the printed source form of the constraint. Always
 	// populated when constructed by a frontend; empty for synthetic
 	// constraints built programmatically (tests, fixtures).
-	Raw string
+	Raw string `json:"raw,omitempty"`
 
 	// Embedded lists the named refs embedded as bounds (interfaces,
 	// language-predeclared bound identifiers like Go's
 	// `comparable`). Empty when the constraint is purely a
 	// language-specific shape carried via metadata.
-	Embedded []*TypeRef
+	Embedded []*TypeRef `json:"embedded,omitempty"`
 }
 
 // IsAny reports whether the constraint accepts every type. A nil

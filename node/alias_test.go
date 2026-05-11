@@ -44,3 +44,68 @@ func TestAlias_IsGeneric(t *testing.T) {
 		}
 	})
 }
+
+func TestAlias_MethodByName(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns the matching method by name", func(t *testing.T) {
+		t.Parallel()
+		want := &node.Method{Name: "Mul"}
+		a := &node.Alias{Methods: []*node.Method{{Name: "Add"}, want, {Name: "Sub"}}}
+		if got := a.MethodByName("Mul"); got != want {
+			t.Fatalf("MethodByName(Mul) = %p, want %p", got, want)
+		}
+	})
+
+	t.Run("returns nil when no method matches", func(t *testing.T) {
+		t.Parallel()
+		a := &node.Alias{Methods: []*node.Method{{Name: "Add"}}}
+		if got := a.MethodByName("Missing"); got != nil {
+			t.Fatalf("MethodByName(Missing) = %p, want nil", got)
+		}
+	})
+
+	t.Run("returns nil for an alias with no methods", func(t *testing.T) {
+		t.Parallel()
+		var a node.Alias
+		if got := a.MethodByName("Any"); got != nil {
+			t.Fatalf("MethodByName on empty Methods = %p, want nil", got)
+		}
+	})
+}
+
+func TestAlias_MethodsWith(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns methods matching the predicate in declaration order", func(t *testing.T) {
+		t.Parallel()
+		add := &node.Method{Name: "Add"}
+		mul := &node.Method{Name: "Mul"}
+		sub := &node.Method{Name: "Sub"}
+		a := &node.Alias{Methods: []*node.Method{add, mul, sub}}
+		got := a.MethodsWith(func(m *node.Method) bool {
+			return m.Name == "Add" || m.Name == "Sub"
+		})
+		if len(got) != 2 || got[0] != add || got[1] != sub {
+			t.Fatalf("MethodsWith returned %v, want [Add, Sub]", got)
+		}
+	})
+
+	t.Run("returns an empty slice when nothing matches", func(t *testing.T) {
+		t.Parallel()
+		a := &node.Alias{Methods: []*node.Method{{Name: "Add"}}}
+		got := a.MethodsWith(func(*node.Method) bool { return false })
+		if len(got) != 0 {
+			t.Fatalf("MethodsWith returned %d entries, want 0", len(got))
+		}
+	})
+
+	t.Run("returns an empty slice on an alias with no methods", func(t *testing.T) {
+		t.Parallel()
+		var a node.Alias
+		got := a.MethodsWith(func(*node.Method) bool { return true })
+		if len(got) != 0 {
+			t.Fatalf("MethodsWith on empty Methods returned %d entries, want 0", len(got))
+		}
+	})
+}

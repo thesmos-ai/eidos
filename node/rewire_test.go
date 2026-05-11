@@ -95,6 +95,29 @@ func TestRewireOwners(t *testing.T) {
 		}
 	})
 
+	t.Run("wires alias.Methods Owner and child params after round-trip", func(t *testing.T) {
+		t.Parallel()
+		method := &node.Method{
+			Name:    "Mul",
+			Params:  []*node.Param{{Name: "by", Type: namedRef("", "int")}},
+			Returns: []*node.TypeRef{namedRef("", "int")},
+		}
+		alias := &node.Alias{
+			Name:    "Seconds",
+			Package: "p",
+			Target:  namedRef("", "int"),
+			Methods: []*node.Method{method},
+		}
+		pkg := &node.Package{Name: "p", Path: "p", Aliases: []*node.Alias{alias}}
+		node.RewireOwners(pkg)
+		if method.Owner != alias {
+			t.Fatalf("alias method Owner not wired: got %+v", method.Owner)
+		}
+		if method.Params[0].Owner != method {
+			t.Fatalf("alias method param Owner not wired: got %+v", method.Params[0].Owner)
+		}
+	})
+
 	t.Run("idempotent: calling twice leaves the graph unchanged", func(t *testing.T) {
 		t.Parallel()
 		pkg := makeRichPackage()

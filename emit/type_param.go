@@ -12,12 +12,12 @@ type TypeParam struct {
 	BaseEmit
 
 	// Name is the parameter identifier (e.g. "T", "K", "V").
-	Name string
+	Name string `json:"name"`
 
 	// Constraint is the structured bound on the parameter. nil
 	// indicates no explicit constraint (the implicit "any" of
 	// languages with implicit bounds); see [Constraint.IsAny].
-	Constraint *Constraint
+	Constraint *Constraint `json:"constraint,omitempty"`
 
 	// Owner is the declaration this type parameter belongs to.
 	//

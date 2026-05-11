@@ -57,24 +57,24 @@ type CompositeRef struct {
 	BaseEmit
 
 	// Shape discriminates the composite variant.
-	Shape CompositeShape
+	Shape CompositeShape `json:"shape"`
 
 	// Elem is the element ref for Pointer / Slice / Array shapes.
-	Elem Ref
+	Elem Ref `json:"-"`
 
 	// ArrayLen is the length of a fixed-size array. Meaningful only
 	// when Shape == ShapeArray.
-	ArrayLen int
+	ArrayLen int `json:"array_len,omitempty"`
 
 	// MapKey and MapValue describe the Map shape's key and value
 	// types.
-	MapKey   Ref
-	MapValue Ref
+	MapKey   Ref `json:"-"`
+	MapValue Ref `json:"-"`
 
 	// FuncParams and FuncReturns describe the Func shape's
 	// parameter and return types in source order.
-	FuncParams  []Ref
-	FuncReturns []Ref
+	FuncParams  []Ref `json:"-"`
+	FuncReturns []Ref `json:"-"`
 }
 
 // Kind returns [KindCompositeRef].

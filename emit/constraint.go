@@ -25,13 +25,13 @@ type Constraint struct {
 	// Raw is the printed source form of the constraint when the
 	// constructing generator has it available; empty otherwise —
 	// backends fall back to rendering from Embedded in that case.
-	Raw string
+	Raw string `json:"raw,omitempty"`
 
 	// Embedded lists the named refs embedded as bounds (interfaces,
 	// the `comparable` predeclared identifier, etc.). Empty when
 	// the constraint is purely a language-specific shape carried
 	// via plugin-defined emit kinds.
-	Embedded []Ref
+	Embedded []Ref `json:"-"`
 }
 
 // IsAny reports whether the constraint accepts every type. A nil

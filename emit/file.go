@@ -26,22 +26,22 @@ type File struct {
 	// Name is the file basename inside the output directory
 	// (e.g. "user_gen.go"). Matches [Target.Filename] on the
 	// declarations routed to this file.
-	Name string
+	Name string `json:"name"`
 
 	// Package is the package name the file declares
 	// (Go's `package foo`). Matches [Target.Package] on the
 	// declarations routed here.
-	Package string
+	Package string `json:"package,omitempty"`
 
 	// Dir is the file's output directory relative to the project
 	// root. Matches [Target.Dir] on the declarations routed here.
-	Dir string
+	Dir string `json:"dir,omitempty"`
 
 	// Imports is the file's import block. Backends commonly derive
 	// imports from [ExternalRef] usage at render time via the `imp`
 	// template func; explicit Imports let generators force-include
 	// packages for side effects or to declare aliases up front.
-	Imports []*Import
+	Imports []*Import `json:"imports,omitempty"`
 
 	// Owner is the [Package] this file belongs to.
 	//

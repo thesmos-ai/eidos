@@ -23,31 +23,31 @@ type Method struct {
 	BaseEmit
 
 	// Name is the method identifier.
-	Name string
+	Name string `json:"name"`
 
 	// Receiver is the receiver type of a struct method. nil for
 	// methods declared inside an interface.
-	Receiver Ref
+	Receiver Ref `json:"-"`
 
 	// ReceiverName is the receiver variable name for the generated
 	// method ("r" in `func (r *Repo) Get()`). Empty for interface
 	// methods and for receiver declarations using the blank
 	// receiver form.
-	ReceiverName string
+	ReceiverName string `json:"receiver_name,omitempty"`
 
 	// Params are the method's positional parameters in source order.
-	Params []*Param
+	Params []*Param `json:"params,omitempty"`
 
 	// Returns are the method's return types in source order.
-	Returns []Ref
+	Returns []Ref `json:"-"`
 
 	// TypeParams are the method's generic type parameters.
-	TypeParams []*TypeParam
+	TypeParams []*TypeParam `json:"type_params,omitempty"`
 
 	// Body holds the method's statement body in source order.
 	// Cross-cutting injection goes through the prebody / postbody
 	// slots rather than mutating Body directly.
-	Body []*Stmt
+	Body []*Stmt `json:"body,omitempty"`
 
 	// Owner is the [Struct] or [Interface] that declares this
 	// method.

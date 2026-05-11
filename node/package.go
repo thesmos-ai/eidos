@@ -23,43 +23,43 @@ type Package struct {
 	BaseNode
 
 	// Name is the short package name (Go's `package name`).
-	Name string
+	Name string `json:"name"`
 
 	// Path is the import path (Go's "github.com/foo/bar/baz").
-	Path string
+	Path string `json:"path,omitempty"`
 
 	// Files are the source files contributing to this package, in
 	// the order the frontend visited them.
-	Files []*File
+	Files []*File `json:"files,omitempty"`
 
 	// Imports is the deduplicated union of every File's imports.
 	// Each Import here has Owner pointing back at the Package; the
 	// per-file Import instances live on each [File.Imports].
-	Imports []*Import
+	Imports []*Import `json:"imports,omitempty"`
 
 	// Structs are the struct declarations in the package.
-	Structs []*Struct
+	Structs []*Struct `json:"structs,omitempty"`
 
 	// Interfaces are the interface declarations in the package.
-	Interfaces []*Interface
+	Interfaces []*Interface `json:"interfaces,omitempty"`
 
 	// Functions are the standalone (non-method) function
 	// declarations.
-	Functions []*Function
+	Functions []*Function `json:"functions,omitempty"`
 
 	// Variables are the package-level var declarations.
-	Variables []*Variable
+	Variables []*Variable `json:"variables,omitempty"`
 
 	// Constants are the package-level const declarations not
 	// gathered into an Enum.
-	Constants []*Constant
+	Constants []*Constant `json:"constants,omitempty"`
 
 	// Enums are the idiomatic enums detected by the frontend or
 	// declared as first-class enums in languages that support them.
-	Enums []*Enum
+	Enums []*Enum `json:"enums,omitempty"`
 
 	// Aliases are the type-alias and type-definition declarations.
-	Aliases []*Alias
+	Aliases []*Alias `json:"aliases,omitempty"`
 }
 
 // Kind returns [KindPackage].

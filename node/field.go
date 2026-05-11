@@ -14,14 +14,14 @@ type Field struct {
 
 	// Name is the field identifier. Always non-empty for true
 	// fields; embedded types use [Embed] instead.
-	Name string
+	Name string `json:"name"`
 
 	// Type is the field's declared type.
-	Type *TypeRef
+	Type *TypeRef `json:"type,omitempty"`
 
 	// Tag is the raw struct tag string (Go's backtick-quoted form),
 	// without the enclosing backticks. Empty when no tag is declared.
-	Tag string
+	Tag string `json:"tag,omitempty"`
 
 	// Owner is the host that declares this field. For a [Struct]
 	// field Owner is the *[Struct]; for a field inside an anonymous

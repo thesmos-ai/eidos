@@ -16,11 +16,11 @@ type EnumVariant struct {
 	BaseNode
 
 	// Name is the variant identifier.
-	Name string
+	Name string `json:"name"`
 
 	// Value is the variant's value in verbatim source form
 	// (typically a literal integer or string).
-	Value string
+	Value string `json:"value,omitempty"`
 
 	// Owner is the [Enum] this variant belongs to. Populated by
 	// the constructing frontend.

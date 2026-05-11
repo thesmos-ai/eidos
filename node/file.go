@@ -20,14 +20,14 @@ type File struct {
 	BaseNode
 
 	// Name is the file's basename (e.g. "user.go").
-	Name string
+	Name string `json:"name"`
 
 	// Path is the file's full path (or repo-relative path).
-	Path string
+	Path string `json:"path,omitempty"`
 
 	// Imports are the import declarations in this file in source
 	// order.
-	Imports []*Import
+	Imports []*Import `json:"imports,omitempty"`
 
 	// Owner is the [Package] this file belongs to. Populated by
 	// the constructing frontend.

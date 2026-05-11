@@ -13,18 +13,18 @@ type Variable struct {
 	BaseNode
 
 	// Name is the variable identifier.
-	Name string
+	Name string `json:"name"`
 
 	// Package is the source package path.
-	Package string
+	Package string `json:"package,omitempty"`
 
 	// Type is the declared type. May be nil for variables whose
 	// type is inferred from InitExpr.
-	Type *TypeRef
+	Type *TypeRef `json:"type,omitempty"`
 
 	// InitExpr is the verbatim initialiser expression text. Empty
 	// for declarations without an initialiser.
-	InitExpr string
+	InitExpr string `json:"init_expr,omitempty"`
 }
 
 // Kind returns [KindVariable].

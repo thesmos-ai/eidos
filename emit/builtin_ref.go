@@ -15,7 +15,7 @@ import "go.thesmos.sh/eidos/core/directive"
 // Rust, …).
 type BuiltinRef struct {
 	BaseEmit
-	Name string
+	Name string `json:"name"`
 }
 
 // Kind returns [KindBuiltinRef].

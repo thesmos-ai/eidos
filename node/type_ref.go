@@ -104,56 +104,56 @@ type TypeRef struct {
 
 	// TypeKind discriminates the variant. Set by the constructing
 	// frontend; downstream reads via TypeRef.Kind().
-	TypeKind TypeRefKind
+	TypeKind TypeRefKind `json:"type_kind"`
 
 	// Package is the source package path for Named refs ("" for
 	// builtin or in-package types). Empty for non-Named variants.
-	Package string
+	Package string `json:"package,omitempty"`
 
 	// Name is the type identifier for Named refs and the type-param
 	// identifier for TypeRefTypeParam refs. Empty for composite and
 	// anonymous-type variants.
-	Name string
+	Name string `json:"name,omitempty"`
 
 	// TypeArgs are generic type arguments for Named refs that are
 	// generic instantiations (Go's `Map[string, int]`). Empty for
 	// non-Named variants.
-	TypeArgs []*TypeRef
+	TypeArgs []*TypeRef `json:"type_args,omitempty"`
 
 	// Elem is the element type for Pointer / Slice / Array.
-	Elem *TypeRef
+	Elem *TypeRef `json:"elem,omitempty"`
 
 	// ArrayLen is the length of an Array. Zero for slices and
 	// non-array variants.
-	ArrayLen int
+	ArrayLen int `json:"array_len,omitempty"`
 
 	// MapKey is the key type for Map variants.
-	MapKey *TypeRef
+	MapKey *TypeRef `json:"map_key,omitempty"`
 
 	// MapValue is the value type for Map variants.
-	MapValue *TypeRef
+	MapValue *TypeRef `json:"map_value,omitempty"`
 
 	// FuncParams are the parameter types of a Func variant in
 	// source order.
-	FuncParams []*TypeRef
+	FuncParams []*TypeRef `json:"func_params,omitempty"`
 
 	// FuncReturns are the return types of a Func variant in source
 	// order.
-	FuncReturns []*TypeRef
+	FuncReturns []*TypeRef `json:"func_returns,omitempty"`
 
 	// Fields are the inline fields of an [TypeRefAnonStruct]. Each
 	// field's [Field.Owner] is the enclosing TypeRef so consumers
 	// walking up from a field locate the anonymous host.
-	Fields []*Field
+	Fields []*Field `json:"fields,omitempty"`
 
 	// Methods are the inline methods of an [TypeRefAnonInterface].
 	// Each method's [Method.Owner] is the enclosing TypeRef.
-	Methods []*Method
+	Methods []*Method `json:"methods,omitempty"`
 
 	// Embeds are the embedded types of an [TypeRefAnonStruct] or
 	// [TypeRefAnonInterface] in source order. Each embed's
 	// [Embed.Owner] is the enclosing TypeRef.
-	Embeds []*Embed
+	Embeds []*Embed `json:"embeds,omitempty"`
 }
 
 // Kind returns [KindTypeRef] regardless of TypeRefKind — TypeRefKind

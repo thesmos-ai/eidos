@@ -14,34 +14,34 @@ type Struct struct {
 	BaseEmit
 
 	// Name is the struct's identifier.
-	Name string
+	Name string `json:"name"`
 
 	// Package is the package name the rendered file declares.
 	// (Distinct from import paths — this is the local declaration
 	// package.) Empty for anonymous struct types.
-	Package string
+	Package string `json:"package,omitempty"`
 
 	// Fields are the named fields contributed by the owner generator.
 	// Cross-cutting field additions append through [Struct.FieldsSlot].
-	Fields []*Field
+	Fields []*Field `json:"fields,omitempty"`
 
 	// Embeds are the embedded types contributed by the owner.
 	// Cross-cutting embedded-type additions append through
 	// [Struct.EmbedsSlot].
-	Embeds []*Embed
+	Embeds []*Embed `json:"embeds,omitempty"`
 
 	// Methods are the methods declared on the struct by the owner.
 	// Cross-cutting method additions append through
 	// [Struct.MethodsSlot].
-	Methods []*Method
+	Methods []*Method `json:"methods,omitempty"`
 
 	// TypeParams are the struct's generic type parameters.
-	TypeParams []*TypeParam
+	TypeParams []*TypeParam `json:"type_params,omitempty"`
 
 	// Target identifies where the backend writes this struct's
 	// rendered output. Multiple emit entities sharing a Target
 	// compose into the same file.
-	Target Target
+	Target Target `json:"target,omitzero"`
 
 	slotMap
 }

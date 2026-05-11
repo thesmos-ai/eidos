@@ -13,23 +13,23 @@ type Interface struct {
 	BaseNode
 
 	// Name is the interface's identifier.
-	Name string
+	Name string `json:"name"`
 
 	// Package is the source package path. Empty for anonymous
 	// interface types declared inline.
-	Package string
+	Package string `json:"package,omitempty"`
 
 	// Methods are the interface's declared method signatures in
 	// source order. Each Method has a nil Receiver — the receiver
 	// is implicit in the interface.
-	Methods []*Method
+	Methods []*Method `json:"methods,omitempty"`
 
 	// Embeds are the embedded interfaces (and union constraint
 	// terms in Go's generic-type-set position) in source order.
-	Embeds []*Embed
+	Embeds []*Embed `json:"embeds,omitempty"`
 
 	// TypeParams are the interface's generic type parameters.
-	TypeParams []*TypeParam
+	TypeParams []*TypeParam `json:"type_params,omitempty"`
 }
 
 // Kind returns [KindInterface].

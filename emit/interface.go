@@ -12,26 +12,26 @@ type Interface struct {
 	BaseEmit
 
 	// Name is the interface's identifier.
-	Name string
+	Name string `json:"name"`
 
 	// Package is the package name the rendered file declares.
 	// Empty for anonymous interface types.
-	Package string
+	Package string `json:"package,omitempty"`
 
 	// Methods are the interface's declared method signatures in
 	// source order. Each Method has a nil Receiver.
-	Methods []*Method
+	Methods []*Method `json:"methods,omitempty"`
 
 	// Embeds are the embedded interfaces (and union constraint
 	// terms in Go's generic-type-set position) in source order.
-	Embeds []*Embed
+	Embeds []*Embed `json:"embeds,omitempty"`
 
 	// TypeParams are the interface's generic type parameters.
-	TypeParams []*TypeParam
+	TypeParams []*TypeParam `json:"type_params,omitempty"`
 
 	// Target identifies where the backend writes this interface's
 	// rendered output.
-	Target Target
+	Target Target `json:"target,omitzero"`
 
 	slotMap
 }

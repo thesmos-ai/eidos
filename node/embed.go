@@ -12,7 +12,7 @@ type Embed struct {
 	BaseNode
 
 	// Type is the embedded type reference.
-	Type *TypeRef
+	Type *TypeRef `json:"type,omitempty"`
 
 	// Owner is the struct or interface doing the embedding.
 	// Populated by the constructing frontend.

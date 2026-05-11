@@ -12,7 +12,7 @@ type Embed struct {
 	BaseEmit
 
 	// Type is the embedded type reference.
-	Type Ref
+	Type Ref `json:"-"`
 
 	// Owner is the struct or interface doing the embedding.
 	//

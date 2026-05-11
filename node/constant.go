@@ -13,17 +13,17 @@ type Constant struct {
 	BaseNode
 
 	// Name is the constant identifier.
-	Name string
+	Name string `json:"name"`
 
 	// Package is the source package path.
-	Package string
+	Package string `json:"package,omitempty"`
 
 	// Type is the declared type. May be nil when the type is
 	// inferred from the value.
-	Type *TypeRef
+	Type *TypeRef `json:"type,omitempty"`
 
 	// Value is the constant's value in verbatim source form.
-	Value string
+	Value string `json:"value,omitempty"`
 }
 
 // Kind returns [KindConstant].

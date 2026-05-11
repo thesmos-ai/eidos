@@ -14,29 +14,29 @@ type Method struct {
 	BaseNode
 
 	// Name is the method identifier.
-	Name string
+	Name string `json:"name"`
 
 	// Receiver is the receiver type of a struct method. nil for
 	// methods declared inside an interface.
-	Receiver *TypeRef
+	Receiver *TypeRef `json:"receiver,omitempty"`
 
 	// ReceiverName is the receiver variable name from source. For
 	// `func (s *Repo) Get()` it is "s". Empty for methods declared
 	// inside an interface (no receiver variable) and for receiver
 	// declarations like `func (*Repo) Foo()` that use the blank
 	// receiver form.
-	ReceiverName string
+	ReceiverName string `json:"receiver_name,omitempty"`
 
 	// Params are the method's positional parameters in source order.
-	Params []*Param
+	Params []*Param `json:"params,omitempty"`
 
 	// Returns are the method's return types in source order.
-	Returns []*TypeRef
+	Returns []*TypeRef `json:"returns,omitempty"`
 
 	// TypeParams are the method's generic type parameters
 	// (rarely used in Go; declared on the receiver type instead,
 	// but accepted by the model).
-	TypeParams []*TypeParam
+	TypeParams []*TypeParam `json:"type_params,omitempty"`
 
 	// Owner is the [Struct] or [Interface] that declares this
 	// method. Populated by the constructing frontend.

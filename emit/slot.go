@@ -60,7 +60,7 @@ type Slot struct {
 
 	// SlotName is the name this slot is registered under on its
 	// owner.
-	SlotName string
+	SlotName string `json:"slot_name"`
 
 	// Owner is the host emit node that exposes this slot.
 	//
@@ -73,15 +73,15 @@ type Slot struct {
 	// only items whose Kind() matches. An empty ElemKind accepts
 	// any kind (use when the slot's content is intentionally
 	// heterogeneous).
-	ElemKind directive.Kind
+	ElemKind directive.Kind `json:"elem_kind,omitempty"`
 
 	// Items holds the appended contributions in their final order.
-	Items []Node
+	Items []Node `json:"-"`
 
 	// Provenance is a parallel slice with Items: ProvenanceList[i]
 	// records who appended Items[i] and where the contribution
 	// originated.
-	ProvenanceList []Provenance
+	ProvenanceList []Provenance `json:"provenance,omitempty"`
 }
 
 // Kind returns [KindSlot].

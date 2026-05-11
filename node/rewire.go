@@ -138,6 +138,10 @@ func rewireAlias(a *Alias) {
 		rewireConstraint(tp.Constraint)
 	}
 	rewireTypeRef(a.Target)
+	for _, m := range a.Methods {
+		m.Owner = a
+		rewireMethod(m)
+	}
 }
 
 // rewireTypeRef walks composite type references and the inline

@@ -16,12 +16,12 @@ type Import struct {
 	BaseEmit
 
 	// Path is the imported package path.
-	Path string
+	Path string `json:"path"`
 
 	// Alias is the explicit local name for the import, or empty
 	// when the import uses the path-derived default. A leading
 	// underscore alias means "import for side effects only".
-	Alias string
+	Alias string `json:"alias,omitempty"`
 
 	// Owner is the [File] this import belongs to.
 	//

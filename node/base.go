@@ -23,17 +23,17 @@ import (
 type BaseNode struct {
 	// SourcePos is where the node was declared. Synthetic nodes use
 	// [position.Synthetic] tags.
-	SourcePos position.Pos
+	SourcePos position.Pos `json:"pos,omitzero"`
 	// DocLines holds doc comment text preserved verbatim from source
 	// (comment markers stripped). Frontend populates; downstream
 	// reads via [BaseNode.Docs].
-	DocLines []string
+	DocLines []string `json:"docs,omitempty"`
 	// DirectiveList holds every +/-gen: directive attached to this
 	// node, in source order.
-	DirectiveList []*directive.Directive
+	DirectiveList []*directive.Directive `json:"directives,omitempty"`
 	// MetaBag is the lazily-allocated metadata storage. Access via
 	// [BaseNode.Meta] rather than touching the field directly.
-	MetaBag *meta.Bag
+	MetaBag *meta.Bag `json:"meta,omitempty"`
 }
 
 // Pos returns [BaseNode.SourcePos].
