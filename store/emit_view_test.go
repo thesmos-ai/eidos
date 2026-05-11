@@ -480,3 +480,56 @@ func TestEmitView_Freeze(t *testing.T) {
 		}
 	})
 }
+
+func TestEmitView_FileFor(t *testing.T) {
+	t.Parallel()
+
+	t.Run("creates a fresh emit.File for an unknown Target", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		target := emit.Target{Dir: "out", Filename: "x.go", Package: "x"}
+		f, err := s.Emit().FileFor(target)
+		assertNoError(t, err)
+		if f == nil || f.Name != "x.go" || f.Dir != "out" || f.Package != "x" {
+			t.Fatalf("FileFor mismatch: %+v", f)
+		}
+	})
+
+	t.Run("returns the same emit.File on repeat lookups (single per Target)", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		target := emit.Target{Dir: "out", Filename: "x.go", Package: "x"}
+		first, err := s.Emit().FileFor(target)
+		assertNoError(t, err)
+		second, err := s.Emit().FileFor(target)
+		assertNoError(t, err)
+		if first != second {
+			t.Fatalf("FileFor should return the same instance on repeat lookups")
+		}
+	})
+
+	t.Run("returns ErrFrozen when creating after Freeze with no prior File", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		s.Emit().Freeze()
+		target := emit.Target{Dir: "out", Filename: "x.go", Package: "x"}
+		_, err := s.Emit().FileFor(target)
+		if !errors.Is(err, store.ErrFrozen) {
+			t.Fatalf("FileFor on frozen view should return ErrFrozen; got %v", err)
+		}
+	})
+
+	t.Run("lookups for already-present Files succeed after Freeze", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		target := emit.Target{Dir: "out", Filename: "x.go", Package: "x"}
+		first, err := s.Emit().FileFor(target)
+		assertNoError(t, err)
+		s.Emit().Freeze()
+		second, err := s.Emit().FileFor(target)
+		assertNoError(t, err)
+		if first != second {
+			t.Fatalf("post-freeze lookup should return the existing File")
+		}
+	})
+}

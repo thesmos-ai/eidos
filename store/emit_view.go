@@ -5,6 +5,7 @@ package store
 
 import (
 	"fmt"
+	"sync"
 	"sync/atomic"
 
 	"go.thesmos.sh/eidos/core/directive"
@@ -43,7 +44,8 @@ type EmitView struct {
 	byTarget    *MultiIndex[emit.Target, emit.Node]
 	byMetaKey   *MultiIndex[string, emit.Node]
 
-	frozen atomic.Bool
+	frozen    atomic.Bool
+	fileForMu sync.Mutex
 }
 
 // newEmitView constructs an empty EmitView with all buckets and
@@ -339,3 +341,44 @@ func (v *EmitView) Freeze() { v.frozen.Store(true) }
 
 // IsFrozen reports whether [EmitView.Freeze] has been called.
 func (v *EmitView) IsFrozen() bool { return v.frozen.Load() }
+
+// FileFor returns the [emit.File] routed to target, creating one
+// if none exists yet. The "exactly one emit.File per Target"
+// invariant is what makes multi-generator file composition safe:
+// later generators look up the same File and accumulate into its
+// slots rather than each generator creating its own conflicting
+// File.
+//
+// The created File carries the target's Dir / Filename / Package
+// fields verbatim; callers append to its slots via the standard
+// [emit.File.Top] / [emit.File.Bottom] / [emit.File.Init] /
+// [emit.File.ImportsSlot] / [emit.File.Slot] accessors.
+//
+// FileFor returns [ErrFrozen] when the view is frozen and no File
+// exists for the target. Lookups for already-present Files succeed
+// regardless of frozen state.
+//
+// The check-then-create sequence is serialised through a per-view
+// mutex so two concurrent goroutines targeting the same Target
+// see the same File without a race.
+func (v *EmitView) FileFor(target emit.Target) (*emit.File, error) {
+	key := target.Dir + "/" + target.Filename
+	v.fileForMu.Lock()
+	defer v.fileForMu.Unlock()
+	if f, ok := v.files.ByQName(key); ok {
+		return f, nil
+	}
+	if v.frozen.Load() {
+		return nil, fmt.Errorf("%w: cannot create emit.File for %+v", ErrFrozen, target)
+	}
+	f := &emit.File{
+		Name:    target.Filename,
+		Package: target.Package,
+		Dir:     target.Dir,
+	}
+	// Add cannot fail: we hold fileForMu and the ByQName above
+	// guarantees no concurrent caller inserted under key.
+	_ = v.files.Add(key, f) //nolint:errcheck // serialised; duplicate impossible
+	v.indexCommon(f, target.Dir, f.Target())
+	return f, nil
+}
