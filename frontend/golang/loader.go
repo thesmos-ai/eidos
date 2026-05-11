@@ -1,0 +1,169 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
+package golang
+
+import (
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
+
+	"golang.org/x/tools/go/packages"
+
+	"go.thesmos.sh/eidos/core/position"
+	"go.thesmos.sh/eidos/node"
+	"go.thesmos.sh/eidos/plugin"
+)
+
+// ErrEmptyPattern is returned by [Frontend.Load] when the
+// [plugin.FrontendContext.Pattern] is empty or whitespace-only.
+// The loader cannot make progress without a concrete pattern to
+// hand to [packages.Load]; surfacing a sentinel lets callers
+// distinguish the contract violation from real load failures.
+var ErrEmptyPattern = errors.New("golang: empty pattern")
+
+// loadMode is the [packages.LoadMode] every Load call uses. The mode
+// requests everything the converter needs to faithfully reconstruct
+// declarations: package + module identity, imports, syntax trees,
+// fully-resolved type information including type-checker errors,
+// and embedded file contents.
+const loadMode = packages.NeedName |
+	packages.NeedFiles |
+	packages.NeedImports |
+	packages.NeedTypes |
+	packages.NeedSyntax |
+	packages.NeedTypesInfo |
+	packages.NeedTypesSizes |
+	packages.NeedModule
+
+// loadPattern is the entry point [Frontend.Load] delegates to. It
+// loads every package matching [plugin.FrontendContext.Pattern] via
+// [packages.Load], surfaces parse / type errors as positioned
+// diagnostics, and dispatches each package to [convertPackage] for
+// AST → node conversion.
+//
+// A nil or empty pattern is rejected with a positioned diagnostic
+// and a non-nil error — without a pattern the loader has nothing
+// concrete to load and continuing would silently succeed with an
+// empty store.
+func loadPattern(ctx *plugin.FrontendContext, opts Options) error {
+	if strings.TrimSpace(ctx.Pattern) == "" {
+		ctx.Diag.For(FrontendName).Errorf(position.Pos{}, "load: empty pattern")
+		return ErrEmptyPattern
+	}
+
+	cfg := &packages.Config{
+		Mode:  loadMode,
+		Tests: opts.IncludeTests,
+	}
+	if tags := strings.TrimSpace(opts.BuildTags); tags != "" {
+		cfg.BuildFlags = []string{"-tags=" + tags}
+	}
+
+	pkgs, err := packages.Load(cfg, ctx.Pattern)
+	if err != nil {
+		ctx.Diag.For(FrontendName).Errorf(position.Pos{}, "load %q: %v", ctx.Pattern, err)
+		return fmt.Errorf("golang: load %q: %w", ctx.Pattern, err)
+	}
+
+	reportPackageErrors(ctx, pkgs)
+
+	for _, pkg := range pkgs {
+		if pkg.PkgPath == "" {
+			// Synthetic placeholder packages (e.g. when the pattern
+			// matches no real packages) carry no useful information
+			// and would only add noise to the store.
+			continue
+		}
+		if err := convertPackageWithCache(ctx, opts, pkg); err != nil {
+			ctx.Diag.For(FrontendName).Errorf(position.Pos{}, "convert %q: %v", pkg.PkgPath, err)
+		}
+	}
+	return nil
+}
+
+// convertPackageWithCache routes a package through the per-pipeline
+// cache before falling back to a fresh AST→node conversion. On a
+// cache hit the deserialised [node.Package] is wired and added to
+// the store directly; on a miss the converter runs, the result is
+// added to the store, and a fresh cache entry is written.
+//
+// A cache-key computation failure (source file mutated between
+// [packages.Load] and the hash pass) skips the cache entirely and
+// falls through to a fresh conversion. Write failures surface as
+// Warn diagnostics so cache-disk problems are visible without
+// blocking the run.
+func convertPackageWithCache(ctx *plugin.FrontendContext, opts Options, pkg *packages.Package) error {
+	ps := ctx.Diag.For(FrontendName)
+	key, keyErr := packageCacheKey(pkg, opts)
+	if keyErr == nil {
+		if cached, ok := loadPackageFromCache(ctx.Cache, key); ok {
+			if err := ctx.Store.Nodes().AddPackage(cached); err != nil {
+				return fmt.Errorf("add cached package: %w", err)
+			}
+			return nil
+		}
+	}
+	out := buildPackage(ctx, opts, pkg)
+	if err := ctx.Store.Nodes().AddPackage(out); err != nil {
+		return fmt.Errorf("add package: %w", err)
+	}
+	if keyErr == nil {
+		storePackageInCache(ctx.Cache, key, out, ps)
+	}
+	return nil
+}
+
+// buildPackage runs the AST→node conversion and returns the
+// resulting [node.Package] with back-pointers wired but not yet
+// added to the store. Separated from the store-write path so the
+// cache layer can intercept the result before invoking it.
+func buildPackage(ctx *plugin.FrontendContext, opts Options, pkg *packages.Package) *node.Package {
+	conv := newConverter(ctx, pkg, opts)
+	out := conv.run()
+	node.RewireOwners(out)
+	return out
+}
+
+// reportPackageErrors emits one diagnostic per error attached to the
+// loaded packages. Parser, type-checker, and list errors all surface
+// here with the position the Go toolchain reported.
+func reportPackageErrors(ctx *plugin.FrontendContext, pkgs []*packages.Package) {
+	ps := ctx.Diag.For(FrontendName)
+	packages.Visit(pkgs, nil, func(pkg *packages.Package) {
+		for _, e := range pkg.Errors {
+			ps.Errorf(positionFromPackagesError(e), "%s", e.Msg)
+		}
+	})
+}
+
+// positionFromPackagesError converts the colon-delimited "file:line:col"
+// position string [packages.Error] carries into a [position.Pos]. The
+// conversion is forgiving — malformed position strings yield a zero
+// Pos rather than a parse error, because the alternative is hiding
+// the diagnostic behind a position-parse failure.
+func positionFromPackagesError(e packages.Error) position.Pos {
+	// packages.Error.Pos is a "file:line:col" string. We split from
+	// the right so file paths containing colons (Windows volume
+	// letters, network paths) round-trip correctly.
+	rest := e.Pos
+	colCutAt := strings.LastIndex(rest, ":")
+	if colCutAt < 0 {
+		return position.Pos{File: rest}
+	}
+	colStr := rest[colCutAt+1:]
+	rest = rest[:colCutAt]
+	lineCutAt := strings.LastIndex(rest, ":")
+	if lineCutAt < 0 {
+		return position.Pos{File: rest}
+	}
+	lineStr := rest[lineCutAt+1:]
+	file := rest[:lineCutAt]
+	// packages.Error.Pos guarantees the colon-split fragments are
+	// decimal integers; discarding the strconv error matches the
+	// upstream contract.
+	line, _ := strconv.Atoi(lineStr) //nolint:errcheck // packages.Error invariant
+	col, _ := strconv.Atoi(colStr)   //nolint:errcheck // packages.Error invariant
+	return position.At(file, line, col)
+}
