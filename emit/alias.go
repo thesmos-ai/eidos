@@ -28,10 +28,21 @@ type Alias struct {
 	// TypeParams are the alias's generic type parameters.
 	TypeParams []*TypeParam `json:"type_params,omitempty"`
 
+	// Methods declared on this named type. Methods on the
+	// `type X Y` form attach here (Go allows methods on named
+	// types whose underlying type is anything — basic, slice,
+	// map, channel, etc.). True aliases (`type X = Y`) cannot
+	// carry methods of their own, so this slice is empty for
+	// [Alias.IsAlias] true. Cross-cutting method additions append
+	// through [Alias.MethodsSlot].
+	Methods []*Method `json:"methods,omitempty"`
+
 	// File identifies where the backend writes this alias's
 	// rendered output. Named "File" rather than "Target" to avoid
 	// colliding with the [Alias.Target] type reference.
 	File Target `json:"file,omitzero"`
+
+	slotMap
 }
 
 // Kind returns [KindAlias].
@@ -49,3 +60,35 @@ func (a *Alias) QName() string {
 // IsGeneric reports whether the alias declares generic type
 // parameters.
 func (a *Alias) IsGeneric() bool { return len(a.TypeParams) > 0 }
+
+// MethodByName returns the method named name, or nil when no such
+// method exists.
+func (a *Alias) MethodByName(name string) *Method {
+	for _, m := range a.Methods {
+		if m.Name == name {
+			return m
+		}
+	}
+	return nil
+}
+
+// MethodsWith returns methods matching pred in declaration order.
+func (a *Alias) MethodsWith(pred func(*Method) bool) []*Method {
+	out := make([]*Method, 0, len(a.Methods))
+	for _, m := range a.Methods {
+		if pred(m) {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// MethodsSlot returns the "methods" slot for cross-cutting method
+// injection. Mirrors [Struct.MethodsSlot] / [Interface.MethodsSlot]
+// so generators can inject methods onto any host that owns a
+// method set.
+func (a *Alias) MethodsSlot() *Slot { return a.slot(a, "methods", KindMethod) }
+
+// Slot returns the named slot, creating it lazily without an
+// element-kind constraint.
+func (a *Alias) Slot(name string) *Slot { return a.slot(a, name, "") }

@@ -18,7 +18,7 @@ type ExternalRef struct {
 	BaseEmit
 	Package  string `json:"package"`
 	Name     string `json:"name"`
-	TypeArgs []Ref `json:"-"`
+	TypeArgs []Ref  `json:"-"`
 }
 
 // Kind returns [KindExternalRef].

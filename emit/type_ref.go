@@ -16,7 +16,7 @@ import "go.thesmos.sh/eidos/core/directive"
 // BuiltinRef("string")]). Empty for non-generic references.
 type TypeRef struct {
 	BaseEmit
-	Target   Node `json:"-"`
+	Target   Node  `json:"-"`
 	TypeArgs []Ref `json:"-"`
 }
 
