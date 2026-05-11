@@ -45,11 +45,14 @@ func loadTemplates() *template.Template {
 //
 //nolint:gochecknoglobals // parse-time signature table; immutable.
 var parsePlaceholders = map[string]any{
-	"render":       func(emit.Node) (string, error) { return "", errPlaceholderInvoked },
-	"renderType":   func(emit.Ref) (string, error) { return "", errPlaceholderInvoked },
-	"renderDocs":   func([]string) string { return "" },
-	"renderFields": func([]*emit.Field) (string, error) { return "", errPlaceholderInvoked },
-	"imp":          func(string) (string, error) { return "", errPlaceholderInvoked },
+	"render":        func(emit.Node) (string, error) { return "", errPlaceholderInvoked },
+	"renderType":    func(emit.Ref) (string, error) { return "", errPlaceholderInvoked },
+	"renderDocs":    func([]string) string { return "" },
+	"renderFields":  func([]*emit.Field) (string, error) { return "", errPlaceholderInvoked },
+	"renderParams":  func([]*emit.Param) (string, error) { return "", errPlaceholderInvoked },
+	"renderReturns": func([]emit.Ref) (string, error) { return "", errPlaceholderInvoked },
+	"renderExpr":    func(*emit.Expr) (string, error) { return "", errPlaceholderInvoked },
+	"imp":           func(string) (string, error) { return "", errPlaceholderInvoked },
 }
 
 // errPlaceholderInvoked surfaces if a placeholder closure is ever

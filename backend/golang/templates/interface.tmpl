@@ -1,0 +1,11 @@
+{{- define "emit.interface" -}}
+{{ renderDocs .DocLines -}}
+type {{ .Name }} interface {
+{{- range .Embeds }}
+	{{ renderType .Type }}
+{{- end }}
+{{- range .Methods }}
+	{{ .Name }}{{ renderParams .Params }}{{ if .Returns }} {{ renderReturns .Returns }}{{ end }}
+{{- end }}
+}
+{{- end -}}

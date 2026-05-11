@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"text/template"
 
@@ -27,6 +28,21 @@ var ErrTemplateMissing = errors.New("backend/golang: no template registered for 
 // message names the concrete Go type so diagnostics attribute the
 // gap precisely.
 var ErrUnsupportedRef = errors.New("backend/golang: unsupported Ref")
+
+// ErrUnsupportedExpr is returned by [renderExpr] when called with
+// an [emit.ExprKind] or [emit.LiteralKind] variant the current
+// funcmap can't render. The expression-rendering surface widens
+// as additional variants are wired in; the wrapped message names
+// the offending kind so diagnostics attribute the gap precisely.
+var ErrUnsupportedExpr = errors.New("backend/golang: unsupported Expr")
+
+// ErrMixedNamedParams is returned by [renderState.renderParams]
+// when called with a parameter list that mixes named and unnamed
+// entries — forbidden by Go's grammar ("Within a list of
+// parameters or results, the names must either all be present or
+// all be absent"). The wrapped message names the offending entity
+// so generators can locate and fix the inconsistency.
+var ErrMixedNamedParams = errors.New("backend/golang: param list mixes named and unnamed entries")
 
 // renderState carries the per-Target rendering context: a cloned
 // template tree with funcmap closures bound to this state, and a
@@ -76,11 +92,14 @@ func newRenderState(root *template.Template) *renderState {
 // for these names are rejected at Build time.
 func (s *renderState) funcMap() template.FuncMap {
 	return template.FuncMap{
-		"render":       s.render,
-		"renderType":   s.renderType,
-		"renderDocs":   renderDocs,
-		"renderFields": s.renderFields,
-		"imp":          s.imports.Imp,
+		"render":        s.render,
+		"renderType":    s.renderType,
+		"renderDocs":    renderDocs,
+		"renderFields":  s.renderFields,
+		"renderParams":  s.renderParams,
+		"renderReturns": s.renderReturns,
+		"renderExpr":    renderExpr,
+		"imp":           s.imports.Imp,
 	}
 }
 
@@ -175,6 +194,156 @@ func (s *renderState) renderFields(fields []*emit.Field) (string, error) {
 		b.WriteByte('\n')
 	}
 	return b.String(), nil
+}
+
+// renderParams produces the parenthesised parameter list of a Go
+// function or method signature. Each entry is `Name renderType(Type)`
+// when names are present and `renderType(Type)` when names are
+// absent. Variadic parameters receive the `...` prefix on their
+// type. An empty parameter list renders as `()`.
+//
+// Mixed-named parameters (a list where some entries have names and
+// others don't) violate Go's grammar; this case fails with
+// [ErrMixedNamedParams] wrapped with the parameter-name context.
+//
+// `renderParams` is one of the reserved canonical-render funcmap
+// entries — plugin overrides are rejected at Build time.
+func (s *renderState) renderParams(params []*emit.Param) (string, error) {
+	if len(params) == 0 {
+		return "()", nil
+	}
+	var anyNamed, anyUnnamed bool
+	for _, p := range params {
+		if p.Name == "" {
+			anyUnnamed = true
+		} else {
+			anyNamed = true
+		}
+	}
+	if anyNamed && anyUnnamed {
+		return "", fmt.Errorf("%w: %s", ErrMixedNamedParams, paramListSummary(params))
+	}
+	parts := make([]string, 0, len(params))
+	for _, p := range params {
+		entry, err := s.renderParamEntry(p)
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, entry)
+	}
+	return "(" + strings.Join(parts, ", ") + ")", nil
+}
+
+// renderParamEntry renders a single parameter as it appears inside
+// the parenthesised list — name + type (or just type for anonymous
+// entries), with `...` prefixing the type for variadic params.
+func (s *renderState) renderParamEntry(p *emit.Param) (string, error) {
+	t, err := s.renderType(p.Type)
+	if err != nil {
+		return "", err
+	}
+	if p.Variadic {
+		t = "..." + t
+	}
+	if p.Name == "" {
+		return t, nil
+	}
+	return p.Name + " " + t, nil
+}
+
+// paramListSummary returns a short, comma-separated list of the
+// parameter names (using `_` for anonymous entries) suitable for
+// inclusion in diagnostic messages.
+func paramListSummary(params []*emit.Param) string {
+	names := make([]string, 0, len(params))
+	for _, p := range params {
+		if p.Name == "" {
+			names = append(names, "_")
+		} else {
+			names = append(names, p.Name)
+		}
+	}
+	return strings.Join(names, ", ")
+}
+
+// renderReturns produces the return-clause text of a Go function
+// or method signature, following the three-case truth table:
+//
+//   - Zero returns → empty string (no clause).
+//   - Exactly one unnamed return → bare `renderType(Type)` (no
+//     parentheses).
+//   - Multiple returns → parenthesised, comma-separated list.
+//
+// `renderReturns` is one of the reserved canonical-render funcmap
+// entries — plugin overrides are rejected at Build time.
+func (s *renderState) renderReturns(returns []emit.Ref) (string, error) {
+	switch len(returns) {
+	case 0:
+		return "", nil
+	case 1:
+		return s.renderType(returns[0])
+	}
+	parts := make([]string, 0, len(returns))
+	for _, r := range returns {
+		t, err := s.renderType(r)
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, t)
+	}
+	return "(" + strings.Join(parts, ", ") + ")", nil
+}
+
+// renderExpr produces the Go source spelling for an [emit.Expr].
+// The supported variant surface widens as additional expression
+// kinds are wired in; today the function handles literal values
+// ([emit.ExprLiteral] across every [emit.LiteralKind]) and bare
+// identifiers ([emit.ExprIdent], used for builtin idents like
+// "iota"). Any other variant returns [ErrUnsupportedExpr] wrapped
+// with the offending kind.
+//
+// Nil input returns the empty string so callers can place the
+// helper directly into templates without explicit nil-guards on
+// optional initialisers.
+//
+// `renderExpr` is one of the reserved dispatch funcmap entries —
+// plugin overrides are rejected at Build time.
+func renderExpr(e *emit.Expr) (string, error) {
+	if e == nil {
+		return "", nil
+	}
+	switch e.ExprKind {
+	case emit.ExprLiteral:
+		return renderLiteral(e)
+	case emit.ExprIdent:
+		return e.Name, nil
+	default:
+		return "", fmt.Errorf("%w: ExprKind=%s", ErrUnsupportedExpr, e.ExprKind)
+	}
+}
+
+// renderLiteral produces the Go source spelling for a single
+// literal expression, dispatching on the [emit.LiteralKind].
+// Strings are re-quoted via [strconv.Quote]; numeric and boolean
+// literals render their raw text; nil renders as the keyword;
+// runes wrap in single quotes; raw literals pass through.
+func renderLiteral(e *emit.Expr) (string, error) {
+	switch e.LitKind {
+	case emit.LitString:
+		return strconv.Quote(e.RawText), nil
+	case emit.LitInt, emit.LitUint, emit.LitFloat:
+		return e.RawText, nil
+	case emit.LitBool:
+		return e.RawText, nil
+	case emit.LitNil:
+		return "nil", nil
+	case emit.LitRune:
+		return "'" + e.RawText + "'", nil
+	case emit.LitRaw:
+		return e.RawText, nil
+	default:
+		return "", fmt.Errorf("%w: LitKind=%s", ErrUnsupportedExpr, e.LitKind)
+	}
 }
 
 // renderType produces the Go source spelling for r. Supported kinds:

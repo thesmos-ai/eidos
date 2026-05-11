@@ -1,0 +1,4 @@
+{{- define "emit.variable" -}}
+{{ renderDocs .DocLines -}}
+var {{ .Name }}{{ if .Type }} {{ renderType .Type }}{{ end }}{{ if .Init }} = {{ renderExpr .Init }}{{ end }}
+{{- end -}}

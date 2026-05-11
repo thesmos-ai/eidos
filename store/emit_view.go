@@ -205,7 +205,14 @@ func (v *EmitView) addInterface(i *emit.Interface, pkgPath string) error {
 	}
 	v.indexCommon(i, pkgPath, i.Target)
 	for _, m := range i.Methods {
-		if err := v.addMethod(m, qname, pkgPath, i.Target); err != nil {
+		// Interface methods are nested signatures rendered inside
+		// the interface's template, not standalone file-scope
+		// decls — they index into the methods bucket for query
+		// access but bypass [byTarget] so the backend doesn't
+		// double-render them. Struct methods, in contrast, are
+		// file-scope decls and route through their owning struct's
+		// Target.
+		if err := v.addMethod(m, qname, pkgPath, emit.Target{}); err != nil {
 			return err
 		}
 	}

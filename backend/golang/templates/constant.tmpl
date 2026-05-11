@@ -1,0 +1,4 @@
+{{- define "emit.constant" -}}
+{{ renderDocs .DocLines -}}
+const {{ .Name }}{{ if .Type }} {{ renderType .Type }}{{ end }} = {{ renderExpr .Value }}
+{{- end -}}
