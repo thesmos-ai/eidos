@@ -199,3 +199,19 @@ func TestPipeline_Plan(t *testing.T) {
 		}
 	})
 }
+
+func TestPipeline_DirectiveRegistry(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns a non-nil registry even when no schemas are registered", func(t *testing.T) {
+		t.Parallel()
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithBackend(&stubBE{name: "be"}).
+			Build()
+		assertNoError(t, err)
+		if p.DirectiveRegistry() == nil {
+			t.Fatalf("DirectiveRegistry should be non-nil after Build")
+		}
+	})
+}

@@ -10,7 +10,6 @@ import (
 	"text/template"
 
 	"go.thesmos.sh/eidos/core/diag"
-	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/meta"
 	"go.thesmos.sh/eidos/core/opt"
 	"go.thesmos.sh/eidos/emit"
@@ -158,16 +157,6 @@ type stubOptionsProvider struct {
 func (s *stubOptionsProvider) Name() string                   { return s.name }
 func (*stubOptionsProvider) OptionsSchema() opt.Schema        { return opt.Reflect(stubOptionsConfig{}) }
 func (s *stubOptionsProvider) SetOptions(o opt.Options) error { return o.Decode(&s.opts) }
-
-// stubDirectiveProvider is a stub implementing
-// [plugin.DirectiveProvider] alongside [plugin.Plugin].
-type stubDirectiveProvider struct {
-	name    string
-	schemas []directive.Schema
-}
-
-func (s *stubDirectiveProvider) Name() string                   { return s.name }
-func (s *stubDirectiveProvider) Directives() []directive.Schema { return s.schemas }
 
 // errSinkBoom is the sentinel returned by [failingSink].
 var errSinkBoom = errors.New("plugin: sink boom (test)")

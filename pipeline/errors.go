@@ -52,3 +52,31 @@ var ErrDuplicateProvider = errors.New("pipeline: duplicate capability provider")
 // [plugin.TemplateProvider.TemplateOverrides] and bypass this
 // check.
 var ErrTemplateFuncCollision = errors.New("pipeline: template func collision")
+
+// ErrNoSink is returned by [Pipeline.Run] when no [sink.Sink] was
+// configured at Build time. The backend has nowhere to write so the
+// run cannot complete.
+var ErrNoSink = errors.New("pipeline: no sink configured")
+
+// ErrRunHadErrors is returned by [Pipeline.Run] when one or more
+// plugins emitted a [diag.Error] diagnostic. The pipeline runs to
+// completion regardless of intermediate errors; ErrRunHadErrors is
+// the post-hoc signal that the user's code or a plugin reported
+// problems. Inspect the [diag.Sink] (via [Pipeline.Diag]) for
+// per-error details.
+var ErrRunHadErrors = errors.New("pipeline: run completed with error diagnostics")
+
+// ErrDuplicateDirective is returned by [Builder.Build] when two
+// directive schemas register under the same name. Schemas are
+// shared contracts (multiple plugins may consume one), so the
+// pipeline rejects duplicate registrations rather than guessing
+// which definition wins.
+var ErrDuplicateDirective = errors.New("pipeline: duplicate directive schema")
+
+// ErrIncompatibleEmitVersion is returned by [Builder.Build] when a
+// plugin implementing [plugin.EmitVersioned] declares a list of
+// supported emit majors that does not include the in-tree
+// [emit.Major]. The wrapping message names the plugin and lists
+// both the declared and the in-tree majors so the upgrade path is
+// obvious.
+var ErrIncompatibleEmitVersion = errors.New("pipeline: incompatible emit version")

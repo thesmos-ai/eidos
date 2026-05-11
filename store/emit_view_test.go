@@ -454,3 +454,29 @@ func TestEmitView_ByTarget(t *testing.T) {
 		}
 	})
 }
+
+func TestEmitView_Freeze(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Freeze marks the view immutable", func(t *testing.T) {
+		t.Parallel()
+		v := store.New().Emit()
+		if v.IsFrozen() {
+			t.Fatalf("fresh view should not be frozen")
+		}
+		v.Freeze()
+		if !v.IsFrozen() {
+			t.Fatalf("Freeze should flip IsFrozen to true")
+		}
+	})
+
+	t.Run("AddPackage after Freeze returns ErrFrozen", func(t *testing.T) {
+		t.Parallel()
+		v := store.New().Emit()
+		v.Freeze()
+		err := v.AddPackage(&emit.Package{Name: "x", Path: "x", Dir: "x"})
+		if !errors.Is(err, store.ErrFrozen) {
+			t.Fatalf("AddPackage on frozen view should return ErrFrozen; got %v", err)
+		}
+	})
+}

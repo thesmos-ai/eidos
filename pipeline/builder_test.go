@@ -9,6 +9,7 @@ import (
 
 	"go.thesmos.sh/eidos/cache"
 	"go.thesmos.sh/eidos/core/diag"
+	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/pipeline"
 	"go.thesmos.sh/eidos/sink"
 )
@@ -183,5 +184,88 @@ func TestBuilder_Build(t *testing.T) {
 		if errors.Is(err, pipeline.ErrDuplicatePlugin) {
 			t.Fatalf("empty names must not collide as duplicates; got %v", err)
 		}
+	})
+}
+
+func TestBuilder_WithDirective(t *testing.T) {
+	t.Parallel()
+
+	t.Run("registers schemas on the pipeline's directive.Registry", func(t *testing.T) {
+		t.Parallel()
+		repo := directive.NewSchema("repo").Build()
+		mock := directive.NewSchema("mock").Build()
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithBackend(&stubBE{name: "be"}).
+			WithDirective(repo, mock).
+			Build()
+		assertNoError(t, err)
+		reg := p.DirectiveRegistry()
+		if _, ok := reg.Lookup("repo"); !ok {
+			t.Fatalf("registry should contain 'repo'")
+		}
+		if _, ok := reg.Lookup("mock"); !ok {
+			t.Fatalf("registry should contain 'mock'")
+		}
+	})
+
+	t.Run("variadic and repeated calls accumulate", func(t *testing.T) {
+		t.Parallel()
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithBackend(&stubBE{name: "be"}).
+			WithDirective(directive.NewSchema("a").Build()).
+			WithDirective(directive.NewSchema("b").Build(), directive.NewSchema("c").Build()).
+			Build()
+		assertNoError(t, err)
+		if got := p.DirectiveRegistry().Names(); len(got) != 3 {
+			t.Fatalf("expected 3 registered names; got %v", got)
+		}
+	})
+
+	t.Run("duplicate schemas return ErrDuplicateDirective", func(t *testing.T) {
+		t.Parallel()
+		schema := directive.NewSchema("dup").Build()
+		_, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithBackend(&stubBE{name: "be"}).
+			WithDirective(schema, schema).
+			Build()
+		if !errors.Is(err, pipeline.ErrDuplicateDirective) {
+			t.Fatalf("Build should return ErrDuplicateDirective; got %v", err)
+		}
+	})
+}
+
+func TestBuilder_Build_EmitVersionCompatibility(t *testing.T) {
+	t.Parallel()
+
+	t.Run("rejects a plugin whose declared majors omit the current emit major", func(t *testing.T) {
+		t.Parallel()
+		_, err := pipeline.New().
+			WithFrontend(&emitVersionedFE{name: "fe", versions: []string{"99"}}).
+			WithBackend(&stubBE{name: "be"}).
+			Build()
+		if !errors.Is(err, pipeline.ErrIncompatibleEmitVersion) {
+			t.Fatalf("Build should return ErrIncompatibleEmitVersion; got %v", err)
+		}
+	})
+
+	t.Run("accepts a plugin whose declared majors include the current emit major", func(t *testing.T) {
+		t.Parallel()
+		_, err := pipeline.New().
+			WithFrontend(&emitVersionedFE{name: "fe", versions: []string{"1"}}).
+			WithBackend(&stubBE{name: "be"}).
+			Build()
+		assertNoError(t, err)
+	})
+
+	t.Run("plugins not implementing EmitVersioned are assumed compatible", func(t *testing.T) {
+		t.Parallel()
+		_, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithBackend(&stubBE{name: "be"}).
+			Build()
+		assertNoError(t, err)
 	})
 }

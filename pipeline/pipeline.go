@@ -6,6 +6,7 @@ package pipeline
 import (
 	"go.thesmos.sh/eidos/cache"
 	"go.thesmos.sh/eidos/core/diag"
+	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/sink"
 )
@@ -29,6 +30,7 @@ type Pipeline struct {
 	diag       *diag.Sink
 	verbose    bool
 	plan       *Plan
+	registry   *directive.Registry
 }
 
 // Frontends returns the registered frontends in registration order.
@@ -79,3 +81,10 @@ func (p *Pipeline) Verbose() bool { return p.verbose }
 // each bucket. "eidos explain plan" tooling reads this to display
 // the resolved ordering without running the pipeline.
 func (p *Pipeline) Plan() *Plan { return p.plan }
+
+// DirectiveRegistry returns the [directive.Registry] populated at
+// Build time from every schema supplied via [Builder.WithDirective].
+// Frontends consult the registry while parsing source comments to
+// validate every directive against its schema; tooling can also
+// enumerate registered directives for documentation.
+func (p *Pipeline) DirectiveRegistry() *directive.Registry { return p.registry }

@@ -5,11 +5,14 @@ package pipeline_test
 
 import (
 	"io/fs"
+	"strings"
 	"testing"
 	"text/template"
 
 	"go.thesmos.sh/eidos/core/diag"
 	"go.thesmos.sh/eidos/core/opt"
+	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/priority"
 	"go.thesmos.sh/eidos/store"
@@ -29,6 +32,24 @@ func names[T interface{ Name() string }](plugins []T) []string {
 	out := make([]string, len(plugins))
 	for i, p := range plugins {
 		out[i] = p.Name()
+	}
+	return out
+}
+
+// phaseLogs returns the message of every Info diagnostic the
+// pipeline emitted under the "pipeline" attribution that starts
+// with "phase=". Used by verbose-mode tests to verify the phase
+// boundaries were announced in the expected order.
+func phaseLogs(d *diag.Sink) []string {
+	var out []string
+	for _, e := range d.Diagnostics() {
+		if e.Severity != diag.Info || e.Plugin != "pipeline" {
+			continue
+		}
+		if !strings.HasPrefix(e.Message, "phase=") {
+			continue
+		}
+		out = append(out, e.Message)
 	}
 	return out
 }
@@ -140,3 +161,192 @@ func (*stubGenWithTemplates) Generate(_ *plugin.GeneratorContext) error     { re
 func (*stubGenWithTemplates) Templates(_ string) (fs.FS, bool)              { return nil, false }
 func (g *stubGenWithTemplates) TemplateFuncs(_ string) template.FuncMap     { return g.funcs }
 func (g *stubGenWithTemplates) TemplateOverrides(_ string) template.FuncMap { return g.overrides }
+
+// recFE is a recording frontend used by Run tests. It records every
+// pattern it received via Load and can be configured to return an
+// error from Load so diagnostic capture can be exercised. The
+// optional loadFn hook lets a test populate the supplied store on
+// each Load call.
+type recFE struct {
+	name   string
+	loaded []string
+	err    error
+	loadFn func(s *store.Store)
+}
+
+func (f *recFE) Name() string { return f.name }
+func (f *recFE) Load(pattern string, s *store.Store, _ *diag.Sink) error {
+	f.loaded = append(f.loaded, pattern)
+	if f.loadFn != nil {
+		f.loadFn(s)
+	}
+	return f.err
+}
+
+// recAnn is a recording annotator. It records its call count and
+// can return an error from Annotate; the optional annotate hook
+// runs for each call so a test can stamp metadata.
+type recAnn struct {
+	name     string
+	calls    int
+	err      error
+	annotate func(ctx *plugin.AnnotatorContext)
+}
+
+func (a *recAnn) Name() string { return a.name }
+func (a *recAnn) Annotate(ctx *plugin.AnnotatorContext) error {
+	a.calls++
+	if a.annotate != nil {
+		a.annotate(ctx)
+	}
+	return a.err
+}
+
+// recGen is a recording generator. Mirrors recAnn for the generator
+// phase and exposes a generate hook for tests that want to populate
+// emit before the backend runs.
+type recGen struct {
+	name     string
+	calls    int
+	err      error
+	generate func(ctx *plugin.GeneratorContext)
+}
+
+func (g *recGen) Name() string { return g.name }
+func (g *recGen) Generate(ctx *plugin.GeneratorContext) error {
+	g.calls++
+	if g.generate != nil {
+		g.generate(ctx)
+	}
+	return g.err
+}
+
+// recBE is a recording backend. It records its call count and can
+// return an error from Render; the render hook lets tests exercise
+// the sink writes a real backend would perform.
+type recBE struct {
+	name   string
+	lang   string
+	calls  int
+	err    error
+	render func(ctx *plugin.BackendContext)
+}
+
+func (b *recBE) Name() string     { return b.name }
+func (b *recBE) Language() string { return b.lang }
+func (b *recBE) Render(ctx *plugin.BackendContext) error {
+	b.calls++
+	if b.render != nil {
+		b.render(ctx)
+	}
+	return b.err
+}
+
+// panickyFE is a frontend that panics from Load. Used to verify the
+// pipeline's panic-recovery wrapper.
+type panickyFE struct {
+	name string
+	msg  string
+}
+
+func (f *panickyFE) Name() string { return f.name }
+func (f *panickyFE) Load(_ string, _ *store.Store, _ *diag.Sink) error {
+	panic(f.msg)
+}
+
+// panickyAnn is an annotator that panics. Mirrors panickyFE for the
+// annotator phase.
+type panickyAnn struct {
+	name string
+	msg  string
+}
+
+func (a *panickyAnn) Name() string                              { return a.name }
+func (a *panickyAnn) Annotate(_ *plugin.AnnotatorContext) error { panic(a.msg) }
+
+// panickyGen is a generator that panics. Mirrors panickyFE for the
+// generator phase.
+type panickyGen struct {
+	name string
+	msg  string
+}
+
+func (g *panickyGen) Name() string                              { return g.name }
+func (g *panickyGen) Generate(_ *plugin.GeneratorContext) error { panic(g.msg) }
+
+// panickyBE is a backend that panics. Mirrors panickyFE for the
+// backend phase.
+type panickyBE struct {
+	name string
+	lang string
+	msg  string
+}
+
+func (b *panickyBE) Name() string                          { return b.name }
+func (b *panickyBE) Language() string                      { return b.lang }
+func (b *panickyBE) Render(_ *plugin.BackendContext) error { panic(b.msg) }
+
+// frozenAddAnn is an annotator that attempts to call AddPackage
+// after the node view is frozen. Used to verify the pipeline
+// converts store.ErrFrozen into an Internal diagnostic.
+type frozenAddAnn struct {
+	name string
+}
+
+func (a *frozenAddAnn) Name() string { return a.name }
+func (*frozenAddAnn) Annotate(ctx *plugin.AnnotatorContext) error {
+	return ctx.Store.Nodes().AddPackage(&node.Package{Name: "x", Path: "x"})
+}
+
+// frozenAddGen is a generator that attempts to call AddPackage on
+// the emit view after it has been frozen — which the pipeline does
+// only after the generator phase, so callers from later phases
+// would hit this. We use it here to drive the post-generator path
+// through the backend.
+type frozenAddBE struct {
+	name string
+	lang string
+}
+
+func (b *frozenAddBE) Name() string     { return b.name }
+func (b *frozenAddBE) Language() string { return b.lang }
+func (*frozenAddBE) Render(ctx *plugin.BackendContext) error {
+	return ctx.Store.Emit().AddPackage(&emit.Package{Name: "x", Path: "x", Dir: "x"})
+}
+
+// emitVersionedFE is a frontend that declares an EmitVersions list.
+// Used to drive the Build-time emit-version compatibility check.
+type emitVersionedFE struct {
+	name     string
+	versions []string
+}
+
+func (f *emitVersionedFE) Name() string                                    { return f.name }
+func (*emitVersionedFE) Load(_ string, _ *store.Store, _ *diag.Sink) error { return nil }
+func (f *emitVersionedFE) EmitVersions() []string                          { return f.versions }
+
+// hasPanicMessage returns true if any diagnostic in d carries msg
+// in its detail (where the panic message and stack are stored) or
+// in its top-level message. Used by panic-recovery tests to verify
+// diag.RecoverAs captured the panic.
+func hasPanicMessage(d *diag.Sink, msg string) bool {
+	for _, e := range d.Diagnostics() {
+		if strings.Contains(e.Detail, msg) || strings.Contains(e.Message, msg) {
+			return true
+		}
+	}
+	return false
+}
+
+// internalDiagsFor returns every Internal-severity diagnostic in d.
+// Used by mutability tests to verify ErrFrozen violations surface
+// at Internal severity.
+func internalDiagsFor(d *diag.Sink) []diag.Diag {
+	var out []diag.Diag
+	for _, e := range d.Diagnostics() {
+		if e.Severity == diag.Internal {
+			out = append(out, e)
+		}
+	}
+	return out
+}

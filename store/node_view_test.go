@@ -429,3 +429,39 @@ func TestNodeView_ByDirective(t *testing.T) {
 		}
 	})
 }
+
+func TestNodeView_Freeze(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Freeze marks the view immutable", func(t *testing.T) {
+		t.Parallel()
+		v := store.New().Nodes()
+		if v.IsFrozen() {
+			t.Fatalf("fresh view should not be frozen")
+		}
+		v.Freeze()
+		if !v.IsFrozen() {
+			t.Fatalf("Freeze should flip IsFrozen to true")
+		}
+	})
+
+	t.Run("AddPackage after Freeze returns ErrFrozen", func(t *testing.T) {
+		t.Parallel()
+		v := store.New().Nodes()
+		v.Freeze()
+		err := v.AddPackage(&node.Package{Name: "x", Path: "x"})
+		if !errors.Is(err, store.ErrFrozen) {
+			t.Fatalf("AddPackage on frozen view should return ErrFrozen; got %v", err)
+		}
+	})
+
+	t.Run("Freeze is idempotent", func(t *testing.T) {
+		t.Parallel()
+		v := store.New().Nodes()
+		v.Freeze()
+		v.Freeze()
+		if !v.IsFrozen() {
+			t.Fatalf("Freeze should remain set after repeat calls")
+		}
+	})
+}

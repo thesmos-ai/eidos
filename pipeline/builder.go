@@ -7,11 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 
 	"go.thesmos.sh/eidos/cache"
 	"go.thesmos.sh/eidos/core/diag"
+	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/opt"
 	"go.thesmos.sh/eidos/core/position"
+	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/sink"
 )
@@ -27,6 +30,7 @@ type Builder struct {
 	annotators []plugin.Annotator
 	generators []plugin.Generator
 	backends   []plugin.Backend
+	directives []directive.Schema
 	sink       sink.Sink
 	cache      cache.Cache
 	diag       *diag.Sink
@@ -37,6 +41,21 @@ type Builder struct {
 // New returns an empty Builder ready to accept plugins.
 func New() *Builder {
 	return &Builder{options: map[string]map[string]string{}}
+}
+
+// WithDirective registers one or more [directive.Schema] values
+// the pipeline's frontends will validate parsed directives against.
+// Schemas are shared contracts — multiple plugins may consume the
+// same directive — so they are not owned by any plugin and instead
+// live on the pipeline's [directive.Registry].
+//
+// Build rejects two schemas registering under the same name with
+// [ErrDuplicateDirective]. Repeat WithDirective calls accumulate;
+// schemas may be passed individually or in batch from a package's
+// exported list.
+func (b *Builder) WithDirective(schemas ...directive.Schema) *Builder {
+	b.directives = append(b.directives, schemas...)
+	return b
 }
 
 // WithFrontend registers p as a frontend. Multiple frontends may
@@ -157,9 +176,15 @@ func (b *Builder) Build() (*Pipeline, error) {
 	}
 
 	plan, planErrs := b.resolvePlan()
-	if len(planErrs) > 0 {
-		b.emitErrors(planErrs)
-		return nil, errors.Join(planErrs...)
+	registry, regErrs := b.buildDirectiveRegistry()
+	versionErrs := b.validateEmitVersions()
+	postStructural := make([]error, 0, len(planErrs)+len(regErrs)+len(versionErrs))
+	postStructural = append(postStructural, planErrs...)
+	postStructural = append(postStructural, regErrs...)
+	postStructural = append(postStructural, versionErrs...)
+	if len(postStructural) > 0 {
+		b.emitErrors(postStructural)
+		return nil, errors.Join(postStructural...)
 	}
 
 	return &Pipeline{
@@ -172,7 +197,59 @@ func (b *Builder) Build() (*Pipeline, error) {
 		diag:       b.diag,
 		verbose:    b.verbose,
 		plan:       plan,
+		registry:   registry,
 	}, nil
+}
+
+// validateEmitVersions returns one error per plugin whose declared
+// [plugin.EmitVersioned] support list does not include the in-tree
+// [emit.Major]. Plugins that don't implement EmitVersioned are
+// assumed compatible.
+func (b *Builder) validateEmitVersions() []error {
+	want := emit.Major()
+	var errs []error
+	check := func(p plugin.Plugin) {
+		ev, ok := any(p).(plugin.EmitVersioned)
+		if !ok {
+			return
+		}
+		declared := ev.EmitVersions()
+		if slices.Contains(declared, want) {
+			return
+		}
+		errs = append(errs, fmt.Errorf("%w: %s declares %v; current emit major is %q",
+			ErrIncompatibleEmitVersion, p.Name(), declared, want))
+	}
+	for _, p := range b.frontends {
+		check(p)
+	}
+	for _, p := range b.annotators {
+		check(p)
+	}
+	for _, p := range b.generators {
+		check(p)
+	}
+	for _, p := range b.backends {
+		check(p)
+	}
+	return errs
+}
+
+// buildDirectiveRegistry constructs a [directive.Registry] populated
+// from every schema supplied via [Builder.WithDirective]. Schema
+// name conflicts surface as [ErrDuplicateDirective] (wrapping the
+// underlying [directive.ErrSchemaConflict]); the returned registry
+// is non-nil even when errors occur so the caller can still expose
+// the partial registry for diagnostics.
+func (b *Builder) buildDirectiveRegistry() (*directive.Registry, []error) {
+	r := directive.NewRegistry()
+	var errs []error
+	for _, s := range b.directives {
+		if err := r.Register(s); err != nil {
+			errs = append(errs, fmt.Errorf("%w: %w", ErrDuplicateDirective, err))
+		}
+	}
+	return r, errs
 }
 
 // emitErrors writes one diagnostic per supplied error to the

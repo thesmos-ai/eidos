@@ -5,6 +5,7 @@ package store
 
 import (
 	"fmt"
+	"sync/atomic"
 
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/node"
@@ -40,6 +41,8 @@ type NodeView struct {
 	byPackage   *MultiIndex[string, node.Node]
 	byDirective *MultiIndex[directive.Name, node.Node]
 	byMetaKey   *MultiIndex[string, node.Node]
+
+	frozen atomic.Bool
 }
 
 // newNodeView constructs an empty NodeView with all buckets and
@@ -78,6 +81,9 @@ func newNodeView() *NodeView {
 func (v *NodeView) AddPackage(p *node.Package) error {
 	if p == nil {
 		return ErrNilEntry
+	}
+	if v.frozen.Load() {
+		return fmt.Errorf("%w: NodeView (post-frontend phase)", ErrFrozen)
 	}
 
 	if err := v.packages.Add(p.Path, p); err != nil {
@@ -321,3 +327,16 @@ func (v *NodeView) ByDirective() *MultiIndex[directive.Name, node.Node] { return
 // node can appear under a key multiple times if the key has been
 // re-Set; deduplication is the caller's concern when relevant.
 func (v *NodeView) ByMetaKey() *MultiIndex[string, node.Node] { return v.byMetaKey }
+
+// Freeze marks the view as immutable: subsequent calls to
+// [NodeView.AddPackage] return [ErrFrozen]. The pipeline calls
+// Freeze after the frontend phase to enforce the spec's
+// "node structure mutable only during frontend" contract.
+//
+// Freeze is idempotent — repeated calls are no-ops. Concurrent
+// callers see a consistent post-freeze state once any one of them
+// returns.
+func (v *NodeView) Freeze() { v.frozen.Store(true) }
+
+// IsFrozen reports whether [NodeView.Freeze] has been called.
+func (v *NodeView) IsFrozen() bool { return v.frozen.Load() }

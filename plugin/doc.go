@@ -19,11 +19,14 @@
 //     a backend
 //   - [OptionsProvider]: declares typed configuration the pipeline
 //     populates at Build()
-//   - [DirectiveProvider]: auto-registers directive schemas at
-//     Build()
 //
 // One plugin may implement any combination of role and capability
 // interfaces; the pipeline detects each via interface assertion. The
 // roles and capabilities are deliberately small so plugin authors
 // can compose them without ceremony.
+//
+// Directive schemas are NOT a plugin capability — directives are
+// shared contracts (multiple plugins may consume the same directive),
+// so schemas register directly with the pipeline via
+// `pipeline.Builder.WithDirective`.
 package plugin

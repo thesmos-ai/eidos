@@ -5,6 +5,7 @@ package store
 
 import (
 	"fmt"
+	"sync/atomic"
 
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/emit"
@@ -41,6 +42,8 @@ type EmitView struct {
 	byDirective *MultiIndex[directive.Name, emit.Node]
 	byTarget    *MultiIndex[emit.Target, emit.Node]
 	byMetaKey   *MultiIndex[string, emit.Node]
+
+	frozen atomic.Bool
 }
 
 // newEmitView constructs an empty EmitView with all buckets and
@@ -80,6 +83,9 @@ func newEmitView() *EmitView {
 func (v *EmitView) AddPackage(p *emit.Package) error {
 	if p == nil {
 		return ErrNilEntry
+	}
+	if v.frozen.Load() {
+		return fmt.Errorf("%w: EmitView (post-generator phase)", ErrFrozen)
 	}
 
 	if err := v.packages.Add(p.Path, p); err != nil {
@@ -322,3 +328,14 @@ func (v *EmitView) ByTarget() *MultiIndex[emit.Target, emit.Node] { return v.byT
 // remove. Callers needing exact "currently set" semantics combine
 // with [meta.Bag.Has].
 func (v *EmitView) ByMetaKey() *MultiIndex[string, emit.Node] { return v.byMetaKey }
+
+// Freeze marks the view as immutable: subsequent calls to
+// [EmitView.AddPackage] return [ErrFrozen]. The pipeline calls
+// Freeze after the generator phase to enforce the spec's
+// "emit structure mutable only during generator" contract.
+//
+// Freeze is idempotent — repeated calls are no-ops.
+func (v *EmitView) Freeze() { v.frozen.Store(true) }
+
+// IsFrozen reports whether [EmitView.Freeze] has been called.
+func (v *EmitView) IsFrozen() bool { return v.frozen.Load() }
