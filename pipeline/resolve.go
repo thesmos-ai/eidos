@@ -26,34 +26,46 @@ import (
 // spec): a Requires that names a capability not Provided in the
 // same bucket is silently ignored at this layer (verbose-mode
 // diagnostics for unresolved requires are emitted by the caller).
-func resolvePhase[T plugin.Plugin](plugins []T) ([]T, error) {
+func resolvePhase[T plugin.Plugin](plugins []T) ([]T, []resolvedBucket[T], error) {
 	if len(plugins) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	// Group by priority bucket.
-	buckets := map[priority.Priority][]T{}
+	byPrio := map[priority.Priority][]T{}
 	for _, p := range plugins {
-		buckets[pluginPriority(p)] = append(buckets[pluginPriority(p)], p)
+		byPrio[pluginPriority(p)] = append(byPrio[pluginPriority(p)], p)
 	}
 
 	// Sort buckets ascending by priority value.
-	keys := make([]priority.Priority, 0, len(buckets))
-	for k := range buckets {
+	keys := make([]priority.Priority, 0, len(byPrio))
+	for k := range byPrio {
 		keys = append(keys, k)
 	}
 	slices.Sort(keys)
 
-	// Topo sort each bucket and concatenate.
-	out := make([]T, 0, len(plugins))
+	// Topo sort each bucket; collect per-bucket and flat outputs.
+	flat := make([]T, 0, len(plugins))
+	buckets := make([]resolvedBucket[T], 0, len(keys))
 	for _, k := range keys {
-		ordered, err := topoSortBucket(buckets[k])
+		ordered, err := topoSortBucket(byPrio[k])
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		out = append(out, ordered...)
+		flat = append(flat, ordered...)
+		buckets = append(buckets, resolvedBucket[T]{Priority: k, Plugins: ordered})
 	}
-	return out, nil
+	return flat, buckets, nil
+}
+
+// resolvedBucket carries one priority bucket's topo-sorted plugins
+// alongside its priority value. The pipeline converts these into
+// the public [AnnotatorBucket] / [GeneratorBucket] types after
+// resolution so the runtime can iterate per-bucket for parallel
+// execution.
+type resolvedBucket[T plugin.Plugin] struct {
+	Priority priority.Priority
+	Plugins  []T
 }
 
 // pluginPriority returns the priority bucket p declares via

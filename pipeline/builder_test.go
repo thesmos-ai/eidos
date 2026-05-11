@@ -269,3 +269,27 @@ func TestBuilder_Build_EmitVersionCompatibility(t *testing.T) {
 		assertNoError(t, err)
 	})
 }
+
+func TestBuilder_WithParallel(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns the receiver for chaining", func(t *testing.T) {
+		t.Parallel()
+		b := pipeline.New()
+		if out := b.WithParallel(pipeline.PhaseFrontend, pipeline.PhaseAnnotator); out != b {
+			t.Fatalf("WithParallel should return the receiver")
+		}
+	})
+}
+
+func TestBuilder_WithManifestPath(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns the receiver for chaining", func(t *testing.T) {
+		t.Parallel()
+		b := pipeline.New()
+		if out := b.WithManifestPath("/tmp/manifest.json"); out != b {
+			t.Fatalf("WithManifestPath should return the receiver")
+		}
+	})
+}

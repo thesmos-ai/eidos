@@ -26,21 +26,47 @@ import (
 //
 // The zero value is unusable; construct via [New].
 type Builder struct {
-	frontends  []plugin.Frontend
-	annotators []plugin.Annotator
-	generators []plugin.Generator
-	backends   []plugin.Backend
-	directives []directive.Schema
-	sink       sink.Sink
-	cache      cache.Cache
-	diag       *diag.Sink
-	verbose    bool
-	options    map[string]map[string]string
+	frontends    []plugin.Frontend
+	annotators   []plugin.Annotator
+	generators   []plugin.Generator
+	backends     []plugin.Backend
+	directives   []directive.Schema
+	sink         sink.Sink
+	cache        cache.Cache
+	diag         *diag.Sink
+	verbose      bool
+	parallel     map[Phase]bool
+	manifestPath string
+	options      map[string]map[string]string
 }
 
 // New returns an empty Builder ready to accept plugins.
 func New() *Builder {
-	return &Builder{options: map[string]map[string]string{}}
+	return &Builder{
+		options:  map[string]map[string]string{},
+		parallel: map[Phase]bool{},
+	}
+}
+
+// WithParallel opts the listed phases into within-bucket parallel
+// execution. Defaults to sequential for every phase when the option
+// is omitted. See [Phase] for per-phase semantics and constraints
+// (annotators with disjoint Provides; generators that opt in via
+// [plugin.NodesOnly]).
+func (b *Builder) WithParallel(phases ...Phase) *Builder {
+	for _, p := range phases {
+		b.parallel[p] = true
+	}
+	return b
+}
+
+// WithManifestPath configures the path the pipeline writes its
+// run-end manifest to. The manifest is the per-run record of every
+// output file the backend produced, attributed to its plugin and
+// hashed. Empty path (the default) disables manifest writing.
+func (b *Builder) WithManifestPath(path string) *Builder {
+	b.manifestPath = path
+	return b
 }
 
 // WithDirective registers one or more [directive.Schema] values
@@ -188,16 +214,18 @@ func (b *Builder) Build() (*Pipeline, error) {
 	}
 
 	return &Pipeline{
-		frontends:  b.frontends,
-		annotators: b.annotators,
-		generators: b.generators,
-		backend:    b.backends[0],
-		sink:       b.sink,
-		cache:      b.cache,
-		diag:       b.diag,
-		verbose:    b.verbose,
-		plan:       plan,
-		registry:   registry,
+		frontends:    b.frontends,
+		annotators:   b.annotators,
+		generators:   b.generators,
+		backend:      b.backends[0],
+		sink:         b.sink,
+		cache:        b.cache,
+		diag:         b.diag,
+		verbose:      b.verbose,
+		parallel:     b.parallel,
+		manifestPath: b.manifestPath,
+		plan:         plan,
+		registry:     registry,
 	}, nil
 }
 
@@ -267,8 +295,8 @@ func (b *Builder) emitErrors(errs []error) {
 // directly. Returns a non-empty error slice when bucket resolution
 // or template-func validation fails.
 func (b *Builder) resolvePlan() (*Plan, []error) {
-	annotators, annErr := resolvePhase(b.annotators)
-	generators, genErr := resolvePhase(b.generators)
+	annotators, annBuckets, annErr := resolvePhase(b.annotators)
+	generators, genBuckets, genErr := resolvePhase(b.generators)
 
 	asPlugins := allPlugins(b.frontends, b.annotators, b.generators, b.backends)
 	tplErrs := validateTemplateFuncs(asPlugins, b.backends[0].Language())
@@ -285,11 +313,23 @@ func (b *Builder) resolvePlan() (*Plan, []error) {
 	if len(errs) > 0 {
 		return nil, errs
 	}
+
+	annTyped := make([]AnnotatorBucket, len(annBuckets))
+	for i, x := range annBuckets {
+		annTyped[i] = AnnotatorBucket{Priority: x.Priority, Plugins: x.Plugins}
+	}
+	genTyped := make([]GeneratorBucket, len(genBuckets))
+	for i, x := range genBuckets {
+		genTyped[i] = GeneratorBucket{Priority: x.Priority, Plugins: x.Plugins}
+	}
+
 	return &Plan{
-		Frontends:  b.frontends,
-		Annotators: annotators,
-		Generators: generators,
-		Backend:    b.backends[0],
+		Frontends:        b.frontends,
+		Annotators:       annotators,
+		AnnotatorBuckets: annTyped,
+		Generators:       generators,
+		GeneratorBuckets: genTyped,
+		Backend:          b.backends[0],
 	}, nil
 }
 

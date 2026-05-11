@@ -4,8 +4,10 @@
 package pipeline_test
 
 import (
+	"errors"
 	"io/fs"
 	"strings"
+	"sync"
 	"testing"
 	"text/template"
 
@@ -168,6 +170,7 @@ func (g *stubGenWithTemplates) TemplateOverrides(_ string) template.FuncMap { re
 // optional loadFn hook lets a test populate the supplied store on
 // each Load call.
 type recFE struct {
+	mu     sync.Mutex
 	name   string
 	loaded []string
 	err    error
@@ -176,7 +179,9 @@ type recFE struct {
 
 func (f *recFE) Name() string { return f.name }
 func (f *recFE) Load(pattern string, s *store.Store, _ *diag.Sink) error {
+	f.mu.Lock()
 	f.loaded = append(f.loaded, pattern)
+	f.mu.Unlock()
 	if f.loadFn != nil {
 		f.loadFn(s)
 	}
@@ -187,6 +192,7 @@ func (f *recFE) Load(pattern string, s *store.Store, _ *diag.Sink) error {
 // can return an error from Annotate; the optional annotate hook
 // runs for each call so a test can stamp metadata.
 type recAnn struct {
+	mu       sync.Mutex
 	name     string
 	calls    int
 	err      error
@@ -195,7 +201,9 @@ type recAnn struct {
 
 func (a *recAnn) Name() string { return a.name }
 func (a *recAnn) Annotate(ctx *plugin.AnnotatorContext) error {
+	a.mu.Lock()
 	a.calls++
+	a.mu.Unlock()
 	if a.annotate != nil {
 		a.annotate(ctx)
 	}
@@ -206,6 +214,7 @@ func (a *recAnn) Annotate(ctx *plugin.AnnotatorContext) error {
 // phase and exposes a generate hook for tests that want to populate
 // emit before the backend runs.
 type recGen struct {
+	mu       sync.Mutex
 	name     string
 	calls    int
 	err      error
@@ -214,7 +223,9 @@ type recGen struct {
 
 func (g *recGen) Name() string { return g.name }
 func (g *recGen) Generate(ctx *plugin.GeneratorContext) error {
+	g.mu.Lock()
 	g.calls++
+	g.mu.Unlock()
 	if g.generate != nil {
 		g.generate(ctx)
 	}
@@ -225,6 +236,7 @@ func (g *recGen) Generate(ctx *plugin.GeneratorContext) error {
 // return an error from Render; the render hook lets tests exercise
 // the sink writes a real backend would perform.
 type recBE struct {
+	mu     sync.Mutex
 	name   string
 	lang   string
 	calls  int
@@ -235,7 +247,9 @@ type recBE struct {
 func (b *recBE) Name() string     { return b.name }
 func (b *recBE) Language() string { return b.lang }
 func (b *recBE) Render(ctx *plugin.BackendContext) error {
+	b.mu.Lock()
 	b.calls++
+	b.mu.Unlock()
 	if b.render != nil {
 		b.render(ctx)
 	}
@@ -350,3 +364,78 @@ func internalDiagsFor(d *diag.Sink) []diag.Diag {
 	}
 	return out
 }
+
+// stubAnnCapRec is an annotator that implements CapabilityProvider
+// AND records its calls. Used by parallel-execution tests to verify
+// concurrent invocations.
+type stubAnnCapRec struct {
+	mu       sync.Mutex
+	name     string
+	priority priority.Priority
+	provides []string
+	requires []string
+	hook     func(ctx *plugin.AnnotatorContext)
+	calls    int
+}
+
+func (a *stubAnnCapRec) Name() string                { return a.name }
+func (a *stubAnnCapRec) Priority() priority.Priority { return a.priority }
+func (a *stubAnnCapRec) Provides() []string          { return a.provides }
+func (a *stubAnnCapRec) Requires() []string          { return a.requires }
+func (a *stubAnnCapRec) Annotate(ctx *plugin.AnnotatorContext) error {
+	a.mu.Lock()
+	a.calls++
+	a.mu.Unlock()
+	if a.hook != nil {
+		a.hook(ctx)
+	}
+	return nil
+}
+
+// stubGenNodesOnly is a generator that implements both
+// CapabilityProvider and NodesOnly. Used by generator-parallelism
+// tests where every generator must opt in for the bucket to
+// parallelise.
+type stubGenNodesOnly struct {
+	mu        sync.Mutex
+	name      string
+	priority  priority.Priority
+	provides  []string
+	requires  []string
+	nodesOnly bool
+	hook      func(ctx *plugin.GeneratorContext)
+	calls     int
+}
+
+func (g *stubGenNodesOnly) Name() string                { return g.name }
+func (g *stubGenNodesOnly) Priority() priority.Priority { return g.priority }
+func (g *stubGenNodesOnly) Provides() []string          { return g.provides }
+func (g *stubGenNodesOnly) Requires() []string          { return g.requires }
+func (g *stubGenNodesOnly) NodesOnly() bool             { return g.nodesOnly }
+func (g *stubGenNodesOnly) Generate(ctx *plugin.GeneratorContext) error {
+	g.mu.Lock()
+	g.calls++
+	g.mu.Unlock()
+	if g.hook != nil {
+		g.hook(ctx)
+	}
+	return nil
+}
+
+// emptyReadSetHash returns the SHA-256 hex digest a fresh
+// [store.ReadSet] produces. Used by cache-key tests where the
+// plugin under test makes no Reader queries, so its ReadSet is
+// expected to be empty.
+func emptyReadSetHash() string {
+	return store.NewReadSet().Hash()
+}
+
+// failingSink returns the configured error from every Write. Used
+// by manifest tests that need to exercise the inner-sink-failure
+// path of recordingSink.
+type failingSink struct{ err error }
+
+func (f *failingSink) Write(emit.Target, []byte) error { return f.err }
+
+// errFailingSink is the sentinel returned by [failingSink].
+var errFailingSink = errors.New("pipeline: failing sink (test)")

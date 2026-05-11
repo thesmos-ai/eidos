@@ -8,11 +8,13 @@ import (
 	"slices"
 	"testing"
 
+	"go.thesmos.sh/eidos/cache"
 	"go.thesmos.sh/eidos/core/diag"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/pipeline"
 	"go.thesmos.sh/eidos/plugin"
+	"go.thesmos.sh/eidos/priority"
 	"go.thesmos.sh/eidos/sink"
 	"go.thesmos.sh/eidos/store"
 )
@@ -465,6 +467,181 @@ func TestPipeline_Run_VerbosePhaseLogs(t *testing.T) {
 		assertNoError(t, p.Run(t.Context()))
 		if d.Count(diag.Info) != 0 {
 			t.Fatalf("non-verbose run should emit no Info diagnostics; got %d", d.Count(diag.Info))
+		}
+	})
+}
+
+func TestPipeline_Run_ParallelFrontends(t *testing.T) {
+	t.Parallel()
+
+	t.Run("multiple frontends + patterns dispatch concurrently when PhaseFrontend is opted in", func(t *testing.T) {
+		t.Parallel()
+		fe1 := &recFE{name: "fe1"}
+		fe2 := &recFE{name: "fe2"}
+		p, err := pipeline.New().
+			WithFrontend(fe1).
+			WithFrontend(fe2).
+			WithBackend(&recBE{name: "be", lang: "stub"}).
+			WithSink(sink.NewMemory()).
+			WithParallel(pipeline.PhaseFrontend).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "a", "b"))
+		// 2 frontends × 2 patterns = 4 Load calls total across both.
+		if len(fe1.loaded)+len(fe2.loaded) != 4 {
+			t.Fatalf("expected 4 Load calls across both frontends; got fe1=%v fe2=%v", fe1.loaded, fe2.loaded)
+		}
+	})
+}
+
+func TestPipeline_Run_ParallelAnnotators(t *testing.T) {
+	t.Parallel()
+
+	t.Run("disjoint Provides + WithParallel runs the bucket concurrently", func(t *testing.T) {
+		t.Parallel()
+		ann1 := &stubAnnCapRec{
+			name: "a", priority: priority.AnnotatorShape, provides: []string{"x"},
+		}
+		ann2 := &stubAnnCapRec{
+			name: "b", priority: priority.AnnotatorShape, provides: []string{"y"},
+		}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithAnnotator(ann1).
+			WithAnnotator(ann2).
+			WithBackend(&recBE{name: "be", lang: "stub"}).
+			WithSink(sink.NewMemory()).
+			WithParallel(pipeline.PhaseAnnotator).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context()))
+		if ann1.calls != 1 || ann2.calls != 1 {
+			t.Fatalf("both annotators should run; got a=%d b=%d", ann1.calls, ann2.calls)
+		}
+	})
+
+	t.Run("overlapping Provides forces sequential within the bucket", func(t *testing.T) {
+		t.Parallel()
+		ann1 := &stubAnnCapRec{
+			name: "a", priority: priority.AnnotatorShape, provides: []string{"shared"},
+		}
+		// Different name → not a duplicate-provider Build error,
+		// but Provides overlap → the parallel-safe check rejects.
+		ann2 := &stubAnnCapRec{
+			name: "b", priority: priority.AnnotatorRefinement, provides: []string{"shared"},
+		}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithAnnotator(ann1).
+			WithAnnotator(ann2).
+			WithBackend(&recBE{name: "be", lang: "stub"}).
+			WithSink(sink.NewMemory()).
+			WithParallel(pipeline.PhaseAnnotator).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context()))
+		if ann1.calls != 1 || ann2.calls != 1 {
+			t.Fatalf("both annotators should still run; got a=%d b=%d", ann1.calls, ann2.calls)
+		}
+	})
+}
+
+func TestPipeline_Run_ParallelGenerators(t *testing.T) {
+	t.Parallel()
+
+	t.Run("all NodesOnly generators in a bucket run concurrently", func(t *testing.T) {
+		t.Parallel()
+		g1 := &stubGenNodesOnly{name: "g1", priority: priority.GeneratorFoundation, nodesOnly: true}
+		g2 := &stubGenNodesOnly{name: "g2", priority: priority.GeneratorFoundation, nodesOnly: true}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(g1).
+			WithGenerator(g2).
+			WithBackend(&recBE{name: "be", lang: "stub"}).
+			WithSink(sink.NewMemory()).
+			WithParallel(pipeline.PhaseGenerator).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context()))
+		if g1.calls != 1 || g2.calls != 1 {
+			t.Fatalf("both generators should run; got g1=%d g2=%d", g1.calls, g2.calls)
+		}
+	})
+
+	t.Run("a non-NodesOnly generator forces sequential within the bucket", func(t *testing.T) {
+		t.Parallel()
+		g1 := &stubGenNodesOnly{name: "g1", priority: priority.GeneratorFoundation, nodesOnly: true}
+		// g2 doesn't implement NodesOnly → bucket falls back to sequential.
+		g2 := &recGen{name: "g2"}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(g1).
+			WithGenerator(g2).
+			WithBackend(&recBE{name: "be", lang: "stub"}).
+			WithSink(sink.NewMemory()).
+			WithParallel(pipeline.PhaseGenerator).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context()))
+		if g1.calls != 1 || g2.calls != 1 {
+			t.Fatalf("both generators should still run; got g1=%d g2=%d", g1.calls, g2.calls)
+		}
+	})
+}
+
+func TestPipeline_Run_RecordsCacheKeys(t *testing.T) {
+	t.Parallel()
+
+	t.Run("each plugin's ReadSet hash is written to the cache", func(t *testing.T) {
+		t.Parallel()
+		c := cache.NewDisk(t.TempDir())
+		ann := &recAnn{name: "ann"}
+		gen := &recGen{name: "gen"}
+		be := &recBE{name: "be", lang: "stub"}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithAnnotator(ann).
+			WithGenerator(gen).
+			WithBackend(be).
+			WithSink(sink.NewMemory()).
+			WithCache(c).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context()))
+		// Three plugins (ann, gen, be) each record a cache key; the
+		// frontend phase does not record one because Frontend.Load
+		// does not receive a Reader.
+		if !c.Has("plugin:ann:reads:" + emptyReadSetHash()) {
+			t.Fatalf("expected annotator cache key with empty-readset hash")
+		}
+		if !c.Has("plugin:gen:reads:" + emptyReadSetHash()) {
+			t.Fatalf("expected generator cache key with empty-readset hash")
+		}
+		if !c.Has("plugin:be:reads:" + emptyReadSetHash()) {
+			t.Fatalf("expected backend cache key with empty-readset hash")
+		}
+	})
+}
+
+func TestPipeline_Run_ParallelAnnotatorsWithPlainPlugin(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a non-CapabilityProvider annotator still runs in parallel mode (no conflict)", func(t *testing.T) {
+		t.Parallel()
+		// stubAnn doesn't implement CapabilityProvider so its
+		// Provides set is empty; disjoint check accepts.
+		plain := &recAnn{name: "plain"}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithAnnotator(plain).
+			WithBackend(&recBE{name: "be", lang: "stub"}).
+			WithSink(sink.NewMemory()).
+			WithParallel(pipeline.PhaseAnnotator).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context()))
+		if plain.calls != 1 {
+			t.Fatalf("plain annotator should run; calls=%d", plain.calls)
 		}
 	})
 }

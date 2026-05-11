@@ -7,10 +7,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
+	"time"
 
 	"go.thesmos.sh/eidos/core/diag"
 	"go.thesmos.sh/eidos/core/position"
+	"go.thesmos.sh/eidos/manifest"
 	"go.thesmos.sh/eidos/plugin"
+	"go.thesmos.sh/eidos/sink"
 	"go.thesmos.sh/eidos/store"
 )
 
@@ -48,6 +52,12 @@ func (p *Pipeline) Run(ctx context.Context, patterns ...string) error {
 	}
 	_ = ctx // reserved for cancellation in a later milestone
 
+	// Wrap the configured sink with a recording wrapper so the
+	// pipeline can compose a manifest from every captured write at
+	// run end. The wrapper writes through to the inner sink so
+	// backend output still reaches its destination.
+	recorder := newRecordingSink(p.sink)
+
 	s := store.New()
 	p.runFrontends(s, patterns)
 	s.Nodes().Freeze() // post-frontend: node structure is frozen
@@ -55,13 +65,29 @@ func (p *Pipeline) Run(ctx context.Context, patterns ...string) error {
 	p.runDirectiveOverride(s)
 	p.runGenerators(s)
 	s.Emit().Freeze() // post-generator: emit structure is frozen
-	p.runBackend(s)
+	p.runBackend(s, recorder)
+	p.writeManifest(recorder)
 	p.logRunSummary()
 
 	if p.diag.HasErrors() {
 		return ErrRunHadErrors
 	}
 	return nil
+}
+
+// writeManifest writes the run-end manifest when a path is
+// configured via [Builder.WithManifestPath]. Manifest write errors
+// surface as Warn diagnostics (the manifest is observability, not
+// correctness) so a manifest-write failure does not turn the run
+// into a failed one.
+func (p *Pipeline) writeManifest(rec *recordingSink) {
+	if p.manifestPath == "" {
+		return
+	}
+	m := rec.asManifest(time.Now().UTC().Format(time.RFC3339))
+	if err := manifest.Write(p.manifestPath, m); err != nil {
+		p.diag.For("pipeline").Warnf(position.Pos{}, "manifest write failed: %v", err)
+	}
 }
 
 // DryRun returns the resolved [Plan] without executing any phase.
@@ -77,8 +103,20 @@ func (p *Pipeline) DryRun(ctx context.Context) *Plan {
 // runFrontends invokes Load on every frontend for every pattern.
 // Per-call errors and panics become Error diagnostics attributed to
 // the frontend's name; subsequent frontends and patterns still run.
+// When [PhaseFrontend] is opted into via [Builder.WithParallel] the
+// frontend×pattern invocations dispatch concurrently.
 func (p *Pipeline) runFrontends(s *store.Store, patterns []string) {
 	p.logPhaseStart("frontend", "%d frontend(s), %d pattern(s)", len(p.plan.Frontends), len(patterns))
+	if p.parallel[PhaseFrontend] {
+		var wg sync.WaitGroup
+		for _, fe := range p.plan.Frontends {
+			for _, pattern := range patterns {
+				wg.Go(func() { p.invokeFrontend(fe, pattern, s) })
+			}
+		}
+		wg.Wait()
+		return
+	}
 	for _, fe := range p.plan.Frontends {
 		for _, pattern := range patterns {
 			p.invokeFrontend(fe, pattern, s)
@@ -110,51 +148,125 @@ func (p *Pipeline) reportPluginError(ps *diag.PluginSink, name, role string, err
 	ps.Errorf(position.Pos{}, "%s failed: %v", role, err)
 }
 
-// runAnnotators invokes Annotate on every annotator in plan order.
-// Each annotator gets its own [store.Reader] for read-tracking.
+// runAnnotators invokes Annotate on every annotator. Buckets run
+// in ascending priority order; within a bucket plugins run in
+// topo-sorted order sequentially, OR concurrently when
+// [PhaseAnnotator] is enabled via [Builder.WithParallel] AND every
+// plugin in the bucket has pairwise-disjoint [plugin.CapabilityProvider.Provides]
+// (per spec §18). Buckets that fail the disjoint check fall back to
+// sequential to preserve write-order semantics.
 func (p *Pipeline) runAnnotators(s *store.Store) {
 	p.logPhaseStart("annotator", "%d annotator(s)", len(p.plan.Annotators))
-	for _, ann := range p.plan.Annotators {
-		p.invokeAnnotator(ann, s)
+	for _, bucket := range p.plan.AnnotatorBuckets {
+		if p.parallel[PhaseAnnotator] {
+			// Build rejects same-bucket plugins that claim the same
+			// Provides name (ErrDuplicateProvider), so by the time
+			// the runtime sees a bucket every plugin's Provides
+			// set is pairwise disjoint and the bucket may safely
+			// dispatch concurrently.
+			var wg sync.WaitGroup
+			for _, ann := range bucket.Plugins {
+				wg.Go(func() { p.invokeAnnotator(ann, s) })
+			}
+			wg.Wait()
+			continue
+		}
+		for _, ann := range bucket.Plugins {
+			p.invokeAnnotator(ann, s)
+		}
 	}
 }
 
 // invokeAnnotator runs one Annotator.Annotate call with panic
-// containment.
+// containment. After the call returns the recorded
+// [store.ReadSet.Hash] is written to the cache under a
+// per-plugin key so cache-aware downstream tooling can detect
+// "this plugin ran with these reads".
 func (p *Pipeline) invokeAnnotator(ann plugin.Annotator, s *store.Store) {
 	ps := p.diag.For(ann.Name())
 	defer diag.RecoverAs(ps, position.Pos{})
+	r := store.NewReader(s)
 	ctx := &plugin.AnnotatorContext{
 		Store:  s,
-		Reader: store.NewReader(s),
+		Reader: r,
 		Diag:   p.diag,
 	}
 	if err := ann.Annotate(ctx); err != nil {
 		p.reportPluginError(ps, ann.Name(), "annotator", err)
 	}
+	p.recordCacheKey(ann.Name(), r)
 }
 
-// runGenerators invokes Generate on every generator in plan order.
+// runGenerators invokes Generate on every generator. Buckets run
+// in ascending priority order; within a bucket plugins run in
+// topo-sorted order sequentially, OR concurrently when
+// [PhaseGenerator] is enabled via [Builder.WithParallel] AND every
+// plugin in the bucket implements [plugin.NodesOnly] returning
+// true (i.e. they promise not to read upstream emit). Buckets that
+// fail the NodesOnly check fall back to sequential.
 func (p *Pipeline) runGenerators(s *store.Store) {
 	p.logPhaseStart("generator", "%d generator(s)", len(p.plan.Generators))
-	for _, gen := range p.plan.Generators {
-		p.invokeGenerator(gen, s)
+	for _, bucket := range p.plan.GeneratorBuckets {
+		if p.parallel[PhaseGenerator] && allNodesOnly(bucket.Plugins) {
+			var wg sync.WaitGroup
+			for _, gen := range bucket.Plugins {
+				wg.Go(func() { p.invokeGenerator(gen, s) })
+			}
+			wg.Wait()
+			continue
+		}
+		for _, gen := range bucket.Plugins {
+			p.invokeGenerator(gen, s)
+		}
 	}
 }
 
+// allNodesOnly reports whether every generator in plugins
+// implements [plugin.NodesOnly] returning true. A single false /
+// non-implementing generator disqualifies the bucket from parallel
+// execution because it might read the emit graph another generator
+// is mutating.
+func allNodesOnly(plugins []plugin.Generator) bool {
+	for _, g := range plugins {
+		no, ok := any(g).(plugin.NodesOnly)
+		if !ok || !no.NodesOnly() {
+			return false
+		}
+	}
+	return true
+}
+
 // invokeGenerator runs one Generator.Generate call with panic
-// containment.
+// containment. After the call returns the recorded
+// [store.ReadSet.Hash] is written to the cache under a
+// per-plugin key — see [Pipeline.recordCacheKey].
 func (p *Pipeline) invokeGenerator(gen plugin.Generator, s *store.Store) {
 	ps := p.diag.For(gen.Name())
 	defer diag.RecoverAs(ps, position.Pos{})
+	r := store.NewReader(s)
 	ctx := &plugin.GeneratorContext{
 		Store:  s,
-		Reader: store.NewReader(s),
+		Reader: r,
 		Diag:   p.diag,
 	}
 	if err := gen.Generate(ctx); err != nil {
 		p.reportPluginError(ps, gen.Name(), "generator", err)
 	}
+	p.recordCacheKey(gen.Name(), r)
+}
+
+// recordCacheKey writes the per-plugin cache marker — a fixed-form
+// key derived from the plugin's name and the supplied [store.ReadSet]
+// hash — to the configured cache. Cache layers that consume the
+// marker can later detect "this plugin ran with the same inputs"
+// for skip-on-hit optimisations.
+//
+// Errors from the cache are silently dropped because the cache is
+// best-effort: a failed write is no worse than running without a
+// cache at all.
+func (p *Pipeline) recordCacheKey(name string, r *store.Reader) {
+	key := fmt.Sprintf("plugin:%s:reads:%s", name, r.ReadSet().Hash())
+	_ = p.cache.Put(key, []byte(r.ReadSet().Hash())) //nolint:errcheck // best-effort cache marker
 }
 
 // runBackend invokes Render on the backend with a populated
@@ -162,15 +274,16 @@ func (p *Pipeline) invokeGenerator(gen plugin.Generator, s *store.Store) {
 // list (for template-collection enumeration) and the plan-execution
 // order (for deterministic override application). Wraps the call
 // in a [diag.RecoverAs] guard so a backend panic is contained.
-func (p *Pipeline) runBackend(s *store.Store) {
+func (p *Pipeline) runBackend(s *store.Store, dst sink.Sink) {
 	p.logPhaseStart("backend", "lang=%s", p.backend.Language())
 	ps := p.diag.For(p.backend.Name())
 	defer diag.RecoverAs(ps, position.Pos{})
+	r := store.NewReader(s)
 	ctx := &plugin.BackendContext{
 		Store:   s,
-		Reader:  store.NewReader(s),
+		Reader:  r,
 		Diag:    p.diag,
-		Sink:    p.sink,
+		Sink:    dst,
 		Lang:    p.backend.Language(),
 		Plugins: p.registeredPlugins(),
 		Ordered: p.orderedPlugins(),
@@ -178,6 +291,7 @@ func (p *Pipeline) runBackend(s *store.Store) {
 	if err := p.backend.Render(ctx); err != nil {
 		p.reportPluginError(ps, p.backend.Name(), "backend", err)
 	}
+	p.recordCacheKey(p.backend.Name(), r)
 }
 
 // logPhaseStart writes a verbose-mode Info diagnostic announcing

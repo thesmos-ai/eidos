@@ -21,16 +21,18 @@ import (
 // from the typed accessors. Future milestones add Run / DryRun
 // methods that execute the phases in plan order.
 type Pipeline struct {
-	frontends  []plugin.Frontend
-	annotators []plugin.Annotator
-	generators []plugin.Generator
-	backend    plugin.Backend
-	sink       sink.Sink
-	cache      cache.Cache
-	diag       *diag.Sink
-	verbose    bool
-	plan       *Plan
-	registry   *directive.Registry
+	frontends    []plugin.Frontend
+	annotators   []plugin.Annotator
+	generators   []plugin.Generator
+	backend      plugin.Backend
+	sink         sink.Sink
+	cache        cache.Cache
+	diag         *diag.Sink
+	verbose      bool
+	parallel     map[Phase]bool
+	manifestPath string
+	plan         *Plan
+	registry     *directive.Registry
 }
 
 // Frontends returns the registered frontends in registration order.
