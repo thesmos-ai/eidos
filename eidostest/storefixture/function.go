@@ -1,0 +1,75 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
+package storefixture
+
+import (
+	"go.thesmos.sh/eidos/core/directive"
+	"go.thesmos.sh/eidos/core/position"
+	"go.thesmos.sh/eidos/node"
+)
+
+// FunctionBuilder configures a [node.Function] within a [Builder]'s
+// accumulating package. Functions differ from methods in that they
+// have no receiver and are addressed by package-qualified name.
+type FunctionBuilder struct {
+	f *node.Function
+}
+
+// Node returns the underlying [node.Function].
+func (b *FunctionBuilder) Node() *node.Function { return b.f }
+
+// Pos overrides the function's source position.
+func (b *FunctionBuilder) Pos(p position.Pos) *FunctionBuilder {
+	b.f.SourcePos = p
+	return b
+}
+
+// Docs appends doc-comment lines.
+func (b *FunctionBuilder) Docs(lines ...string) *FunctionBuilder {
+	b.f.DocLines = append(b.f.DocLines, lines...)
+	return b
+}
+
+// Directive attaches d to the function's directive list.
+func (b *FunctionBuilder) Directive(d *directive.Directive) *FunctionBuilder {
+	b.f.DirectiveList = append(b.f.DirectiveList, d)
+	return b
+}
+
+// Param appends a positional parameter to the function's signature.
+func (b *FunctionBuilder) Param(name string, t *node.TypeRef) *FunctionBuilder {
+	b.f.Params = append(b.f.Params, &node.Param{
+		Name:  name,
+		Type:  t,
+		Owner: b.f,
+	})
+	return b
+}
+
+// Variadic appends a variadic last parameter.
+func (b *FunctionBuilder) Variadic(name string, elemT *node.TypeRef) *FunctionBuilder {
+	b.f.Params = append(b.f.Params, &node.Param{
+		Name:     name,
+		Type:     elemT,
+		Variadic: true,
+		Owner:    b.f,
+	})
+	return b
+}
+
+// Return appends a return type.
+func (b *FunctionBuilder) Return(t *node.TypeRef) *FunctionBuilder {
+	b.f.Returns = append(b.f.Returns, t)
+	return b
+}
+
+// TypeParam declares a generic type parameter on the function.
+func (b *FunctionBuilder) TypeParam(name string, constraint *node.TypeRef) *FunctionBuilder {
+	b.f.TypeParams = append(b.f.TypeParams, &node.TypeParam{
+		Name:       name,
+		Constraint: constraint,
+		Owner:      b.f,
+	})
+	return b
+}

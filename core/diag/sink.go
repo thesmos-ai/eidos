@@ -20,8 +20,9 @@ import (
 //
 // The zero value is unusable; construct via [New].
 type Sink struct {
-	mu    sync.Mutex
-	diags []Diag
+	mu      sync.Mutex
+	diags   []Diag
+	discard bool
 }
 
 // New returns a freshly-initialised Sink with no diagnostics.
@@ -31,8 +32,12 @@ func New() *Sink {
 
 // Append records d as-is without validation. Callers that want
 // formatting should use [Sink.Errorf] / [Sink.Warnf] / [Sink.Infof] or
-// emit through a [PluginSink] obtained from [Sink.For].
+// emit through a [PluginSink] obtained from [Sink.For]. Discard
+// sinks (constructed via [Discard]) silently drop d.
 func (s *Sink) Append(d Diag) {
+	if s.discard {
+		return
+	}
 	s.mu.Lock()
 	s.diags = append(s.diags, d)
 	s.mu.Unlock()
