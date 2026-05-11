@@ -31,6 +31,7 @@ const (
 	KindEmbed       directive.Kind = "emit.embed"
 	KindParam       directive.Kind = "emit.param"
 	KindTypeParam   directive.Kind = "emit.type_param"
+	KindTag         directive.Kind = "emit.tag"
 
 	// Reference kinds.
 	KindTypeRef      directive.Kind = "emit.type_ref"

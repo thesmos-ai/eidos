@@ -1,4 +1,4 @@
 {{- define "emit.alias" -}}
 {{ renderDocs .DocLines -}}
-type {{ .Name }}{{ if .IsAlias }} ={{ end }} {{ renderType .Target }}
+type {{ .Name }}{{ renderTypeParams .TypeParams }}{{ if .IsAlias }} ={{ end }} {{ renderType .Target }}
 {{- end -}}

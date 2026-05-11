@@ -92,14 +92,16 @@ func newRenderState(root *template.Template) *renderState {
 // for these names are rejected at Build time.
 func (s *renderState) funcMap() template.FuncMap {
 	return template.FuncMap{
-		"render":        s.render,
-		"renderType":    s.renderType,
-		"renderDocs":    renderDocs,
-		"renderFields":  s.renderFields,
-		"renderParams":  s.renderParams,
-		"renderReturns": s.renderReturns,
-		"renderExpr":    renderExpr,
-		"imp":           s.imports.Imp,
+		"render":           s.render,
+		"renderType":       s.renderType,
+		"renderDocs":       renderDocs,
+		"renderFields":     s.renderFields,
+		"renderEmbeds":     s.renderEmbeds,
+		"renderTypeParams": s.renderTypeParams,
+		"renderParams":     s.renderParams,
+		"renderReturns":    s.renderReturns,
+		"renderExpr":       renderExpr,
+		"imp":              s.imports.Imp,
 	}
 }
 
@@ -155,9 +157,17 @@ func (s *renderState) render(n emit.Node) (string, error) {
 // separated by blank lines on the doc-boundary so each documented
 // field forms a visually grouped unit per Go convention.
 //
-// Per-field line shape: `\t<Name> <renderType(.Type)>[ ` + "`" + `<.Tag>` + "`" + `][ // <.LineComment>]`.
+// Per-field line shape: `\t<Name> <renderType(.Type)>[ ` + "`" + `<tags>` + "`" + `][ // <.LineComment>]`.
 // DocLines render above each field via [renderDocs] (with the same
 // "//"-prefixed-lines-pass-through" semantics used at decl level).
+//
+// Tag aggregation: the rendered tag blob unions [emit.Field.Tag]
+// (the host generator's base tag, rendered verbatim) with every
+// [*emit.Tag] appended to [emit.Field.Tags] (cross-cutting plugin
+// contributions). Slot entries render as `Key:"EscapedValue"` —
+// values are Go-string-escaped via [strconv.Quote]. Order: base
+// tag first, then slot entries in append order. Both empty produces
+// no tag at all (not even the backticks).
 //
 // Separation rule: emit a blank line BETWEEN any two adjacent
 // fields when either carries DocLines — this groups documented
@@ -182,9 +192,9 @@ func (s *renderState) renderFields(fields []*emit.Field) (string, error) {
 			return "", err
 		}
 		b.WriteString(t)
-		if f.Tag != "" {
+		if tag := fieldTagBlob(f); tag != "" {
 			b.WriteString(" `")
-			b.WriteString(f.Tag)
+			b.WriteString(tag)
 			b.WriteByte('`')
 		}
 		if f.LineComment != "" {
@@ -194,6 +204,111 @@ func (s *renderState) renderFields(fields []*emit.Field) (string, error) {
 		b.WriteByte('\n')
 	}
 	return b.String(), nil
+}
+
+// fieldTagBlob assembles the backtick-wrapped struct-tag content
+// for a single field. The base [emit.Field.Tag] (raw text the host
+// generator declared) renders first, followed by each [*emit.Tag]
+// appended to the field's tags slot in append order; non-Tag slot
+// entries are ignored so the helper degrades gracefully when a
+// plugin appends an unrelated node by mistake. Returns the empty
+// string when neither the base tag nor the slot carry content; the
+// caller omits the backtick wrap entirely in that case.
+func fieldTagBlob(f *emit.Field) string {
+	var b strings.Builder
+	if f.Tag != "" {
+		b.WriteString(f.Tag)
+	}
+	for _, item := range f.Tags().Items {
+		t, ok := item.(*emit.Tag)
+		if !ok {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte(' ')
+		}
+		b.WriteString(t.Key)
+		b.WriteByte(':')
+		b.WriteString(strconv.Quote(t.Value))
+	}
+	return b.String()
+}
+
+// renderEmbeds produces the rendered embed lines that go inside a
+// struct or interface body — one tab-indented `renderType(.Type)`
+// per embed, terminated by a newline. Empty input returns the
+// empty string; the caller emits no leading or trailing whitespace
+// for missing embeds. Currently used by the `emit.struct` and
+// `emit.interface` templates.
+func (s *renderState) renderEmbeds(embeds []*emit.Embed) (string, error) {
+	var b strings.Builder
+	for _, e := range embeds {
+		t, err := s.renderType(e.Type)
+		if err != nil {
+			return "", err
+		}
+		b.WriteByte('\t')
+		b.WriteString(t)
+		b.WriteByte('\n')
+	}
+	return b.String(), nil
+}
+
+// renderTypeParams produces the bracketed generic-parameter list of
+// a Go declaration — `[T1 C1, T2 C2]` joined by ", ". Each entry is
+// `Name renderType(<bound>)` for type parameters with an explicit
+// constraint, falling back to `Name any` for [emit.Constraint.IsAny]
+// parameters (preserving Go's grammar requirement that every
+// parameter declare a bound).
+//
+// A constraint with a single [emit.Constraint.Embedded] ref
+// renders the ref directly; multiple embeds render as an inline
+// interface (`{ E1; E2 }`) — the intersection form Go allows for
+// composite constraints.
+//
+// Empty input returns the empty string; the caller emits no
+// brackets when the declaration has no type parameters. The helper
+// is reserved canonical-render.
+func (s *renderState) renderTypeParams(params []*emit.TypeParam) (string, error) {
+	if len(params) == 0 {
+		return "", nil
+	}
+	parts := make([]string, 0, len(params))
+	for _, p := range params {
+		entry, err := s.renderTypeParam(p)
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, entry)
+	}
+	return "[" + strings.Join(parts, ", ") + "]", nil
+}
+
+// renderTypeParam renders a single type-parameter entry as it
+// appears in the bracket list — name + space + rendered bound.
+// Unconstrained parameters (nil or `IsAny` Constraint) render
+// with the predeclared `any` constraint.
+func (s *renderState) renderTypeParam(p *emit.TypeParam) (string, error) {
+	if p.Constraint.IsAny() {
+		return p.Name + " any", nil
+	}
+	embedded := p.Constraint.Embedded
+	if len(embedded) == 1 {
+		bound, err := s.renderType(embedded[0])
+		if err != nil {
+			return "", err
+		}
+		return p.Name + " " + bound, nil
+	}
+	parts := make([]string, 0, len(embedded))
+	for _, e := range embedded {
+		r, err := s.renderType(e)
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, r)
+	}
+	return p.Name + " interface { " + strings.Join(parts, "; ") + " }", nil
 }
 
 // renderParams produces the parenthesised parameter list of a Go
@@ -368,9 +483,47 @@ func (s *renderState) renderType(r emit.Ref) (string, error) {
 		return alias + "." + typed.Name, nil
 	case *emit.TypeRef:
 		return internalTargetName(typed.Target)
+	case *emit.CompositeRef:
+		return s.renderComposite(typed)
 	default:
 		return "", fmt.Errorf("%w: %T", ErrUnsupportedRef, r)
 	}
+}
+
+// renderComposite dispatches on the [emit.CompositeRef.Shape] and
+// returns the Go source spelling for the composite. The
+// supported-shape surface widens phase by phase; today only
+// [emit.ShapeUnion] is wired (driven by generic-constraint
+// rendering). Other shapes return [ErrUnsupportedRef] wrapped with
+// the offending shape.
+func (s *renderState) renderComposite(r *emit.CompositeRef) (string, error) {
+	switch r.Shape {
+	case emit.ShapeUnion:
+		return s.renderUnion(r.UnionTerms)
+	default:
+		return "", fmt.Errorf("%w: composite shape %s", ErrUnsupportedRef, r.Shape)
+	}
+}
+
+// renderUnion produces the Go union-constraint spelling for a
+// `T1 | T2 | ~T3` sequence: terms joined by " | ", with the
+// approximation marker `~` prefixing terms whose Approx flag is
+// set. Empty term slices yield the empty string — the caller
+// (typically [renderTypeParams]) is responsible for treating an
+// empty constraint as a programming error if relevant.
+func (s *renderState) renderUnion(terms []emit.UnionTerm) (string, error) {
+	parts := make([]string, 0, len(terms))
+	for _, t := range terms {
+		rendered, err := s.renderType(t.Type)
+		if err != nil {
+			return "", err
+		}
+		if t.Approx {
+			rendered = "~" + rendered
+		}
+		parts = append(parts, rendered)
+	}
+	return strings.Join(parts, " | "), nil
 }
 
 // internalTargetName returns the unqualified declaration name of a
