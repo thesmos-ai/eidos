@@ -1,3 +1,6 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
 // Package fixture exercises the go.isError and go.isStringer
 // stamping paths. Run returns the predeclared error type; Label
 // satisfies fmt.Stringer via a String() method, so any reference

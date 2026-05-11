@@ -1,3 +1,6 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
 // Package fixture exercises the directive-parsing surface across
 // every declaration kind the frontend extracts directives from:
 // the package itself, individual files, top-level types, struct

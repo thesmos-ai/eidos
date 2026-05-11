@@ -251,6 +251,53 @@ func TestMultiIndex_Len(t *testing.T) {
 	})
 }
 
+func TestMultiIndex_Keys(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns distinct keys in first-insertion order", func(t *testing.T) {
+		t.Parallel()
+		m := store.NewMultiIndex[string, int]()
+		m.Add("b", 1)
+		m.Add("a", 2)
+		m.Add("b", 3) // duplicate key — must not re-order
+		m.Add("c", 4)
+		got := m.Keys()
+		want := []string{"b", "a", "c"}
+		if len(got) != len(want) {
+			t.Fatalf("Keys = %v, want %v", got, want)
+		}
+		for i, k := range want {
+			if got[i] != k {
+				t.Fatalf("Keys[%d] = %q, want %q (full %v)", i, got[i], k, got)
+			}
+		}
+	})
+
+	t.Run("empty index returns non-nil zero-length slice", func(t *testing.T) {
+		t.Parallel()
+		m := store.NewMultiIndex[string, int]()
+		got := m.Keys()
+		if got == nil {
+			t.Fatalf("Keys on empty index should be non-nil")
+		}
+		if len(got) != 0 {
+			t.Fatalf("Keys on empty index = %v, want empty", got)
+		}
+	})
+
+	t.Run("mutating the returned slice does not affect the index", func(t *testing.T) {
+		t.Parallel()
+		m := store.NewMultiIndex[string, int]()
+		m.Add("x", 1)
+		got := m.Keys()
+		got[0] = "tampered"
+		fresh := m.Keys()
+		if fresh[0] != "x" {
+			t.Fatalf("mutating returned slice must not affect index; fresh Keys = %v", fresh)
+		}
+	})
+}
+
 func TestMultiIndex_ConcurrentAccess(t *testing.T) {
 	t.Parallel()
 

@@ -1,3 +1,6 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
 // Package fixture exercises interface conversion with explicit
 // methods (params + returns) plus an embedded interface.
 package fixture

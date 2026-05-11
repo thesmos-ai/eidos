@@ -1,3 +1,6 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
 // Package fixture exercises generic type parameters and their
 // embedded-bound constraints.
 package fixture

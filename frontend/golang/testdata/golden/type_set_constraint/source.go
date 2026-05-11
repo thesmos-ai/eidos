@@ -1,3 +1,6 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
 // Package fixture exercises type-set constraint interfaces. The
 // converter stamps go.isConstraintInterface plus go.constraintTerms
 // for each union-of-terms entry, with `~` rendered as an "approx"

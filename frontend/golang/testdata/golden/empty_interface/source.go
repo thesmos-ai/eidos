@@ -1,3 +1,6 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
 // Package fixture exercises empty-interface detection. A bare
 // `interface{}` declaration must carry go.isEmptyInterface on the
 // resulting [node.Interface]; an interface with explicit methods

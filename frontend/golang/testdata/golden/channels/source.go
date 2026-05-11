@@ -1,3 +1,6 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
 // Package fixture exercises channel-direction metadata. The
 // converter stamps go.isChannel plus go.chanDir and go.chanElem
 // onto every chan-typed reference; bidirectional, send-only, and

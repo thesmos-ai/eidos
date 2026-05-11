@@ -86,10 +86,13 @@ func (b *Bucket[T]) Range(fn func(T) bool) {
 // mapping to an insertion-ordered list of values. Used for
 // cross-cutting indices like "by directive presence" and "by
 // declaring package" where one key has many entries. Concurrent-safe
-// via RWMutex.
+// via RWMutex. Both the per-key value list and the set of distinct
+// keys are tracked in first-insertion order, so iteration via
+// [MultiIndex.Keys] is deterministic across runs.
 type MultiIndex[K comparable, V any] struct {
 	mu      sync.RWMutex
 	entries map[K][]V
+	order   []K
 }
 
 // NewMultiIndex returns an empty MultiIndex ready for use.
@@ -98,10 +101,15 @@ func NewMultiIndex[K comparable, V any]() *MultiIndex[K, V] {
 }
 
 // Add appends value to the list under key, preserving insertion
-// order.
+// order. The first Add for a key also records the key in the
+// index-wide first-insertion-order list surfaced by
+// [MultiIndex.Keys].
 func (m *MultiIndex[K, V]) Add(key K, value V) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if _, seen := m.entries[key]; !seen {
+		m.order = append(m.order, key)
+	}
 	m.entries[key] = append(m.entries[key], value)
 }
 
@@ -132,4 +140,16 @@ func (m *MultiIndex[K, V]) Len() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.entries)
+}
+
+// Keys returns a copy of the distinct keys in first-insertion order.
+// The returned slice is safe for the caller to mutate; mutations
+// have no effect on the index. Empty index returns a non-nil
+// zero-length slice.
+func (m *MultiIndex[K, V]) Keys() []K {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]K, len(m.order))
+	copy(out, m.order)
+	return out
 }

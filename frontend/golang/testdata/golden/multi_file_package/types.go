@@ -1,3 +1,6 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
 // Package fixture spans more than one .go file so the converter's
 // multi-file package assembly is exercised. types.go declares the
 // shared types; ops.go defines methods that operate on them. The

@@ -1,3 +1,6 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
 // Package fixture exercises iter.Seq / iter.Seq2 detection on
 // function return types — the converter stamps go.isIterSeq /
 // go.isIterSeq2 plus go.iterKeyType / go.iterValueType.

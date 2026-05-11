@@ -1,0 +1,7 @@
+{{- define "emit.struct" -}}
+type {{ .Name }} struct {
+{{- range .Fields }}
+	{{ .Name }} {{ renderType .Type }}
+{{- end }}
+}
+{{- end -}}

@@ -1,3 +1,6 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
 // Package fixture exercises go.receiverIsPointer on methods. The
 // converter stamps the flag whenever the receiver expression is
 // `*T`; value-receiver methods on the same type carry no marker.

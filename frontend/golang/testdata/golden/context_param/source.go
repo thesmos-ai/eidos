@@ -1,3 +1,6 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
 // Package fixture exercises context.Context detection on function
 // parameters — the converter stamps go.isContext on the parameter's
 // type reference whenever the underlying type resolves to

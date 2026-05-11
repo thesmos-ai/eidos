@@ -1,3 +1,6 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
 // Operations on the types declared in types.go. Living in a separate
 // file forces the converter to associate methods with receivers
 // declared in a sibling source file.

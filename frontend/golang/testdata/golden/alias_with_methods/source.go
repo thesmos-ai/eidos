@@ -1,3 +1,6 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
 // Package fixture exercises methods on a named-type alias —
 // `type Seconds int` carries a method set that the converter must
 // route to the Alias node (not orphan).

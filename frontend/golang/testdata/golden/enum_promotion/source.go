@@ -1,3 +1,6 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
 // Package fixture exercises the typed-iota → Enum promotion path,
 // including iota-value stamping on each variant.
 package fixture
