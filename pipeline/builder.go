@@ -125,9 +125,16 @@ func (b *Builder) WithPluginOptions(name string, kv map[string]string) *Builder 
 //     surfaces as [ErrInvalidOptions] wrapped with the plugin name
 //     and underlying validation cause.
 //
-// Cycles in [plugin.CapabilityProvider.Requires], duplicate
-// template func extension names, and plan resolution land in a
-// later milestone.
+// Plan resolution runs after the structural checks pass:
+//
+//   - Annotators and generators are grouped into priority buckets
+//     and topo-sorted within each bucket using
+//     [plugin.CapabilityProvider]; cycles surface as [ErrCycle].
+//   - Two plugins claiming the same Provides name in the same
+//     bucket surface as [ErrDuplicateProvider].
+//   - Two plugins claiming the same [plugin.TemplateProvider]
+//     func name for the backend's language surface as
+//     [ErrTemplateFuncCollision].
 func (b *Builder) Build() (*Pipeline, error) {
 	if b.diag == nil {
 		b.diag = diag.New()
@@ -139,17 +146,20 @@ func (b *Builder) Build() (*Pipeline, error) {
 	dups := b.validateNoDuplicateNames()
 	roles := b.validateRoleCounts()
 	options := b.applyAndValidateOptions()
-	errs := make([]error, 0, len(dups)+len(roles)+len(options))
-	errs = append(errs, dups...)
-	errs = append(errs, roles...)
-	errs = append(errs, options...)
+	structural := make([]error, 0, len(dups)+len(roles)+len(options))
+	structural = append(structural, dups...)
+	structural = append(structural, roles...)
+	structural = append(structural, options...)
 
-	if len(errs) > 0 {
-		ps := b.diag.For("pipeline")
-		for _, e := range errs {
-			ps.Errorf(position.Pos{}, "%s", e.Error())
-		}
-		return nil, errors.Join(errs...)
+	if len(structural) > 0 {
+		b.emitErrors(structural)
+		return nil, errors.Join(structural...)
+	}
+
+	plan, planErrs := b.resolvePlan()
+	if len(planErrs) > 0 {
+		b.emitErrors(planErrs)
+		return nil, errors.Join(planErrs...)
 	}
 
 	return &Pipeline{
@@ -161,7 +171,74 @@ func (b *Builder) Build() (*Pipeline, error) {
 		cache:      b.cache,
 		diag:       b.diag,
 		verbose:    b.verbose,
+		plan:       plan,
 	}, nil
+}
+
+// emitErrors writes one diagnostic per supplied error to the
+// builder's [diag.Sink] under the "pipeline" attribution.
+func (b *Builder) emitErrors(errs []error) {
+	ps := b.diag.For("pipeline")
+	for _, e := range errs {
+		ps.Errorf(position.Pos{}, "%s", e.Error())
+	}
+}
+
+// resolvePlan computes the execution-ordered [Plan] from the
+// validated registrations: annotators and generators by priority +
+// topo, frontends in registration order, the single backend
+// directly. Returns a non-empty error slice when bucket resolution
+// or template-func validation fails.
+func (b *Builder) resolvePlan() (*Plan, []error) {
+	annotators, annErr := resolvePhase(b.annotators)
+	generators, genErr := resolvePhase(b.generators)
+
+	asPlugins := allPlugins(b.frontends, b.annotators, b.generators, b.backends)
+	tplErrs := validateTemplateFuncs(asPlugins, b.backends[0].Language())
+
+	errs := make([]error, 0, 2+len(tplErrs))
+	if annErr != nil {
+		errs = append(errs, annErr)
+	}
+	if genErr != nil {
+		errs = append(errs, genErr)
+	}
+	errs = append(errs, tplErrs...)
+
+	if len(errs) > 0 {
+		return nil, errs
+	}
+	return &Plan{
+		Frontends:  b.frontends,
+		Annotators: annotators,
+		Generators: generators,
+		Backend:    b.backends[0],
+	}, nil
+}
+
+// allPlugins returns the supplied role slices flattened into a
+// single []plugin.Plugin, preserving registration order across
+// roles. Used by template-func validation which is role-agnostic.
+func allPlugins(
+	frontends []plugin.Frontend,
+	annotators []plugin.Annotator,
+	generators []plugin.Generator,
+	backends []plugin.Backend,
+) []plugin.Plugin {
+	out := make([]plugin.Plugin, 0, len(frontends)+len(annotators)+len(generators)+len(backends))
+	for _, p := range frontends {
+		out = append(out, p)
+	}
+	for _, p := range annotators {
+		out = append(out, p)
+	}
+	for _, p := range generators {
+		out = append(out, p)
+	}
+	for _, p := range backends {
+		out = append(out, p)
+	}
+	return out
 }
 
 // validateNoDuplicateNames returns one error per duplicate plugin

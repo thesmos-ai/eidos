@@ -13,12 +13,12 @@ import (
 // Pipeline is the validated, ready-to-run artifact returned by
 // [Builder.Build]. It holds the participating plugins grouped by
 // role plus the shared sink, cache, and diagnostic sink supplied
-// during construction.
+// during construction, and the resolved execution-ordered [Plan].
 //
 // A Pipeline is immutable after Build; access to its members is
 // read-only and callers must not mutate the slices they receive
 // from the typed accessors. Future milestones add Run / DryRun
-// methods that execute the phases in order.
+// methods that execute the phases in plan order.
 type Pipeline struct {
 	frontends  []plugin.Frontend
 	annotators []plugin.Annotator
@@ -28,6 +28,7 @@ type Pipeline struct {
 	cache      cache.Cache
 	diag       *diag.Sink
 	verbose    bool
+	plan       *Plan
 }
 
 // Frontends returns the registered frontends in registration order.
@@ -38,9 +39,9 @@ func (p *Pipeline) Frontends() []plugin.Frontend {
 }
 
 // Annotators returns the registered annotators in registration
-// order. The pipeline's resolved execution order (priority bucket
-// + capability topo) is computed in a later milestone; for now the
-// accessor surfaces the registration order verbatim.
+// order. For the resolved execution order (priority bucket +
+// capability topo) call [Pipeline.Plan] and read its Annotators
+// field.
 func (p *Pipeline) Annotators() []plugin.Annotator {
 	out := make([]plugin.Annotator, len(p.annotators))
 	copy(out, p.annotators)
@@ -48,7 +49,7 @@ func (p *Pipeline) Annotators() []plugin.Annotator {
 }
 
 // Generators returns the registered generators in registration
-// order.
+// order. For the resolved execution order call [Pipeline.Plan].
 func (p *Pipeline) Generators() []plugin.Generator {
 	out := make([]plugin.Generator, len(p.generators))
 	copy(out, p.generators)
@@ -72,3 +73,9 @@ func (p *Pipeline) Diag() *diag.Sink { return p.diag }
 
 // Verbose reports whether verbose-mode diagnostics are enabled.
 func (p *Pipeline) Verbose() bool { return p.verbose }
+
+// Plan returns the resolved execution order — annotators and
+// generators grouped into priority buckets and topo-sorted within
+// each bucket. "eidos explain plan" tooling reads this to display
+// the resolved ordering without running the pipeline.
+func (p *Pipeline) Plan() *Plan { return p.plan }

@@ -31,3 +31,24 @@ var ErrMultipleBackends = errors.New("pipeline: multiple backends registered")
 // when an [plugin.OptionsProvider]'s SetOptions returns a
 // validation failure.
 var ErrInvalidOptions = errors.New("pipeline: invalid plugin options")
+
+// ErrCycle is returned by [Builder.Build] when a priority bucket
+// contains a cycle in its [plugin.CapabilityProvider.Requires]
+// graph. The wrapped message lists the plugins involved in the
+// cycle in alphabetical order.
+var ErrCycle = errors.New("pipeline: cycle in plugin requires")
+
+// ErrDuplicateProvider is returned by [Builder.Build] when two
+// plugins in the same priority bucket both declare the same
+// capability name in [plugin.CapabilityProvider.Provides]. Each
+// capability must have a single provider per bucket so topo
+// resolution stays deterministic.
+var ErrDuplicateProvider = errors.New("pipeline: duplicate capability provider")
+
+// ErrTemplateFuncCollision is returned by [Builder.Build] when two
+// plugins both register a [text/template] func of the same name in
+// [plugin.TemplateProvider.TemplateFuncs] for the backend's
+// language. Intentional overrides go through
+// [plugin.TemplateProvider.TemplateOverrides] and bypass this
+// check.
+var ErrTemplateFuncCollision = errors.New("pipeline: template func collision")

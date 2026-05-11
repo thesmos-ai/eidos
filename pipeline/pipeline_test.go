@@ -180,3 +180,22 @@ func TestPipeline_Verbose(t *testing.T) {
 		}
 	})
 }
+
+func TestPipeline_Plan(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns the resolved plan after a successful Build", func(t *testing.T) {
+		t.Parallel()
+		p := buildBasic(t)
+		plan := p.Plan()
+		if plan == nil {
+			t.Fatalf("Plan should be non-nil after a successful Build")
+		}
+		if len(plan.Frontends) != 2 || len(plan.Annotators) != 2 || len(plan.Generators) != 2 {
+			t.Fatalf("plan slice lengths mismatch: %+v", plan)
+		}
+		if plan.Backend == nil || plan.Backend.Name() != "be" {
+			t.Fatalf("plan backend mismatch")
+		}
+	})
+}
