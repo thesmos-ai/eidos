@@ -33,6 +33,7 @@ type Pipeline struct {
 	manifestPath string
 	plan         *Plan
 	registry     *directive.Registry
+	parser       *directive.Parser
 }
 
 // Frontends returns the registered frontends in registration order.

@@ -33,6 +33,8 @@ var (
 	keySetDirectiveFromStringOk  = meta.NewKey("key.setdirectivefromstring.ok", meta.BoolParser)
 	keySetDirectiveFromStringBad = meta.NewKey("key.setdirectivefromstring.bad", meta.BoolParser)
 	keyAnyTombstoneDirective     = meta.NewKey("key.anykey.tombstonedirective", meta.BoolParser)
+	keyEnsurePrior               = meta.NewKey("key.ensure.prior", meta.BoolParser)
+	keyEnsureMismatch            = meta.NewKey("key.ensure.mismatch", meta.BoolParser)
 )
 
 func TestNewKey(t *testing.T) {
@@ -299,6 +301,69 @@ func TestKey_SetDirectiveFromString(t *testing.T) {
 		if !errors.Is(err, meta.ErrParse) {
 			t.Fatalf("err = %v, want ErrParse", err)
 		}
+	})
+}
+
+func TestEnsureKey(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns the existing Key when name was registered via NewKey", func(t *testing.T) {
+		t.Parallel()
+		// keyEnsurePrior was registered with BoolParser at package
+		// init; EnsureKey with the same T must return that entry,
+		// not register a new one.
+		got := meta.EnsureKey(keyEnsurePrior.Name(), meta.BoolParser)
+		if got.Name() != keyEnsurePrior.Name() {
+			t.Fatalf("EnsureKey name = %q, want %q", got.Name(), keyEnsurePrior.Name())
+		}
+	})
+
+	t.Run("registers and returns a fresh Key when name is unknown", func(t *testing.T) {
+		t.Parallel()
+		const name = "key.ensure.fresh"
+		got := meta.EnsureKey(name, meta.StringParser)
+		if got.Name() != name {
+			t.Fatalf("EnsureKey name = %q, want %q", got.Name(), name)
+		}
+		// The fresh key must now be visible through the global registry.
+		looked, err := meta.Lookup(name)
+		assertNoError(t, err, "Lookup")
+		if looked.Name() != name {
+			t.Fatalf("Lookup returned %q, want %q", looked.Name(), name)
+		}
+	})
+
+	t.Run("is idempotent: a second call reads state written via the first", func(t *testing.T) {
+		t.Parallel()
+		const name = "key.ensure.idempotent"
+		first := meta.EnsureKey(name, meta.IntParser)
+		second := meta.EnsureKey(name, meta.IntParser)
+		b := meta.NewBag()
+		first.Set(b, 42, "test")
+		got, ok := second.Get(b)
+		if !ok || got != 42 {
+			t.Fatalf("Get via second EnsureKey = (%d, %v), want (42, true)", got, ok)
+		}
+	})
+
+	t.Run("panics with ErrDuplicateKey when T differs from prior registration", func(t *testing.T) {
+		t.Parallel()
+		// keyEnsureMismatch was registered as Key[bool]; calling
+		// EnsureKey with [string] must panic with ErrDuplicateKey.
+		defer func() {
+			r := recover()
+			if r == nil {
+				t.Fatalf("expected panic on type mismatch")
+			}
+			err, ok := r.(error)
+			if !ok {
+				t.Fatalf("panic value should be an error; got %T: %v", r, r)
+			}
+			if !errors.Is(err, meta.ErrDuplicateKey) {
+				t.Fatalf("panic err = %v, want ErrDuplicateKey", err)
+			}
+		}()
+		_ = meta.EnsureKey(keyEnsureMismatch.Name(), meta.StringParser)
 	})
 }
 

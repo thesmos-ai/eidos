@@ -26,18 +26,19 @@ import (
 //
 // The zero value is unusable; construct via [New].
 type Builder struct {
-	frontends    []plugin.Frontend
-	annotators   []plugin.Annotator
-	generators   []plugin.Generator
-	backends     []plugin.Backend
-	directives   []directive.Schema
-	sink         sink.Sink
-	cache        cache.Cache
-	diag         *diag.Sink
-	verbose      bool
-	parallel     map[Phase]bool
-	manifestPath string
-	options      map[string]map[string]string
+	frontends       []plugin.Frontend
+	annotators      []plugin.Annotator
+	generators      []plugin.Generator
+	backends        []plugin.Backend
+	directives      []directive.Schema
+	directivePrefix string
+	sink            sink.Sink
+	cache           cache.Cache
+	diag            *diag.Sink
+	verbose         bool
+	parallel        map[Phase]bool
+	manifestPath    string
+	options         map[string]map[string]string
 }
 
 // New returns an empty Builder ready to accept plugins.
@@ -81,6 +82,20 @@ func (b *Builder) WithManifestPath(path string) *Builder {
 // exported list.
 func (b *Builder) WithDirective(schemas ...directive.Schema) *Builder {
 	b.directives = append(b.directives, schemas...)
+	return b
+}
+
+// WithDirectivePrefix overrides the directive prefix the pipeline's
+// parser recognises. Defaults to [directive.DefaultPrefix] ("gen"),
+// matching the project-wide convention; consumers building a custom
+// CLI on top of eidos may set a project-specific prefix (e.g.
+// "myproject") here so their generated comments don't collide with
+// other tools.
+//
+// The empty string is rejected at Build time as
+// [directive.ErrInvalidPrefix].
+func (b *Builder) WithDirectivePrefix(prefix string) *Builder {
+	b.directivePrefix = prefix
 	return b
 }
 
@@ -203,10 +218,14 @@ func (b *Builder) Build() (*Pipeline, error) {
 
 	plan, planErrs := b.resolvePlan()
 	registry, regErrs := b.buildDirectiveRegistry()
+	parser, parserErr := b.buildDirectiveParser()
 	versionErrs := b.validateEmitVersions()
-	postStructural := make([]error, 0, len(planErrs)+len(regErrs)+len(versionErrs))
+	postStructural := make([]error, 0, len(planErrs)+len(regErrs)+len(versionErrs)+1)
 	postStructural = append(postStructural, planErrs...)
 	postStructural = append(postStructural, regErrs...)
+	if parserErr != nil {
+		postStructural = append(postStructural, parserErr)
+	}
 	postStructural = append(postStructural, versionErrs...)
 	if len(postStructural) > 0 {
 		b.emitErrors(postStructural)
@@ -226,7 +245,27 @@ func (b *Builder) Build() (*Pipeline, error) {
 		manifestPath: b.manifestPath,
 		plan:         plan,
 		registry:     registry,
+		parser:       parser,
 	}, nil
+}
+
+// buildDirectiveParser constructs the [directive.Parser] the
+// pipeline's frontends use to recognise `<prefix>:NAME …`
+// directives. The prefix defaults to [directive.DefaultPrefix]
+// ("gen") and is overridden via [Builder.WithDirectivePrefix];
+// invalid prefixes surface as the wrapped construction error so
+// Build emits a positioned diagnostic and refuses to construct a
+// half-configured pipeline.
+func (b *Builder) buildDirectiveParser() (*directive.Parser, error) {
+	prefix := b.directivePrefix
+	if prefix == "" {
+		prefix = directive.DefaultPrefix
+	}
+	p, err := directive.NewParser(prefix)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidDirectivePrefix, err)
+	}
+	return p, nil
 }
 
 // validateEmitVersions returns one error per plugin whose declared

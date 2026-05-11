@@ -53,12 +53,20 @@ func NewParser(prefix string) (*Parser, error) {
 	if !isValidPrefix(prefix) {
 		return nil, fmt.Errorf("%w: %q", ErrInvalidPrefix, prefix)
 	}
+	return newParser(prefix), nil
+}
+
+// newParser constructs a Parser for prefix without revalidating it.
+// Internal callers with a known-valid prefix (the [DefaultPrefix]
+// constant) use this directly; external callers route through
+// [NewParser], which validates first.
+func newParser(prefix string) *Parser {
 	return &Parser{
 		prefix:    prefix,
 		neutral:   prefix + ":",
 		setForm:   "+" + prefix + ":",
 		negateFor: "-" + prefix + ":",
-	}, nil
+	}
 }
 
 // Prefix returns the configured directive prefix (without sigils or

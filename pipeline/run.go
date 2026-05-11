@@ -133,6 +133,7 @@ func (p *Pipeline) invokeFrontend(fe plugin.Frontend, pattern string, s *store.S
 		Store:    s,
 		Diag:     p.diag,
 		Registry: p.registry,
+		Parser:   p.parser,
 		Cache:    p.cache,
 		Pattern:  pattern,
 	}

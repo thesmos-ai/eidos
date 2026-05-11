@@ -119,3 +119,34 @@ func TestStringListParser(t *testing.T) {
 		})
 	}
 }
+
+func TestNodeRefParser(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		in      string
+		want    string
+		wantErr bool
+	}{
+		{"bare identifier round-trips verbatim", "User", "User", false},
+		{"dotted package-qualified name round-trips verbatim", "users.User", "users.User", false},
+		{"whitespace and punctuation are preserved", "pkg.Type[K, V]", "pkg.Type[K, V]", false},
+		{"empty input returns ErrParse", "", "", true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := meta.NodeRefParser(tc.in)
+			if tc.wantErr {
+				if !errors.Is(err, meta.ErrParse) {
+					t.Fatalf("NodeRefParser(%q) err = %v, want ErrParse", tc.in, err)
+				}
+				return
+			}
+			assertNoError(t, err, "NodeRefParser")
+			assertEqualString(t, got, tc.want)
+		})
+	}
+}

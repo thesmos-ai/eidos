@@ -57,6 +57,14 @@ type FrontendContext struct {
 	// compatible.
 	Registry *directive.Registry
 
+	// Parser is the project-wide directive parser shared by every
+	// frontend in the run — typically [directive.DefaultParser].
+	// Frontends call [directive.Parser.ParseComment] on each
+	// comment they encounter; the parser handles marker stripping,
+	// prefix detection, and argument tokenisation uniformly so
+	// every plugin sees the same canonical directive shape.
+	Parser *directive.Parser
+
 	// Cache is the configured [cache.Cache] the pipeline runs with.
 	// Frontends compose a content-addressed key from their inputs +
 	// [Versioned.Version] (when implemented) and consult the cache

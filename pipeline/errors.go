@@ -80,3 +80,11 @@ var ErrDuplicateDirective = errors.New("pipeline: duplicate directive schema")
 // both the declared and the in-tree majors so the upgrade path is
 // obvious.
 var ErrIncompatibleEmitVersion = errors.New("pipeline: incompatible emit version")
+
+// ErrInvalidDirectivePrefix is returned by [Builder.Build] when the
+// prefix configured via [Builder.WithDirectivePrefix] is rejected
+// by the underlying [directive.NewParser] (empty, contains
+// whitespace, or contains the reserved `:` / `+` / `-` runes). The
+// wrapping error chain preserves [directive.ErrInvalidPrefix] so
+// callers can match on it via [errors.Is].
+var ErrInvalidDirectivePrefix = errors.New("pipeline: invalid directive prefix")

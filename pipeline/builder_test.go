@@ -270,6 +270,46 @@ func TestBuilder_Build_EmitVersionCompatibility(t *testing.T) {
 	})
 }
 
+func TestBuilder_WithDirectivePrefix(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns the receiver for chaining", func(t *testing.T) {
+		t.Parallel()
+		b := pipeline.New()
+		if out := b.WithDirectivePrefix("myapp"); out != b {
+			t.Fatalf("WithDirectivePrefix should return the receiver")
+		}
+	})
+
+	t.Run("accepts a valid custom prefix", func(t *testing.T) {
+		t.Parallel()
+		_, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithBackend(&stubBE{name: "be"}).
+			WithDirectivePrefix("myapp").
+			Build()
+		assertNoError(t, err)
+	})
+
+	t.Run("an invalid prefix returns ErrInvalidDirectivePrefix wrapping ErrInvalidPrefix", func(t *testing.T) {
+		t.Parallel()
+		// "+bad" contains a reserved sigil; directive.NewParser
+		// rejects it with directive.ErrInvalidPrefix, which Build
+		// surfaces as ErrInvalidDirectivePrefix.
+		_, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithBackend(&stubBE{name: "be"}).
+			WithDirectivePrefix("+bad").
+			Build()
+		if !errors.Is(err, pipeline.ErrInvalidDirectivePrefix) {
+			t.Fatalf("Build err = %v, want ErrInvalidDirectivePrefix", err)
+		}
+		if !errors.Is(err, directive.ErrInvalidPrefix) {
+			t.Fatalf("Build err = %v, want underlying directive.ErrInvalidPrefix", err)
+		}
+	})
+}
+
 func TestBuilder_WithParallel(t *testing.T) {
 	t.Parallel()
 

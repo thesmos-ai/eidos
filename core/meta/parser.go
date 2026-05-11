@@ -68,3 +68,17 @@ func StringListParser(raw string) ([]string, error) {
 	}
 	return strings.Split(raw, ","), nil
 }
+
+// NodeRefParser is the spec-listed parser for keys whose value
+// resolves to a node by name. The parser itself has no scope —
+// it simply records the raw name as the value's textual form and
+// returns [ErrParse] on the empty case. Callers that need to
+// resolve the name to a concrete [node.Node] do so against the
+// owning node's scope at the directive-override step (or later);
+// the parser preserves the source-level identifier verbatim.
+func NodeRefParser(raw string) (string, error) {
+	if raw == "" {
+		return "", fmt.Errorf("%w: empty node ref", ErrParse)
+	}
+	return raw, nil
+}

@@ -79,6 +79,37 @@ func NewKey[T any](name string, parser Parser[T]) Key[T] {
 	return k
 }
 
+// EnsureKey returns the registered [Key] under name when one
+// already exists, otherwise it registers and returns a fresh
+// [Key][T] with the supplied parser. EnsureKey is the
+// dynamically-named counterpart to [NewKey] — frontends that stamp
+// meta with names derived at runtime (e.g. parsed struct-tag keys
+// like `go.tag.json`, `go.tag.db`) call EnsureKey rather than
+// fighting [NewKey]'s panic-on-duplicate contract.
+//
+// The lookup-and-register pair is performed under the registry's
+// write lock so concurrent callers with the same name see the same
+// underlying key.
+//
+// Re-registration under a different T panics with [ErrDuplicateKey]
+// wrapped with the offending name — the registry tracks one type
+// per name, and silently widening would erase type safety.
+func EnsureKey[T any](name string, parser Parser[T]) Key[T] {
+	keyRegistry.mu.Lock()
+	defer keyRegistry.mu.Unlock()
+	if existing, ok := keyRegistry.keys[name]; ok {
+		k, isExpected := existing.(Key[T])
+		if !isExpected {
+			err := fmt.Errorf("%w: type mismatch for %q", ErrDuplicateKey, name)
+			panic(err) //nolint:forbidigo // documented programmer-error contract
+		}
+		return k
+	}
+	k := Key[T]{name: name, parser: parser}
+	keyRegistry.keys[name] = k
+	return k
+}
+
 // register adds k to the global registry. Duplicate registration is
 // a programmer error (two distinct package-level vars claiming the
 // same name); the function panics with [ErrDuplicateKey] so the
