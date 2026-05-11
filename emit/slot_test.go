@@ -205,3 +205,99 @@ func TestSlot_LazyHostSlots(t *testing.T) {
 		}
 	})
 }
+
+func TestSlot_InsertBefore(t *testing.T) {
+	t.Parallel()
+
+	t.Run("inserts immediately before the item matching the supplied ID", func(t *testing.T) {
+		t.Parallel()
+		host := &emit.Struct{Name: "User"}
+		slot := host.FieldsSlot()
+		assertNoError(t, slot.Append(&emit.Field{Name: "first"}, emit.Provenance{ID: "a"}))
+		assertNoError(t, slot.Append(&emit.Field{Name: "last"}, emit.Provenance{ID: "c"}))
+		assertNoError(t, slot.InsertBefore("c", &emit.Field{Name: "middle"}, emit.Provenance{ID: "b"}))
+		names := []string{
+			slot.At(0).(*emit.Field).Name,
+			slot.At(1).(*emit.Field).Name,
+			slot.At(2).(*emit.Field).Name,
+		}
+		if names[0] != "first" || names[1] != "middle" || names[2] != "last" {
+			t.Fatalf("InsertBefore order mismatch: %v", names)
+		}
+	})
+
+	t.Run("returns ErrProvenanceNotFound for unknown ID", func(t *testing.T) {
+		t.Parallel()
+		host := &emit.Struct{Name: "User"}
+		slot := host.FieldsSlot()
+		assertNoError(t, slot.Append(&emit.Field{Name: "x"}, emit.Provenance{ID: "a"}))
+		err := slot.InsertBefore("nope", &emit.Field{Name: "y"}, emit.Provenance{})
+		if !errors.Is(err, emit.ErrProvenanceNotFound) {
+			t.Fatalf("InsertBefore on unknown ID should return ErrProvenanceNotFound; got %v", err)
+		}
+	})
+
+	t.Run("returns ErrProvenanceNotFound for empty ID", func(t *testing.T) {
+		t.Parallel()
+		host := &emit.Struct{Name: "User"}
+		slot := host.FieldsSlot()
+		assertNoError(t, slot.Append(&emit.Field{Name: "x"}, emit.Provenance{}))
+		err := slot.InsertBefore("", &emit.Field{Name: "y"}, emit.Provenance{})
+		if !errors.Is(err, emit.ErrProvenanceNotFound) {
+			t.Fatalf("InsertBefore(\"\") should return ErrProvenanceNotFound; got %v", err)
+		}
+	})
+}
+
+func TestSlot_InsertAfter(t *testing.T) {
+	t.Parallel()
+
+	t.Run("inserts immediately after the item matching the supplied ID", func(t *testing.T) {
+		t.Parallel()
+		host := &emit.Struct{Name: "User"}
+		slot := host.FieldsSlot()
+		assertNoError(t, slot.Append(&emit.Field{Name: "first"}, emit.Provenance{ID: "a"}))
+		assertNoError(t, slot.Append(&emit.Field{Name: "last"}, emit.Provenance{ID: "c"}))
+		assertNoError(t, slot.InsertAfter("a", &emit.Field{Name: "middle"}, emit.Provenance{ID: "b"}))
+		names := []string{
+			slot.At(0).(*emit.Field).Name,
+			slot.At(1).(*emit.Field).Name,
+			slot.At(2).(*emit.Field).Name,
+		}
+		if names[0] != "first" || names[1] != "middle" || names[2] != "last" {
+			t.Fatalf("InsertAfter order mismatch: %v", names)
+		}
+	})
+
+	t.Run("returns ErrProvenanceNotFound for unknown ID", func(t *testing.T) {
+		t.Parallel()
+		host := &emit.Struct{Name: "User"}
+		slot := host.FieldsSlot()
+		assertNoError(t, slot.Append(&emit.Field{Name: "x"}, emit.Provenance{ID: "a"}))
+		err := slot.InsertAfter("nope", &emit.Field{Name: "y"}, emit.Provenance{})
+		if !errors.Is(err, emit.ErrProvenanceNotFound) {
+			t.Fatalf("InsertAfter on unknown ID should return ErrProvenanceNotFound; got %v", err)
+		}
+	})
+
+	t.Run("returns ErrProvenanceNotFound for empty ID", func(t *testing.T) {
+		t.Parallel()
+		host := &emit.Struct{Name: "User"}
+		slot := host.FieldsSlot()
+		err := slot.InsertAfter("", &emit.Field{Name: "y"}, emit.Provenance{})
+		if !errors.Is(err, emit.ErrProvenanceNotFound) {
+			t.Fatalf("InsertAfter(\"\") should return ErrProvenanceNotFound; got %v", err)
+		}
+	})
+
+	t.Run("InsertAfter the last item appends to the end", func(t *testing.T) {
+		t.Parallel()
+		host := &emit.Struct{Name: "User"}
+		slot := host.FieldsSlot()
+		assertNoError(t, slot.Append(&emit.Field{Name: "only"}, emit.Provenance{ID: "a"}))
+		assertNoError(t, slot.InsertAfter("a", &emit.Field{Name: "appended"}, emit.Provenance{}))
+		if slot.Len() != 2 || slot.At(1).(*emit.Field).Name != "appended" {
+			t.Fatalf("InsertAfter last should land at the end")
+		}
+	})
+}

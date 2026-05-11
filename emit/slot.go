@@ -15,6 +15,13 @@ import (
 // the slot's declared element kind.
 var ErrSlotElementType = errors.New("emit: slot element kind mismatch")
 
+// ErrProvenanceNotFound is returned by [Slot.InsertBefore] and
+// [Slot.InsertAfter] when no item in the slot carries a matching
+// [Provenance.ID]. Plugins that target other plugins' contributions
+// must coordinate on the ID convention (typically via a shared
+// const exported by the producing plugin).
+var ErrProvenanceNotFound = errors.New("emit: provenance ID not found in slot")
+
 // Slot is a named, kind-checked, provenance-tracked region attached
 // to an emit [Node]. Generators append items with [Provenance]
 // identifying the contributing plugin; cross-cutting generators
@@ -112,6 +119,42 @@ func (s *Slot) InsertAt(index int, item Node, prov Provenance) error {
 	s.Items = append(s.Items[:index], append([]Node{item}, s.Items[index:]...)...)
 	s.ProvenanceList = append(s.ProvenanceList[:index], append([]Provenance{prov}, s.ProvenanceList[index:]...)...)
 	return nil
+}
+
+// InsertBefore inserts item immediately before the first existing
+// item whose [Provenance.ID] equals id. Returns
+// [ErrProvenanceNotFound] when no item carries that ID (including
+// the empty-string case — an empty id never matches).
+//
+// Cross-cutting plugins use InsertBefore to position their
+// contributions relative to a specific prior contribution rather
+// than at a numeric index, which would shift as other plugins
+// append.
+func (s *Slot) InsertBefore(id string, item Node, prov Provenance) error {
+	if id == "" {
+		return fmt.Errorf("%w: empty id", ErrProvenanceNotFound)
+	}
+	for i, p := range s.ProvenanceList {
+		if p.ID == id {
+			return s.InsertAt(i, item, prov)
+		}
+	}
+	return fmt.Errorf("%w: %q in slot %q", ErrProvenanceNotFound, id, s.SlotName)
+}
+
+// InsertAfter inserts item immediately after the first existing
+// item whose [Provenance.ID] equals id. Returns
+// [ErrProvenanceNotFound] when no item carries that ID.
+func (s *Slot) InsertAfter(id string, item Node, prov Provenance) error {
+	if id == "" {
+		return fmt.Errorf("%w: empty id", ErrProvenanceNotFound)
+	}
+	for i, p := range s.ProvenanceList {
+		if p.ID == id {
+			return s.InsertAt(i+1, item, prov)
+		}
+	}
+	return fmt.Errorf("%w: %q in slot %q", ErrProvenanceNotFound, id, s.SlotName)
 }
 
 // At returns the item at the given index, or nil when index is out

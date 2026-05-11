@@ -97,3 +97,56 @@ func TestWriter_ConcurrentAppend(t *testing.T) {
 		}
 	})
 }
+
+func TestWriter_AppendKeyed(t *testing.T) {
+	t.Parallel()
+
+	t.Run("keyed contributions sort alphabetically by key on finalisation", func(t *testing.T) {
+		t.Parallel()
+		w := writer.New(targetAt("a", "b.go"), nil)
+		w.AppendKeyed("c", []byte("CCC"))
+		w.AppendKeyed("a", []byte("AAA"))
+		w.AppendKeyed("b", []byte("BBB"))
+		if got := string(w.Body()); got != "AAABBBCCC" {
+			t.Fatalf("keyed contributions should sort by key; got %q", got)
+		}
+	})
+
+	t.Run("concurrent AppendKeyed produces a deterministic body", func(t *testing.T) {
+		t.Parallel()
+		// Two runs of the same workload should produce identical
+		// bodies even though goroutine schedules differ.
+		run := func() string {
+			w := writer.New(targetAt("a", "b.go"), nil)
+			var wg sync.WaitGroup
+			for i := range 16 {
+				wg.Go(func() {
+					w.AppendKeyed(string(rune('a'+i)), []byte{byte('A' + i)})
+				})
+			}
+			wg.Wait()
+			return string(w.Body())
+		}
+		first := run()
+		second := run()
+		if first != second {
+			t.Fatalf("concurrent keyed appends should be deterministic; got %q vs %q", first, second)
+		}
+		if first != "ABCDEFGHIJKLMNOP" {
+			t.Fatalf("expected alphabetical assembly; got %q", first)
+		}
+	})
+
+	t.Run("sequential contributions render before keyed contributions", func(t *testing.T) {
+		t.Parallel()
+		w := writer.New(targetAt("a", "b.go"), nil)
+		w.AppendString("seq1 ")
+		w.AppendKeyed("z", []byte("z "))
+		w.AppendString("seq2 ")
+		w.AppendKeyed("a", []byte("a"))
+		if got := string(w.Body()); got != "seq1 seq2 a"+"z " {
+			// Sequential first (in append order), then keyed (sorted): "seq1 seq2 az "
+			t.Fatalf("mixed-mode order mismatch; got %q", got)
+		}
+	})
+}

@@ -47,3 +47,23 @@ func TestProvenance_String(t *testing.T) {
 		})
 	}
 }
+
+func TestProvenance_ID(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ID is an optional identifier on the Provenance value", func(t *testing.T) {
+		t.Parallel()
+		p := emit.Provenance{ID: "validation:nil-check"}
+		if p.ID != "validation:nil-check" {
+			t.Fatalf("ID round-trip failed: %q", p.ID)
+		}
+	})
+
+	t.Run("zero Provenance has empty ID", func(t *testing.T) {
+		t.Parallel()
+		var p emit.Provenance
+		if p.ID != "" {
+			t.Fatalf("zero Provenance ID should be empty; got %q", p.ID)
+		}
+	})
+}
