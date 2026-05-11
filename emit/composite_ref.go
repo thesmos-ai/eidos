@@ -28,6 +28,11 @@ const (
 	// ShapeFunc is a function type. FuncParams and FuncReturns hold
 	// the parameter and return refs.
 	ShapeFunc
+	// ShapeUnion is a union of terms, used for constraint interfaces
+	// of the form `A | B | ~C`. UnionTerms holds one [UnionTerm] per
+	// member of the union; the per-term Approx flag records whether
+	// the source carried the `~` prefix.
+	ShapeUnion
 )
 
 // String returns the lower-case textual form of s for diagnostics.
@@ -43,16 +48,27 @@ func (s CompositeShape) String() string {
 		return "map"
 	case ShapeFunc:
 		return "func"
+	case ShapeUnion:
+		return "union"
 	default:
 		return "composite_shape(?)"
 	}
+}
+
+// UnionTerm is one member of a [ShapeUnion] composite. Approx records
+// whether the source term carried the Go `~` prefix (e.g., `~int`)
+// — meaningful when the union appears as a constraint interface in
+// a type parameter list.
+type UnionTerm struct {
+	Type   Ref  `json:"-"`
+	Approx bool `json:"approx,omitempty"`
 }
 
 // CompositeRef wraps an inner [Ref] with a composite shape. The
 // [CompositeShape] discriminator selects which fields are
 // meaningful — Pointer / Slice use Elem; Array uses Elem +
 // ArrayLen; Map uses MapKey + MapValue; Func uses FuncParams +
-// FuncReturns.
+// FuncReturns; Union uses UnionTerms.
 type CompositeRef struct {
 	BaseEmit
 
@@ -75,6 +91,11 @@ type CompositeRef struct {
 	// parameter and return types in source order.
 	FuncParams  []Ref `json:"-"`
 	FuncReturns []Ref `json:"-"`
+
+	// UnionTerms holds the members of a [ShapeUnion] composite in
+	// source order. Each term carries its element ref plus an
+	// Approx flag (the Go `~T` prefix).
+	UnionTerms []UnionTerm `json:"union_terms,omitempty"`
 }
 
 // Kind returns [KindCompositeRef].
@@ -128,4 +149,20 @@ func FuncOf(params, returns []Ref) *CompositeRef {
 		returns = []Ref{}
 	}
 	return &CompositeRef{Shape: ShapeFunc, FuncParams: params, FuncReturns: returns}
+}
+
+// Union builds a union composite from the supplied terms in source
+// order. Variadic zero-term invocation produces a non-nil empty
+// UnionTerms slice — useful as a builder seed that callers append
+// to before downstream consumption.
+//
+//	emit.Union(
+//	    emit.UnionTerm{Type: emit.Builtin("int")},
+//	    emit.UnionTerm{Type: emit.Builtin("string"), Approx: true},
+//	) // int | ~string
+func Union(terms ...UnionTerm) *CompositeRef {
+	if terms == nil {
+		terms = []UnionTerm{}
+	}
+	return &CompositeRef{Shape: ShapeUnion, UnionTerms: terms}
 }

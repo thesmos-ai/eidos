@@ -22,6 +22,7 @@ func TestCompositeShape_String(t *testing.T) {
 		{"Array", emit.ShapeArray, "array"},
 		{"Map", emit.ShapeMap, "map"},
 		{"Func", emit.ShapeFunc, "func"},
+		{"Union", emit.ShapeUnion, "union"},
 		{"unknown stringifies with a marker", emit.CompositeShape(99), "composite_shape(?)"},
 	}
 
@@ -116,6 +117,60 @@ func TestFuncOf(t *testing.T) {
 		if len(r.FuncParams) != 0 || len(r.FuncReturns) != 0 {
 			t.Fatalf("expected empty slices; got %+v", r)
 		}
+	})
+}
+
+func TestUnion(t *testing.T) {
+	t.Parallel()
+
+	t.Run("constructs a union composite with terms and approx flags", func(t *testing.T) {
+		t.Parallel()
+		r := emit.Union(
+			emit.UnionTerm{Type: emit.Builtin("int")},
+			emit.UnionTerm{Type: emit.Builtin("string"), Approx: true},
+		)
+		if r.Shape != emit.ShapeUnion {
+			t.Fatalf("Shape = %s, want union", r.Shape)
+		}
+		if len(r.UnionTerms) != 2 {
+			t.Fatalf("UnionTerms len = %d, want 2", len(r.UnionTerms))
+		}
+		if r.UnionTerms[0].Approx {
+			t.Fatalf("first term should not be approx")
+		}
+		if !r.UnionTerms[1].Approx {
+			t.Fatalf("second term should be approx")
+		}
+		if r.UnionTerms[0].Type == nil || r.UnionTerms[1].Type == nil {
+			t.Fatalf("term Type refs must be populated")
+		}
+	})
+
+	t.Run("zero terms produce a non-nil empty slice", func(t *testing.T) {
+		t.Parallel()
+		r := emit.Union()
+		if r.Shape != emit.ShapeUnion {
+			t.Fatalf("Shape = %s, want union", r.Shape)
+		}
+		if r.UnionTerms == nil {
+			t.Fatalf("UnionTerms should not be nil even with zero terms")
+		}
+		if len(r.UnionTerms) != 0 {
+			t.Fatalf("expected empty UnionTerms; got %+v", r.UnionTerms)
+		}
+	})
+
+	t.Run("reports KindCompositeRef", func(t *testing.T) {
+		t.Parallel()
+		r := emit.Union(emit.UnionTerm{Type: emit.Builtin("int")})
+		if r.Kind() != emit.KindCompositeRef {
+			t.Fatalf("Kind = %s, want %s", r.Kind(), emit.KindCompositeRef)
+		}
+	})
+
+	t.Run("satisfies the Ref interface", func(t *testing.T) {
+		t.Parallel()
+		var _ emit.Ref = emit.Union(emit.UnionTerm{Type: emit.Builtin("int")})
 	})
 }
 

@@ -457,6 +457,18 @@ func TestWalk_CompositeRefVariants(t *testing.T) {
 			t.Fatalf("expected 3 visits (root + param + return); got %v", got)
 		}
 	})
+
+	t.Run("Union visits every term's Type ref", func(t *testing.T) {
+		t.Parallel()
+		r := emit.Union(
+			emit.UnionTerm{Type: builtinRef("int")},
+			emit.UnionTerm{Type: builtinRef("string"), Approx: true},
+		)
+		got := recordWalk(r)
+		if len(got) != 3 {
+			t.Fatalf("expected 3 visits (root + 2 terms); got %v", got)
+		}
+	})
 }
 
 func TestWalk_SlotItemsAreVisited(t *testing.T) {

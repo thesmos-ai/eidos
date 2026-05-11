@@ -62,7 +62,7 @@ func (f VisitorFunc) Visit(n Node) Visitor { return f(n) }
 //   - [ExternalRef]: TypeArgs.
 //   - [BuiltinRef]: leaf.
 //   - [CompositeRef]: Elem / MapKey / MapValue / FuncParams /
-//     FuncReturns according to Shape.
+//     FuncReturns / UnionTerms according to Shape.
 //   - [Slot]: Items.
 //   - [Stmt]: per-variant; see [walkStmt].
 //   - [Expr]: per-variant; see [walkExpr].
@@ -291,6 +291,10 @@ func walkCompositeRef(r *CompositeRef, v Visitor) {
 		}
 		for _, ret := range r.FuncReturns {
 			Walk(ret, v)
+		}
+	case ShapeUnion:
+		for _, t := range r.UnionTerms {
+			Walk(t.Type, v)
 		}
 	}
 }
