@@ -155,9 +155,9 @@ type stubOptionsProvider struct {
 	opts stubOptionsConfig
 }
 
-func (s *stubOptionsProvider) Name() string             { return s.name }
-func (*stubOptionsProvider) OptionsSchema() opt.Schema  { return opt.Reflect(stubOptionsConfig{}) }
-func (s *stubOptionsProvider) SetOptions(o opt.Options) { _ = o.Decode(&s.opts) }
+func (s *stubOptionsProvider) Name() string                   { return s.name }
+func (*stubOptionsProvider) OptionsSchema() opt.Schema        { return opt.Reflect(stubOptionsConfig{}) }
+func (s *stubOptionsProvider) SetOptions(o opt.Options) error { return o.Decode(&s.opts) }
 
 // stubDirectiveProvider is a stub implementing
 // [plugin.DirectiveProvider] alongside [plugin.Plugin].
