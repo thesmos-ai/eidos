@@ -20,8 +20,8 @@
           "pos": {
             "column": 8,
             "file": "source.go",
-            "line": 6,
-            "offset": 209
+            "line": 9,
+            "offset": 273
           }
         }
       ],
@@ -33,8 +33,8 @@
       "pos": {
         "column": 1,
         "file": "source.go",
-        "line": 4,
-        "offset": 185
+        "line": 7,
+        "offset": 249
       }
     }
   ],
@@ -52,8 +52,8 @@
             "pos": {
               "column": 1,
               "file": "source.go",
-              "line": 10,
-              "offset": 327
+              "line": 13,
+              "offset": 391
             },
             "set_by": "golang",
             "value": true
@@ -64,8 +64,8 @@
             "pos": {
               "column": 1,
               "file": "source.go",
-              "line": 10,
-              "offset": 327
+              "line": 13,
+              "offset": 391
             },
             "set_by": "golang",
             "value": "string"
@@ -80,8 +80,8 @@
           "pos": {
             "column": 10,
             "file": "source.go",
-            "line": 10,
-            "offset": 336
+            "line": 13,
+            "offset": 400
           },
           "type": {
             "elem": {
@@ -104,8 +104,8 @@
             "pos": {
               "column": 16,
               "file": "source.go",
-              "line": 10,
-              "offset": 342
+              "line": 13,
+              "offset": 406
             },
             "type_kind": 2
           }
@@ -114,8 +114,8 @@
       "pos": {
         "column": 1,
         "file": "source.go",
-        "line": 10,
-        "offset": 327
+        "line": 13,
+        "offset": 391
       },
       "returns": [
         {
@@ -127,8 +127,8 @@
           "pos": {
             "column": 26,
             "file": "source.go",
-            "line": 10,
-            "offset": 352
+            "line": 13,
+            "offset": 416
           },
           "type_args": [
             {
@@ -163,8 +163,8 @@
             "pos": {
               "column": 1,
               "file": "source.go",
-              "line": 22,
-              "offset": 621
+              "line": 25,
+              "offset": 685
             },
             "set_by": "golang",
             "value": true
@@ -175,8 +175,8 @@
             "pos": {
               "column": 1,
               "file": "source.go",
-              "line": 22,
-              "offset": 621
+              "line": 25,
+              "offset": 685
             },
             "set_by": "golang",
             "value": "int"
@@ -187,8 +187,8 @@
             "pos": {
               "column": 1,
               "file": "source.go",
-              "line": 22,
-              "offset": 621
+              "line": 25,
+              "offset": 685
             },
             "set_by": "golang",
             "value": "string"
@@ -203,8 +203,8 @@
           "pos": {
             "column": 12,
             "file": "source.go",
-            "line": 22,
-            "offset": 632
+            "line": 25,
+            "offset": 696
           },
           "type": {
             "elem": {
@@ -227,8 +227,8 @@
             "pos": {
               "column": 18,
               "file": "source.go",
-              "line": 22,
-              "offset": 638
+              "line": 25,
+              "offset": 702
             },
             "type_kind": 2
           }
@@ -237,8 +237,8 @@
       "pos": {
         "column": 1,
         "file": "source.go",
-        "line": 22,
-        "offset": 621
+        "line": 25,
+        "offset": 685
       },
       "returns": [
         {
@@ -250,8 +250,8 @@
           "pos": {
             "column": 28,
             "file": "source.go",
-            "line": 22,
-            "offset": 648
+            "line": 25,
+            "offset": 712
           },
           "type_args": [
             {
@@ -297,8 +297,8 @@
       "pos": {
         "column": 8,
         "file": "source.go",
-        "line": 6,
-        "offset": 209
+        "line": 9,
+        "offset": 273
       }
     }
   ],

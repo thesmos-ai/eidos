@@ -1,6 +1,0 @@
-{{- define "emit.file" -}}
-package {{ .PackageName }}
-
-{{ range .Decls }}{{ render . }}
-{{ end -}}
-{{- end -}}

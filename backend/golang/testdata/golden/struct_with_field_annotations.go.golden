@@ -1,0 +1,13 @@
+package users
+
+// User is the canonical user record.
+type User struct {
+	// ID is the immutable primary key.
+	// Stored as the database row identifier.
+	ID int `json:"id"`
+
+	// Name is the display name shown in the UI.
+	Name string `json:"name"` // max 64 chars per product spec
+
+	Internal bool // set by middleware; not exposed externally
+}

@@ -1,0 +1,8 @@
+package users
+
+// Legacy is kept around for backwards compatibility.
+//
+//nolint:revive
+type Legacy struct {
+	ID int
+}

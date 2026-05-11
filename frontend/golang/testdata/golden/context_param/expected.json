@@ -22,8 +22,8 @@
           "pos": {
             "column": 8,
             "file": "source.go",
-            "line": 7,
-            "offset": 241
+            "line": 10,
+            "offset": 305
           }
         }
       ],
@@ -35,8 +35,8 @@
       "pos": {
         "column": 1,
         "file": "source.go",
-        "line": 5,
-        "offset": 217
+        "line": 8,
+        "offset": 281
       }
     }
   ],
@@ -58,8 +58,8 @@
           "pos": {
             "column": 12,
             "file": "source.go",
-            "line": 12,
-            "offset": 440
+            "line": 15,
+            "offset": 504
           },
           "type": {
             "meta": {
@@ -95,8 +95,8 @@
             "pos": {
               "column": 16,
               "file": "source.go",
-              "line": 12,
-              "offset": 444
+              "line": 15,
+              "offset": 508
             },
             "type_kind": 0
           }
@@ -106,8 +106,8 @@
           "pos": {
             "column": 33,
             "file": "source.go",
-            "line": 12,
-            "offset": 461
+            "line": 15,
+            "offset": 525
           },
           "type": {
             "meta": {
@@ -124,8 +124,8 @@
             "pos": {
               "column": 36,
               "file": "source.go",
-              "line": 12,
-              "offset": 464
+              "line": 15,
+              "offset": 528
             },
             "type_kind": 0
           }
@@ -134,8 +134,8 @@
       "pos": {
         "column": 1,
         "file": "source.go",
-        "line": 12,
-        "offset": 429
+        "line": 15,
+        "offset": 493
       },
       "returns": [
         {
@@ -159,8 +159,8 @@
           "pos": {
             "column": 44,
             "file": "source.go",
-            "line": 12,
-            "offset": 472
+            "line": 15,
+            "offset": 536
           },
           "type_kind": 0
         }
@@ -176,8 +176,8 @@
       "pos": {
         "column": 8,
         "file": "source.go",
-        "line": 7,
-        "offset": 241
+        "line": 10,
+        "offset": 305
       }
     }
   ],

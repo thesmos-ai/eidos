@@ -4,10 +4,8 @@
 package golang
 
 import (
-	"bytes"
 	"embed"
 	"errors"
-	"fmt"
 	"text/template"
 
 	"go.thesmos.sh/eidos/emit"
@@ -20,69 +18,41 @@ import (
 //go:embed templates/*.tmpl
 var templatesFS embed.FS
 
-// ErrTemplateMissing is returned by render-dispatch helpers when no
-// template is registered for an entity's [emit.Node.Kind]. The
-// wrapping error names the offending kind so the diagnostic is
-// actionable without a stack trace.
-var ErrTemplateMissing = errors.New("backend/golang: no template registered for kind")
-
 // loadTemplates parses every core template file from [templatesFS]
-// into a fresh template set, attaches the merged funcmap, and
-// returns the root [*template.Template]. Child templates resolve
-// through the same set, so `{{ render . }}` dispatches across
-// arbitrary kinds within the set.
-//
-// The render-dispatch closure binds the resulting root through a
-// shared state struct so the closure and the template set are
-// mutually visible without a chicken-and-egg parse-vs-execute
-// dependency.
+// into a fresh template set and returns the root. Parse-time
+// signature placeholders are registered for every funcmap entry
+// the templates reference; each per-Target [renderState] clones
+// this root and overrides the placeholders with closures binding
+// the correct [writer.ImportSet] for that Target.
 //
 // Panics on parse failure: the templates are embedded at compile
 // time, so a parse error indicates a developer-side syntax bug in
 // the templates rather than a runtime condition.
 func loadTemplates() *template.Template {
-	state := &templateState{}
-	root := template.Must(
+	return template.Must(
 		template.New("eidos.golang").
-			Funcs(state.funcMap()).
+			Funcs(parsePlaceholders).
 			ParseFS(templatesFS, "templates/*.tmpl"),
 	)
-	state.root = root
-	return root
 }
 
-// templateState carries the post-parse [*template.Template] root so
-// the funcmap's render-dispatch closure can recurse into it. The
-// indirection breaks the chicken-and-egg between funcmap
-// registration (must precede parse) and template-set assembly
-// (yields the root the closures need).
-type templateState struct {
-	root *template.Template
+// parsePlaceholders satisfies the parser's name-and-arity check
+// for funcmap entries referenced by core templates. The bodies
+// return [errPlaceholderInvoked] — never executed in practice
+// because every Target render clones the root and overrides them
+// via [renderState.funcMap] before any ExecuteTemplate call. The
+// placeholders match the signatures of the real implementations.
+//
+//nolint:gochecknoglobals // parse-time signature table; immutable.
+var parsePlaceholders = map[string]any{
+	"render":       func(emit.Node) (string, error) { return "", errPlaceholderInvoked },
+	"renderType":   func(emit.Ref) (string, error) { return "", errPlaceholderInvoked },
+	"renderDocs":   func([]string) string { return "" },
+	"renderFields": func([]*emit.Field) (string, error) { return "", errPlaceholderInvoked },
+	"imp":          func(string) (string, error) { return "", errPlaceholderInvoked },
 }
 
-// funcMap returns the canonical core funcmap with the render-
-// dispatch closure bound to the state struct. Calling before
-// [templateState.root] is populated still returns a working
-// funcmap; the closure surfaces [ErrTemplateMissing] for any
-// dispatch attempted before parsing completes.
-func (s *templateState) funcMap() template.FuncMap {
-	return template.FuncMap{
-		"render":     s.render,
-		"renderType": renderType,
-	}
-}
-
-// render executes the template named after n's [emit.Node.Kind] and
-// returns the rendered text inline. Returns [ErrTemplateMissing]
-// wrapped with the kind when no template is registered.
-func (s *templateState) render(n emit.Node) (string, error) {
-	kind := string(n.Kind())
-	if s.root.Lookup(kind) == nil {
-		return "", fmt.Errorf("%w: %s", ErrTemplateMissing, kind)
-	}
-	var buf bytes.Buffer
-	if err := s.root.ExecuteTemplate(&buf, kind, n); err != nil {
-		return "", fmt.Errorf("backend/golang: render %s: %w", kind, err)
-	}
-	return buf.String(), nil
-}
+// errPlaceholderInvoked surfaces if a placeholder closure is ever
+// reached at execute time. Indicates a backend bug — execution
+// without a per-Target clone of the template set.
+var errPlaceholderInvoked = errors.New("backend/golang: template func placeholder invoked; clone before execute")

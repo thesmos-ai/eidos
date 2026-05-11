@@ -7,8 +7,10 @@ import (
 	"errors"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
+	"go.thesmos.sh/eidos/backend/golang"
 	"go.thesmos.sh/eidos/core/diag"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/plugin"
@@ -105,4 +107,87 @@ func goldenPath(t *testing.T, name string) string {
 		t.Fatalf("runtime.Caller(0) failed; cannot resolve golden path")
 	}
 	return filepath.Join(filepath.Dir(file), "testdata", "golden", name)
+}
+
+// mustNew constructs a Backend. Trivial wrapper used by tests so
+// switching construction patterns (constructor → factory, etc.)
+// touches one site rather than every test file.
+func mustNew(t *testing.T) *golang.Backend {
+	t.Helper()
+	return golang.New()
+}
+
+// diagnosticsContain reports whether d carries at least one
+// diagnostic at the given severity whose message contains substr.
+// Used by tests that assert a specific diagnostic surfaced without
+// caring about exact message wording.
+func diagnosticsContain(d *diag.Sink, sev diag.Severity, substr string) bool {
+	for _, dg := range d.Diagnostics() {
+		if dg.Severity == sev && strings.Contains(dg.Message, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+// assertInternalRefRenders builds a holder struct with a single
+// field whose Type is a TypeRef pointing at target, renders it,
+// and asserts the rendered output references target by its bare
+// name without producing an imports block. Centralised so the
+// per-target-kind cases in render_state_test stay terse.
+func assertInternalRefRenders(t *testing.T, target emit.Node, wantName string) {
+	t.Helper()
+	ctx, mem, d := newBackendContext(t)
+	tgt := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+	holder := &emit.Struct{
+		Name: "Holder", Package: "x", Target: tgt,
+		Fields: []*emit.Field{{Name: "Inner", Type: emit.Internal(target)}},
+	}
+	addEmitPackage(t, ctx, emitPackage("x", holder))
+	if err := mustNew(t).Render(ctx); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if d.HasErrors() {
+		t.Fatalf("unexpected error diagnostics: %+v", d.Diagnostics())
+	}
+	body, ok := mem.Get(tgt)
+	if !ok {
+		t.Fatalf("no output for %v", tgt)
+	}
+	if strings.Contains(string(body), "import (") {
+		t.Fatalf("internal TypeRef must not produce imports; got:\n%s", body)
+	}
+	want := "Inner " + wantName
+	if !strings.Contains(string(body), want) {
+		t.Fatalf("body should contain %q; got:\n%s", want, body)
+	}
+}
+
+// renderSingleFieldStruct builds a one-field struct whose field
+// type is r, runs the full backend render path, and returns the
+// rendered file body. Fails the test on any error diagnostic or
+// sink miss — happy-path-only helper used by tests that want to
+// inspect the rendered output without rebuilding the full fixture
+// each time.
+func renderSingleFieldStruct(t *testing.T, fieldName string, r emit.Ref) string {
+	t.Helper()
+	ctx, mem, d := newBackendContext(t)
+	target := emit.Target{Dir: "out", Filename: "x.go", Package: "x"}
+	addEmitPackage(t, ctx, emitPackage("x", &emit.Struct{
+		Name:    "X",
+		Package: "x",
+		Target:  target,
+		Fields:  []*emit.Field{{Name: fieldName, Type: r}},
+	}))
+	if err := mustNew(t).Render(ctx); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if d.HasErrors() {
+		t.Fatalf("unexpected error diagnostics: %+v", d.Diagnostics())
+	}
+	body, ok := mem.Get(target)
+	if !ok {
+		t.Fatalf("backend produced no output for target %v", target)
+	}
+	return string(body)
 }

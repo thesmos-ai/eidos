@@ -1,0 +1,11 @@
+package x
+
+import (
+	"github.com/example/users"
+	users2 "github.com/other/users"
+)
+
+type X struct {
+	A users.User
+	B users2.User
+}

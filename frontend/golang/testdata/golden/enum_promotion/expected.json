@@ -17,8 +17,8 @@
             "pos": {
               "column": 6,
               "file": "source.go",
-              "line": 7,
-              "offset": 222
+              "line": 10,
+              "offset": 286
             },
             "set_by": "golang",
             "value": "basic"
@@ -30,8 +30,8 @@
       "pos": {
         "column": 6,
         "file": "source.go",
-        "line": 7,
-        "offset": 222
+        "line": 10,
+        "offset": 286
       },
       "underlying": {
         "meta": {
@@ -60,8 +60,8 @@
                 "pos": {
                   "column": 2,
                   "file": "source.go",
-                  "line": 11,
-                  "offset": 279
+                  "line": 14,
+                  "offset": 343
                 },
                 "set_by": "golang",
                 "value": 0
@@ -72,8 +72,8 @@
           "pos": {
             "column": 2,
             "file": "source.go",
-            "line": 11,
-            "offset": 279
+            "line": 14,
+            "offset": 343
           },
           "value": "0"
         },
@@ -89,8 +89,8 @@
                 "pos": {
                   "column": 2,
                   "file": "source.go",
-                  "line": 13,
-                  "offset": 360
+                  "line": 16,
+                  "offset": 424
                 },
                 "set_by": "golang",
                 "value": 1
@@ -101,8 +101,8 @@
           "pos": {
             "column": 2,
             "file": "source.go",
-            "line": 13,
-            "offset": 360
+            "line": 16,
+            "offset": 424
           },
           "value": "1"
         },
@@ -118,8 +118,8 @@
                 "pos": {
                   "column": 2,
                   "file": "source.go",
-                  "line": 15,
-                  "offset": 416
+                  "line": 18,
+                  "offset": 480
                 },
                 "set_by": "golang",
                 "value": 2
@@ -130,8 +130,8 @@
           "pos": {
             "column": 2,
             "file": "source.go",
-            "line": 15,
-            "offset": 416
+            "line": 18,
+            "offset": 480
           },
           "value": "2"
         }
@@ -152,8 +152,8 @@
       "pos": {
         "column": 1,
         "file": "source.go",
-        "line": 3,
-        "offset": 119
+        "line": 6,
+        "offset": 183
       }
     }
   ],

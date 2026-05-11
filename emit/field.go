@@ -27,6 +27,13 @@ type Field struct {
 	// still add additional tag entries.
 	Tag string `json:"tag,omitempty"`
 
+	// LineComment is the trailing comment rendered after the
+	// field's type (and tag if any). Single-line, with no leading
+	// `// ` prefix — the backend adds it. Empty omits the trailing
+	// comment entirely. Use [Field.DocLines] for above-the-field
+	// docs and directive lines.
+	LineComment string `json:"line_comment,omitempty"`
+
 	// Owner is the host that declares this field. Always a
 	// concrete [Node] — typically *[Struct] for fields on
 	// declared structs, but generators emitting plugin-defined

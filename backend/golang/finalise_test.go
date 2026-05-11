@@ -1,0 +1,198 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
+package golang_test
+
+import (
+	"bytes"
+	"go/format"
+	"strings"
+	"testing"
+
+	"go.thesmos.sh/eidos/core/diag"
+	"go.thesmos.sh/eidos/emit"
+)
+
+// TestFinalise_HappyPath covers the format + goimports chain on
+// clean input: the body passes gofmt, the imports block is
+// regrouped per Go convention, and no untracked-import warnings
+// surface.
+func TestFinalise_HappyPath(t *testing.T) {
+	t.Parallel()
+
+	t.Run("rendered struct is gofmt-stable", func(t *testing.T) {
+		t.Parallel()
+		body := renderSingleFieldStruct(t, "Name", emit.Builtin("string"))
+		formatted, err := format.Source([]byte(body))
+		if err != nil {
+			t.Fatalf("format.Source rejected backend output: %v\noutput:\n%s", err, body)
+		}
+		if !bytes.Equal(formatted, []byte(body)) {
+			t.Fatalf("backend output is not gofmt-stable\n--- got ---\n%s\n--- gofmt ---\n%s", body, formatted)
+		}
+	})
+
+	t.Run("repeated runs of the same fixture produce byte-identical output", func(t *testing.T) {
+		t.Parallel()
+		first := renderSingleFieldStruct(t, "ID", emit.Builtin("int"))
+		second := renderSingleFieldStruct(t, "ID", emit.Builtin("int"))
+		if first != second {
+			t.Fatalf("output is not byte-identical across runs\n--- first ---\n%s\n--- second ---\n%s", first, second)
+		}
+	})
+}
+
+// TestFinalise_FormatFailureWarns covers the warn-on-failure
+// contract for format.Source: a body that gofmt cannot parse still
+// reaches the sink unchanged, and a Warn naming the format error
+// is recorded.
+func TestFinalise_FormatFailureWarns(t *testing.T) {
+	t.Parallel()
+
+	t.Run("invalid Go body warns and writes unformatted bytes", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		// Field names with whitespace produce invalid Go syntax —
+		// format.Source rejects, and the backend's contract is to
+		// warn-and-emit-unformatted, not abort.
+		addEmitPackage(t, ctx, emitPackage("x", &emit.Struct{
+			Name: "X", Package: "x", Target: target,
+			Fields: []*emit.Field{{Name: "Not A Valid Name", Type: emit.Builtin("int")}},
+		}))
+		if err := mustNew(t).Render(ctx); err != nil {
+			t.Fatalf("Render should not return an error on a format failure: %v", err)
+		}
+		body, ok := mem.Get(target)
+		if !ok {
+			t.Fatalf("warn-on-failure: sink must still receive the unformatted body")
+		}
+		if !strings.Contains(string(body), "Not A Valid Name") {
+			t.Fatalf("body should retain unformatted content; got:\n%s", body)
+		}
+		if !diagnosticsContain(d, diag.Warn, "format.Source failed") {
+			t.Fatalf("expected Warn from format.Source failure; got %+v", d.Diagnostics())
+		}
+	})
+}
+
+// TestFinalise_GoimportsRegroupsImports covers the canonical
+// regrouping behaviour: stdlib imports go before external ones with
+// a blank-line separator per Go convention.
+func TestFinalise_GoimportsRegroupsImports(t *testing.T) {
+	t.Parallel()
+
+	t.Run("stdlib and external imports are split by a blank line", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		// One stdlib + one external import; verify the blank-line
+		// separator between the two groups in goimports output.
+		addEmitPackage(t, ctx, emitPackage("x", &emit.Struct{
+			Name: "X", Package: "x", Target: target,
+			Fields: []*emit.Field{
+				{Name: "Ctx", Type: emit.External("context", "Context")},
+				{Name: "User", Type: emit.External("github.com/example/users", "User")},
+			},
+		}))
+		if err := mustNew(t).Render(ctx); err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		if d.HasErrors() {
+			t.Fatalf("unexpected error diagnostics: %+v", d.Diagnostics())
+		}
+		body, _ := mem.Get(target)
+		// Find the import block; the regroup adds a blank line
+		// between stdlib (context) and external (users).
+		idxContext := bytes.Index(body, []byte("\"context\""))
+		idxUsers := bytes.Index(body, []byte("\"github.com/example/users\""))
+		if idxContext < 0 || idxUsers < 0 {
+			t.Fatalf("both imports must appear; got:\n%s", body)
+		}
+		if idxContext > idxUsers {
+			t.Fatalf("stdlib import should precede external; got:\n%s", body)
+		}
+		between := body[idxContext:idxUsers]
+		if !bytes.Contains(between, []byte("\n\n")) {
+			t.Fatalf("stdlib/external groups must be separated by a blank line; between:\n%s", between)
+		}
+	})
+}
+
+// TestFinalise_GoimportsUntrackedImportWarns covers the safety-net
+// branch: when goimports adds an import the backend did not
+// register through `imp`, the discrepancy surfaces as a Warn so
+// downstream maintainers can fix the converter or template that
+// produced the unrecorded reference.
+//
+// The fixture triggers the path via a BuiltinRef whose name happens
+// to be a qualified stdlib type ("time.Time"). renderType emits it
+// verbatim without calling imp; goimports detects the missing
+// import and injects it; the backend's tracked set does not
+// contain "time" → Warn fires.
+func TestFinalise_GoimportsUntrackedImportWarns(t *testing.T) {
+	t.Parallel()
+
+	t.Run("untracked goimports-injected import surfaces a Warn", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		addEmitPackage(t, ctx, emitPackage("x", &emit.Struct{
+			Name: "X", Package: "x", Target: target,
+			Fields: []*emit.Field{
+				{Name: "When", Type: emit.Builtin("time.Time")},
+			},
+		}))
+		if err := mustNew(t).Render(ctx); err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		body, ok := mem.Get(target)
+		if !ok {
+			t.Fatalf("file should still be written even when an untracked import is added")
+		}
+		if !strings.Contains(string(body), "\"time\"") {
+			t.Fatalf("goimports should have injected 'time' into the imports block; got:\n%s", body)
+		}
+		if !diagnosticsContain(d, diag.Warn, "untracked import") {
+			t.Fatalf("expected Warn about an untracked import; got %+v", d.Diagnostics())
+		}
+	})
+}
+
+// TestFinalise_AliasCollision covers the deterministic suffix
+// discipline `writer.ImportSet` provides. Two distinct external
+// packages whose default-derived alias collides ("users") produce
+// "users" and "users2".
+func TestFinalise_AliasCollision(t *testing.T) {
+	t.Parallel()
+
+	t.Run("collision produces suffix-2 alias for the second path", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		addEmitPackage(t, ctx, emitPackage("x", &emit.Struct{
+			Name: "X", Package: "x", Target: target,
+			Fields: []*emit.Field{
+				{Name: "A", Type: emit.External("github.com/example/users", "User")},
+				{Name: "B", Type: emit.External("github.com/other/users", "User")},
+			},
+		}))
+		if err := mustNew(t).Render(ctx); err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		if d.HasErrors() {
+			t.Fatalf("unexpected error diagnostics: %+v", d.Diagnostics())
+		}
+		body, _ := mem.Get(target)
+		if !strings.Contains(string(body), "A users.User") {
+			t.Fatalf("first collision should keep base alias; got:\n%s", body)
+		}
+		if !strings.Contains(string(body), "B users2.User") {
+			t.Fatalf("second collision should suffix '2'; got:\n%s", body)
+		}
+		// The aliased import line should declare the explicit alias.
+		if !strings.Contains(string(body), "users2 \"github.com/other/users\"") {
+			t.Fatalf("body should declare 'users2' alias; got:\n%s", body)
+		}
+	})
+}

@@ -1,0 +1,7 @@
+// Package users models the canonical user record and
+// the operations performed on it across the platform.
+package users
+
+type User struct {
+	ID int
+}

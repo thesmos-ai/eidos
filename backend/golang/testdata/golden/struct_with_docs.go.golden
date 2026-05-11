@@ -1,0 +1,10 @@
+package users
+
+// User is the canonical user record.
+//
+// Fields hold the immutable identifier and the display
+// name used in UI surfaces.
+type User struct {
+	ID   int
+	Name string
+}

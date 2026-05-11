@@ -1,0 +1,14 @@
+package users
+
+import (
+	"context"
+	"errors"
+
+	"github.com/example/lib"
+)
+
+type Request struct {
+	Ctx  context.Context
+	Err  errors.Is
+	Item lib.Item
+}

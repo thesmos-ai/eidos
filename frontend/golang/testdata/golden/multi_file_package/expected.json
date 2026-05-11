@@ -19,8 +19,8 @@
       "pos": {
         "column": 1,
         "file": "ops.go",
-        "line": 4,
-        "offset": 173
+        "line": 7,
+        "offset": 237
       }
     },
     {
@@ -39,8 +39,8 @@
       "pos": {
         "column": 1,
         "file": "types.go",
-        "line": 6,
-        "offset": 312
+        "line": 9,
+        "offset": 376
       }
     }
   ],
@@ -63,8 +63,8 @@
           "pos": {
             "column": 2,
             "file": "types.go",
-            "line": 10,
-            "offset": 420
+            "line": 13,
+            "offset": 484
           },
           "type": {
             "meta": {
@@ -81,8 +81,8 @@
             "pos": {
               "column": 7,
               "file": "types.go",
-              "line": 10,
-              "offset": 425
+              "line": 13,
+              "offset": 489
             },
             "type_kind": 0
           }
@@ -95,8 +95,8 @@
           "pos": {
             "column": 2,
             "file": "types.go",
-            "line": 11,
-            "offset": 430
+            "line": 14,
+            "offset": 494
           },
           "type": {
             "meta": {
@@ -113,8 +113,8 @@
             "pos": {
               "column": 7,
               "file": "types.go",
-              "line": 11,
-              "offset": 435
+              "line": 14,
+              "offset": 499
             },
             "type_kind": 0
           }
@@ -128,8 +128,8 @@
       "pos": {
         "column": 6,
         "file": "types.go",
-        "line": 9,
-        "offset": 405
+        "line": 12,
+        "offset": 469
       }
     },
     {
@@ -145,8 +145,8 @@
           "pos": {
             "column": 2,
             "file": "types.go",
-            "line": 16,
-            "offset": 514
+            "line": 19,
+            "offset": 578
           },
           "type": {
             "elem": {
@@ -158,8 +158,8 @@
                     "pos": {
                       "column": 6,
                       "file": "types.go",
-                      "line": 9,
-                      "offset": 405
+                      "line": 12,
+                      "offset": 469
                     },
                     "set_by": "golang",
                     "value": true
@@ -176,8 +176,8 @@
             "pos": {
               "column": 8,
               "file": "types.go",
-              "line": 16,
-              "offset": 520
+              "line": 19,
+              "offset": 584
             },
             "type_kind": 2
           }
@@ -199,8 +199,8 @@
                 "pos": {
                   "column": 1,
                   "file": "ops.go",
-                  "line": 7,
-                  "offset": 253
+                  "line": 10,
+                  "offset": 317
                 },
                 "set_by": "golang",
                 "value": true
@@ -214,8 +214,8 @@
               "pos": {
                 "column": 20,
                 "file": "ops.go",
-                "line": 7,
-                "offset": 272
+                "line": 10,
+                "offset": 336
               },
               "type": {
                 "meta": {
@@ -226,8 +226,8 @@
                       "pos": {
                         "column": 6,
                         "file": "types.go",
-                        "line": 9,
-                        "offset": 405
+                        "line": 12,
+                        "offset": 469
                       },
                       "set_by": "golang",
                       "value": true
@@ -239,8 +239,8 @@
                 "pos": {
                   "column": 22,
                   "file": "ops.go",
-                  "line": 7,
-                  "offset": 274
+                  "line": 10,
+                  "offset": 338
                 },
                 "type_kind": 0
               }
@@ -249,8 +249,8 @@
           "pos": {
             "column": 1,
             "file": "ops.go",
-            "line": 7,
-            "offset": 253
+            "line": 10,
+            "offset": 317
           },
           "receiver": {
             "elem": {
@@ -274,8 +274,8 @@
             "pos": {
               "column": 9,
               "file": "ops.go",
-              "line": 7,
-              "offset": 261
+              "line": 10,
+              "offset": 325
             },
             "type_kind": 1
           },
@@ -296,8 +296,8 @@
               "pos": {
                 "column": 28,
                 "file": "ops.go",
-                "line": 7,
-                "offset": 280
+                "line": 10,
+                "offset": 344
               },
               "type_kind": 0
             }
@@ -316,8 +316,8 @@
                 "pos": {
                   "column": 1,
                   "file": "ops.go",
-                  "line": 14,
-                  "offset": 448
+                  "line": 17,
+                  "offset": 512
                 },
                 "set_by": "golang",
                 "value": true
@@ -331,8 +331,8 @@
               "pos": {
                 "column": 21,
                 "file": "ops.go",
-                "line": 14,
-                "offset": 468
+                "line": 17,
+                "offset": 532
               },
               "type": {
                 "meta": {
@@ -349,8 +349,8 @@
                 "pos": {
                   "column": 24,
                   "file": "ops.go",
-                  "line": 14,
-                  "offset": 471
+                  "line": 17,
+                  "offset": 535
                 },
                 "type_kind": 0
               }
@@ -359,8 +359,8 @@
           "pos": {
             "column": 1,
             "file": "ops.go",
-            "line": 14,
-            "offset": 448
+            "line": 17,
+            "offset": 512
           },
           "receiver": {
             "elem": {
@@ -384,8 +384,8 @@
             "pos": {
               "column": 9,
               "file": "ops.go",
-              "line": 14,
-              "offset": 456
+              "line": 17,
+              "offset": 520
             },
             "type_kind": 1
           },
@@ -400,8 +400,8 @@
                     "pos": {
                       "column": 6,
                       "file": "types.go",
-                      "line": 9,
-                      "offset": 405
+                      "line": 12,
+                      "offset": 469
                     },
                     "set_by": "golang",
                     "value": true
@@ -413,8 +413,8 @@
               "pos": {
                 "column": 30,
                 "file": "ops.go",
-                "line": 14,
-                "offset": 477
+                "line": 17,
+                "offset": 541
               },
               "type_kind": 0
             },
@@ -433,8 +433,8 @@
               "pos": {
                 "column": 36,
                 "file": "ops.go",
-                "line": 14,
-                "offset": 483
+                "line": 17,
+                "offset": 547
               },
               "type_kind": 0
             }
@@ -446,8 +446,8 @@
       "pos": {
         "column": 6,
         "file": "types.go",
-        "line": 15,
-        "offset": 499
+        "line": 18,
+        "offset": 563
       }
     }
   ]

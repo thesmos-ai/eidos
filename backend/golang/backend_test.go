@@ -9,8 +9,11 @@ import (
 	"testing"
 
 	"go.thesmos.sh/eidos/backend/golang"
+	"go.thesmos.sh/eidos/core/diag"
 	"go.thesmos.sh/eidos/eidostest/testpipe"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/plugin"
+	"go.thesmos.sh/eidos/sink"
 )
 
 // TestBackend_Name covers the stable plugin identifier.
@@ -154,13 +157,15 @@ func TestBackend_Render(t *testing.T) {
 	})
 }
 
-// TestBackend_GoldenStructSimple pins the canonical struct output
-// against a checked-in golden file so byte-level drift in the
-// template, the funcmap, or go/format.Source is caught at PR time.
-func TestBackend_GoldenStructSimple(t *testing.T) {
+// TestBackend_Golden pins canonical output for each
+// Phase-C-shipped fixture so byte-level drift in templates,
+// funcmap, format.Source, or goimports is caught at PR time.
+// Each subtest covers a representative shape from the Phase C
+// acceptance criteria.
+func TestBackend_Golden(t *testing.T) {
 	t.Parallel()
 
-	t.Run("simple struct fixture matches checked-in golden", func(t *testing.T) {
+	t.Run("struct_simple — no imports", func(t *testing.T) {
 		t.Parallel()
 		ctx, mem, d := newBackendContext(t)
 		target := emit.Target{Dir: "users", Filename: "user.go", Package: "users"}
@@ -169,16 +174,200 @@ func TestBackend_GoldenStructSimple(t *testing.T) {
 			fieldSpec{name: "ID", builtin: "int"},
 			fieldSpec{name: "Name", builtin: "string"},
 		)))
-		if err := mustNew(t).Render(ctx); err != nil {
-			t.Fatalf("Render: %v", err)
-		}
-		if d.HasErrors() {
-			t.Fatalf("unexpected error diagnostics: %+v", d.Diagnostics())
-		}
-		body, ok := mem.Get(target)
-		if !ok {
-			t.Fatalf("no output for %v", target)
-		}
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
 		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "struct_simple.go.golden"))
 	})
+
+	t.Run("struct_stdlib_import — context.Context field", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "users", Filename: "user.go", Package: "users"}
+		addEmitPackage(t, ctx, emitPackage("users", &emit.Struct{
+			Name: "Request", Package: "users", Target: target,
+			Fields: []*emit.Field{{Name: "Ctx", Type: emit.External("context", "Context")}},
+		}))
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "struct_stdlib_import.go.golden"))
+	})
+
+	t.Run("struct_external_import — third-party type", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "users", Filename: "user.go", Package: "users"}
+		addEmitPackage(t, ctx, emitPackage("users", &emit.Struct{
+			Name: "Wrapper", Package: "users", Target: target,
+			Fields: []*emit.Field{{Name: "Inner", Type: emit.External("github.com/example/lib", "Item")}},
+		}))
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "struct_external_import.go.golden"))
+	})
+
+	t.Run("struct_multi_import — stdlib + external regrouped", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "users", Filename: "user.go", Package: "users"}
+		addEmitPackage(t, ctx, emitPackage("users", &emit.Struct{
+			Name: "Request", Package: "users", Target: target,
+			Fields: []*emit.Field{
+				{Name: "Ctx", Type: emit.External("context", "Context")},
+				{Name: "Err", Type: emit.External("errors", "Is")},
+				{Name: "Item", Type: emit.External("github.com/example/lib", "Item")},
+			},
+		}))
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "struct_multi_import.go.golden"))
+	})
+
+	t.Run("struct_with_docs — DocLines render as // above the decl", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "users", Filename: "user.go", Package: "users"}
+		addEmitPackage(t, ctx, emitPackage("users", &emit.Struct{
+			BaseEmit: emit.BaseEmit{
+				DocLines: []string{
+					"User is the canonical user record.",
+					"",
+					"Fields hold the immutable identifier and the display",
+					"name used in UI surfaces.",
+				},
+			},
+			Name: "User", Package: "users", Target: target,
+			Fields: []*emit.Field{
+				{Name: "ID", Type: emit.Builtin("int")},
+				{Name: "Name", Type: emit.Builtin("string")},
+			},
+		}))
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "struct_with_docs.go.golden"))
+	})
+
+	t.Run("struct_with_directive_in_docs — directive lines ride DocLines, rendered verbatim", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "users", Filename: "user.go", Package: "users"}
+		// Generators put `//nolint:foo` and similar suppressions at
+		// the END of DocLines per Go convention. `renderDocs` detects
+		// the leading "//" and renders the line verbatim; regular
+		// doc lines get the "// " prefix applied.
+		addEmitPackage(t, ctx, emitPackage("users", &emit.Struct{
+			BaseEmit: emit.BaseEmit{
+				DocLines: []string{
+					"Legacy is kept around for backwards compatibility.",
+					"//nolint:revive",
+				},
+			},
+			Name: "Legacy", Package: "users", Target: target,
+			Fields: []*emit.Field{{Name: "ID", Type: emit.Builtin("int")}},
+		}))
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "struct_with_directive_in_docs.go.golden"))
+	})
+
+	t.Run("package_with_docs — emit.Package.DocLines surface above package decl", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "users", Filename: "user.go", Package: "users"}
+		// Package-level docs ride on emit.Package.DocLines; the
+		// backend applies them as the file's package doc when no
+		// per-Target emit.File overrides them.
+		pkg := &emit.Package{
+			BaseEmit: emit.BaseEmit{
+				DocLines: []string{
+					"Package users models the canonical user record and",
+					"the operations performed on it across the platform.",
+				},
+			},
+			Name: "users", Path: "users",
+			Structs: []*emit.Struct{
+				{
+					Name: "User", Package: "users", Target: target,
+					Fields: []*emit.Field{{Name: "ID", Type: emit.Builtin("int")}},
+				},
+			},
+		}
+		addEmitPackage(t, ctx, pkg)
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "package_with_docs.go.golden"))
+	})
+
+	t.Run("struct_with_field_annotations — field docs, tags, line comments", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "users", Filename: "user.go", Package: "users"}
+		addEmitPackage(t, ctx, emitPackage("users", &emit.Struct{
+			BaseEmit: emit.BaseEmit{
+				DocLines: []string{"User is the canonical user record."},
+			},
+			Name: "User", Package: "users", Target: target,
+			Fields: []*emit.Field{
+				{
+					BaseEmit: emit.BaseEmit{
+						DocLines: []string{
+							"ID is the immutable primary key.",
+							"Stored as the database row identifier.",
+						},
+					},
+					Name: "ID",
+					Type: emit.Builtin("int"),
+					Tag:  `json:"id"`,
+				},
+				{
+					BaseEmit: emit.BaseEmit{
+						DocLines: []string{"Name is the display name shown in the UI."},
+					},
+					Name:        "Name",
+					Type:        emit.Builtin("string"),
+					Tag:         `json:"name"`,
+					LineComment: "max 64 chars per product spec",
+				},
+				{
+					Name:        "Internal",
+					Type:        emit.Builtin("bool"),
+					LineComment: "set by middleware; not exposed externally",
+				},
+			},
+		}))
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "struct_with_field_annotations.go.golden"))
+	})
+
+	t.Run("struct_alias_collision — suffix-2 deterministic alias", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		addEmitPackage(t, ctx, emitPackage("x", &emit.Struct{
+			Name: "X", Package: "x", Target: target,
+			Fields: []*emit.Field{
+				{Name: "A", Type: emit.External("github.com/example/users", "User")},
+				{Name: "B", Type: emit.External("github.com/other/users", "User")},
+			},
+		}))
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "struct_alias_collision.go.golden"))
+	})
+}
+
+// assertRenderSucceeds drives the backend over ctx, asserting no
+// errors and a non-empty sink output for target, then returns the
+// rendered bytes for golden comparison. Centralised so each golden
+// subtest stays at the "build fixture, assert golden" altitude.
+func assertRenderSucceeds(
+	t *testing.T,
+	ctx *plugin.BackendContext,
+	mem *sink.Memory,
+	d *diag.Sink,
+	target emit.Target,
+) []byte {
+	t.Helper()
+	if err := mustNew(t).Render(ctx); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if d.HasErrors() {
+		t.Fatalf("unexpected error diagnostics: %+v", d.Diagnostics())
+	}
+	body, ok := mem.Get(target)
+	if !ok {
+		t.Fatalf("no output for %v", target)
+	}
+	return body
 }

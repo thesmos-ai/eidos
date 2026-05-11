@@ -17,8 +17,8 @@
       "pos": {
         "column": 1,
         "file": "source.go",
-        "line": 3,
-        "offset": 122
+        "line": 6,
+        "offset": 186
       }
     }
   ],
@@ -42,8 +42,8 @@
           "pos": {
             "column": 2,
             "file": "source.go",
-            "line": 8,
-            "offset": 287
+            "line": 11,
+            "offset": 351
           },
           "returns": [
             {
@@ -67,8 +67,8 @@
               "pos": {
                 "column": 10,
                 "file": "source.go",
-                "line": 8,
-                "offset": 295
+                "line": 11,
+                "offset": 359
               },
               "type_kind": 0
             }
@@ -80,8 +80,8 @@
       "pos": {
         "column": 6,
         "file": "source.go",
-        "line": 6,
-        "offset": 208
+        "line": 9,
+        "offset": 272
       }
     },
     {
@@ -94,8 +94,8 @@
           "pos": {
             "column": 2,
             "file": "source.go",
-            "line": 14,
-            "offset": 432
+            "line": 17,
+            "offset": 496
           },
           "type": {
             "meta": {
@@ -106,8 +106,8 @@
                   "pos": {
                     "column": 6,
                     "file": "source.go",
-                    "line": 6,
-                    "offset": 208
+                    "line": 9,
+                    "offset": 272
                   },
                   "set_by": "golang",
                   "value": true
@@ -119,8 +119,8 @@
             "pos": {
               "column": 2,
               "file": "source.go",
-              "line": 14,
-              "offset": 432
+              "line": 17,
+              "offset": 496
             },
             "type_kind": 0
           }
@@ -145,8 +145,8 @@
               "pos": {
                 "column": 7,
                 "file": "source.go",
-                "line": 18,
-                "offset": 528
+                "line": 21,
+                "offset": 592
               },
               "type": {
                 "elem": {
@@ -169,8 +169,8 @@
                 "pos": {
                   "column": 9,
                   "file": "source.go",
-                  "line": 18,
-                  "offset": 530
+                  "line": 21,
+                  "offset": 594
                 },
                 "type_kind": 2
               }
@@ -179,8 +179,8 @@
           "pos": {
             "column": 2,
             "file": "source.go",
-            "line": 18,
-            "offset": 523
+            "line": 21,
+            "offset": 587
           },
           "returns": [
             {
@@ -198,8 +198,8 @@
               "pos": {
                 "column": 20,
                 "file": "source.go",
-                "line": 18,
-                "offset": 541
+                "line": 21,
+                "offset": 605
               },
               "type_kind": 0
             },
@@ -224,8 +224,8 @@
               "pos": {
                 "column": 29,
                 "file": "source.go",
-                "line": 18,
-                "offset": 550
+                "line": 21,
+                "offset": 614
               },
               "type_kind": 0
             }
@@ -237,8 +237,8 @@
       "pos": {
         "column": 6,
         "file": "source.go",
-        "line": 13,
-        "offset": 412
+        "line": 16,
+        "offset": 476
       }
     }
   ],

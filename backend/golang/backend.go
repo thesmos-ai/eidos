@@ -6,11 +6,13 @@ package golang
 import (
 	"bytes"
 	"fmt"
+	"strconv"
 	"text/template"
 
 	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/plugin"
+	"go.thesmos.sh/eidos/writer"
 )
 
 // Name is the stable plugin identifier the pipeline uses for
@@ -50,32 +52,30 @@ func (*Backend) Language() string { return Language }
 // Render groups emit entities by their [emit.Target] and writes one
 // gofmt-clean file per non-empty Target through ctx.Sink. The
 // per-Target pipeline executes the merged template set against the
-// entities sharing that Target, runs the result through
-// [go/format.Source], and writes the finalised bytes.
+// entities sharing that Target, composes the file's package decl
+// and resolved import block, runs the result through
+// [go/format.Source] and the goimports library pass for canonical
+// formatting, then writes the finalised bytes.
 //
 // Zero-valued Targets are filtered upstream by [store.EmitView]'s
-// by-target index and never reach the loop. Empty Targets whose
-// entity list resolves to nothing renderable are skipped before
-// the template executes so no zero-content file ever reaches the
-// sink.
-//
-// Template execution failures surface as Error diagnostics on
-// ctx.Diag for the offending Target and the loop continues with
-// the next Target. Format failures surface as Warn diagnostics on
-// the same Target and the unformatted body is still written. Sink
-// write failures propagate as a wrapped error from Render — they
-// indicate an I/O or backend-side fault rather than a content
-// defect.
+// by-target index and never reach the loop. Template execution
+// failures surface as Error diagnostics on ctx.Diag for the
+// offending Target and the loop continues. Format and goimports
+// failures surface as Warn diagnostics; the loop still writes
+// whatever bytes are available so the user can debug. Sink write
+// failures propagate as a wrapped error — they indicate I/O or
+// backend-side faults rather than content defects.
 func (b *Backend) Render(ctx *plugin.BackendContext) error {
 	ps := ctx.Diag.For(Name)
 	for _, target := range ctx.Store.Emit().ByTarget().Keys() {
 		entities := ctx.Store.Emit().ByTarget().Get(target)
-		body, err := renderFile(b.tmpl, target, entities)
+		state := newRenderState(b.tmpl)
+		body, tracked, err := renderFile(state, target, entities, packageDocsFor(ctx, target))
 		if err != nil {
 			ps.Errorf(position.Pos{}, "%s: %v", target.JoinPath(), err)
 			continue
 		}
-		body = formatBody(body, target, ps)
+		body = finaliseBody(body, target, ps, tracked)
 		if err := ctx.Sink.Write(target, body); err != nil {
 			return fmt.Errorf("%s: sink write %s: %w", Name, target.JoinPath(), err)
 		}
@@ -83,22 +83,87 @@ func (b *Backend) Render(ctx *plugin.BackendContext) error {
 	return nil
 }
 
-// fileData is the value the `emit.file` template executes against.
-// PackageName supplies the `package <name>` clause; Decls carries
-// the entities to render at file scope in deterministic order.
-type fileData struct {
-	PackageName string
-	Decls       []emit.Node
+// packageDocsFor returns the doc-comment lines rendered above the
+// `package <Name>` clause of target's output file. The source is
+// the [emit.Package] entity whose name matches target.Package; its
+// DocLines apply to every file in that package. Returns nil when
+// no matching package carries DocLines — [renderDocs] renders the
+// empty slice as the empty string, so the absent package doc
+// introduces no whitespace.
+func packageDocsFor(ctx *plugin.BackendContext, target emit.Target) []string {
+	if pkg, ok := ctx.Store.Emit().Packages().ByQName(target.Package); ok {
+		return pkg.DocLines
+	}
+	return nil
 }
 
-// renderFile executes the `emit.file` template against the entities
-// routed to target. The returned bytes are the raw rendered body
-// awaiting the [formatBody] pass.
-func renderFile(tmpl *template.Template, target emit.Target, entities []emit.Node) ([]byte, error) {
-	data := fileData{PackageName: target.Package, Decls: entities}
-	var buf bytes.Buffer
-	if err := tmpl.ExecuteTemplate(&buf, "emit.file", data); err != nil {
-		return nil, fmt.Errorf("backend/golang: execute emit.file: %w", err)
+// renderFile produces the raw rendered body for one Target. Phases:
+//
+//   - Dispatch each non-File entity through the per-Target
+//     [renderState]'s render so `imp` calls accumulate into the
+//     state's [writer.ImportSet].
+//   - Compose the final body as
+//     "<package-doc>" + "package <Name>" + import block + decls.
+//
+// emit.File entities are filtered out of the decl loop — they are
+// file-level containers, not declarations; their rendering lives on
+// the [emit.File] kind template that arrives with multi-generator
+// composition.
+//
+// The returned bytes are unformatted — [finaliseBody] runs them
+// through [go/format.Source] and the goimports library pass. The
+// tracked-imports slice carries every recorded import so the
+// finalisation pass can flag any path goimports added beyond what
+// the templates declared.
+func renderFile(
+	state *renderState,
+	target emit.Target,
+	entities []emit.Node,
+	packageDocs []string,
+) ([]byte, []writer.Import, error) {
+	var declsBuf bytes.Buffer
+	for _, n := range entities {
+		if _, isFile := n.(*emit.File); isFile {
+			continue
+		}
+		rendered, err := state.render(n)
+		if err != nil {
+			return nil, nil, err
+		}
+		declsBuf.WriteString(rendered)
+		declsBuf.WriteString("\n\n")
 	}
-	return buf.Bytes(), nil
+
+	tracked := state.imports.Imports()
+	var fileBuf bytes.Buffer
+	fileBuf.WriteString(renderDocs(packageDocs))
+	fmt.Fprintf(&fileBuf, "package %s\n", target.Package)
+	writeImportBlock(&fileBuf, tracked)
+	fileBuf.WriteByte('\n')
+	fileBuf.Write(declsBuf.Bytes())
+
+	return fileBuf.Bytes(), tracked, nil
+}
+
+// writeImportBlock emits the canonical `import ( … )` block for
+// every import in imports. Empty slices emit nothing. Aliases
+// matching the default-derived alias for their path are omitted
+// from the line; explicit aliases (or collision-resolved variants
+// like "context2") render as `<alias> "<path>"`. The goimports
+// post-pass regroups stdlib vs external imports per Go convention.
+func writeImportBlock(buf *bytes.Buffer, imports []writer.Import) {
+	if len(imports) == 0 {
+		return
+	}
+	buf.WriteString("\nimport (\n")
+	for _, imp := range imports {
+		buf.WriteByte('\t')
+		if imp.Alias != writer.DefaultAlias(imp.Path) {
+			buf.WriteString(imp.Alias)
+			buf.WriteByte(' ')
+		}
+		buf.WriteString(strconv.Quote(imp.Path))
+		buf.WriteByte('\n')
+	}
+	buf.WriteString(")\n")
 }

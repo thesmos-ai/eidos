@@ -1,0 +1,9 @@
+package users
+
+import (
+	"context"
+)
+
+type Request struct {
+	Ctx context.Context
+}

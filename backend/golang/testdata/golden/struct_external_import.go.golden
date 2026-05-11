@@ -1,0 +1,9 @@
+package users
+
+import (
+	"github.com/example/lib"
+)
+
+type Wrapper struct {
+	Inner lib.Item
+}

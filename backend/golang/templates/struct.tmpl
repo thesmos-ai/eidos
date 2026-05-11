@@ -1,7 +1,6 @@
 {{- define "emit.struct" -}}
+{{ renderDocs .DocLines -}}
 type {{ .Name }} struct {
-{{- range .Fields }}
-	{{ .Name }} {{ renderType .Type }}
-{{- end }}
+{{ renderFields .Fields -}}
 }
 {{- end -}}

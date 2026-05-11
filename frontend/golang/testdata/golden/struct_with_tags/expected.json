@@ -15,8 +15,8 @@
       "pos": {
         "column": 1,
         "file": "source.go",
-        "line": 2,
-        "offset": 65
+        "line": 5,
+        "offset": 129
       }
     }
   ],
@@ -40,8 +40,8 @@
                 "pos": {
                   "column": 2,
                   "file": "source.go",
-                  "line": 6,
-                  "offset": 166
+                  "line": 9,
+                  "offset": 230
                 },
                 "set_by": "golang",
                 "value": "id_col"
@@ -52,8 +52,8 @@
                 "pos": {
                   "column": 2,
                   "file": "source.go",
-                  "line": 6,
-                  "offset": 166
+                  "line": 9,
+                  "offset": 230
                 },
                 "set_by": "golang",
                 "value": "id"
@@ -64,8 +64,8 @@
           "pos": {
             "column": 2,
             "file": "source.go",
-            "line": 6,
-            "offset": 166
+            "line": 9,
+            "offset": 230
           },
           "tag": "json:\"id\"   db:\"id_col\"",
           "type": {
@@ -83,8 +83,8 @@
             "pos": {
               "column": 7,
               "file": "source.go",
-              "line": 6,
-              "offset": 171
+              "line": 9,
+              "offset": 235
             },
             "type_kind": 0
           }
@@ -98,8 +98,8 @@
                 "pos": {
                   "column": 2,
                   "file": "source.go",
-                  "line": 7,
-                  "offset": 205
+                  "line": 10,
+                  "offset": 269
                 },
                 "set_by": "golang",
                 "value": "name"
@@ -110,8 +110,8 @@
                 "pos": {
                   "column": 2,
                   "file": "source.go",
-                  "line": 7,
-                  "offset": 205
+                  "line": 10,
+                  "offset": 269
                 },
                 "set_by": "golang",
                 "value": "display"
@@ -122,8 +122,8 @@
           "pos": {
             "column": 2,
             "file": "source.go",
-            "line": 7,
-            "offset": 205
+            "line": 10,
+            "offset": 269
           },
           "tag": "json:\"name\" yaml:\"display\"",
           "type": {
@@ -141,8 +141,8 @@
             "pos": {
               "column": 7,
               "file": "source.go",
-              "line": 7,
-              "offset": 210
+              "line": 10,
+              "offset": 274
             },
             "type_kind": 0
           }
@@ -156,8 +156,8 @@
       "pos": {
         "column": 6,
         "file": "source.go",
-        "line": 5,
-        "offset": 149
+        "line": 8,
+        "offset": 213
       }
     }
   ]
