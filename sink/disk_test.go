@@ -1,0 +1,143 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
+package sink_test
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"sync"
+	"testing"
+
+	"go.thesmos.sh/eidos/sink"
+)
+
+func TestNewDisk(t *testing.T) {
+	t.Parallel()
+
+	t.Run("captures the supplied root for later writes", func(t *testing.T) {
+		t.Parallel()
+		d := sink.NewDisk("/tmp/eidos-test")
+		if d.Root() != "/tmp/eidos-test" {
+			t.Fatalf("Root = %q, want /tmp/eidos-test", d.Root())
+		}
+	})
+}
+
+func TestDisk_Write(t *testing.T) {
+	t.Parallel()
+
+	t.Run("creates the destination file under root with the body", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		d := sink.NewDisk(root)
+		assertNoError(t, d.Write(targetAt("a", "b.go"), []byte("hello")))
+		got, err := os.ReadFile(filepath.Join(root, "a", "b.go"))
+		assertNoError(t, err)
+		if string(got) != "hello" {
+			t.Fatalf("file content = %q, want hello", got)
+		}
+	})
+
+	t.Run("creates intermediate directories under root", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		d := sink.NewDisk(root)
+		assertNoError(t, d.Write(targetAt("nested/deeper", "x.go"), []byte("body")))
+		if _, err := os.Stat(filepath.Join(root, "nested", "deeper", "x.go")); err != nil {
+			t.Fatalf("expected nested file to exist; got %v", err)
+		}
+	})
+
+	t.Run("overwrites an existing file atomically", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		d := sink.NewDisk(root)
+		assertNoError(t, d.Write(targetAt("a", "b.go"), []byte("first")))
+		assertNoError(t, d.Write(targetAt("a", "b.go"), []byte("second")))
+		got, err := os.ReadFile(filepath.Join(root, "a", "b.go"))
+		assertNoError(t, err)
+		if string(got) != "second" {
+			t.Fatalf("overwrite mismatch: %q", got)
+		}
+	})
+
+	t.Run("does not leave temporary files behind on success", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		d := sink.NewDisk(root)
+		assertNoError(t, d.Write(targetAt("a", "b.go"), []byte("body")))
+		entries, err := os.ReadDir(filepath.Join(root, "a"))
+		assertNoError(t, err)
+		if len(entries) != 1 || entries[0].Name() != "b.go" {
+			t.Fatalf("unexpected dir contents: %+v", entries)
+		}
+	})
+
+	t.Run("rejects empty Filename with ErrInvalidTarget", func(t *testing.T) {
+		t.Parallel()
+		d := sink.NewDisk(t.TempDir())
+		err := d.Write(targetAt("a", ""), nil)
+		if !errors.Is(err, sink.ErrInvalidTarget) {
+			t.Fatalf("Write should return ErrInvalidTarget; got %v", err)
+		}
+	})
+
+	t.Run("returns an error when MkdirAll fails", func(t *testing.T) {
+		t.Parallel()
+		// Create a regular file at a path that should be a directory.
+		root := t.TempDir()
+		conflictPath := filepath.Join(root, "a")
+		assertNoError(t, os.WriteFile(conflictPath, nil, 0o600))
+		d := sink.NewDisk(root)
+		err := d.Write(targetAt("a/b", "x.go"), []byte("body"))
+		if err == nil {
+			t.Fatalf("Write should fail when MkdirAll cannot create the destination")
+		}
+	})
+
+	t.Run("returns an error when WriteFile fails on a read-only directory", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		ro := filepath.Join(root, "a")
+		assertNoError(t, os.MkdirAll(ro, 0o750))
+		assertNoError(t, os.Chmod(ro, 0o500))         //nolint:gosec // intentional read-only for the test
+		t.Cleanup(func() { _ = os.Chmod(ro, 0o750) }) //nolint:gosec // restore for TempDir cleanup
+		d := sink.NewDisk(root)
+		err := d.Write(targetAt("a", "x.go"), []byte("body"))
+		if err == nil {
+			t.Fatalf("Write should fail when WriteFile cannot create a file in a read-only dir")
+		}
+	})
+
+	t.Run("returns an error when Rename targets an existing directory", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		// Pre-create x.go as a directory at the destination so Rename
+		// can't replace it with a regular file.
+		assertNoError(t, os.MkdirAll(filepath.Join(root, "a", "x.go"), 0o750))
+		d := sink.NewDisk(root)
+		err := d.Write(targetAt("a", "x.go"), []byte("body"))
+		if err == nil {
+			t.Fatalf("Write should fail when Rename collides with an existing directory")
+		}
+	})
+}
+
+func TestDisk_ConcurrentWrites(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Write serialises under -race", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		d := sink.NewDisk(root)
+		var wg sync.WaitGroup
+		for i := range 16 {
+			wg.Go(func() {
+				_ = d.Write(targetAt("d", string(rune('a'+i%26))+".go"), []byte("body"))
+			})
+		}
+		wg.Wait()
+	})
+}
