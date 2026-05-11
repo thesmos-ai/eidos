@@ -1,0 +1,180 @@
+{
+  "aliases": [
+    {
+      "docs": [
+        "Seconds is a basic-underlying named type."
+      ],
+      "meta": {
+        "entries": [
+          {
+            "authority": 0,
+            "name": "go.underlyingKind",
+            "pos": {
+              "column": 6,
+              "file": "source.go",
+              "line": 7,
+              "offset": 238
+            },
+            "set_by": "golang",
+            "value": "basic"
+          }
+        ]
+      },
+      "methods": [
+        {
+          "docs": [
+            "Mul scales the receiver by by and returns the result. Demonstrates",
+            "a value-receiver method on a non-struct named type."
+          ],
+          "name": "Mul",
+          "params": [
+            {
+              "name": "by",
+              "pos": {
+                "column": 22,
+                "file": "source.go",
+                "line": 11,
+                "offset": 397
+              },
+              "type": {
+                "meta": {
+                  "entries": [
+                    {
+                      "authority": 0,
+                      "name": "go.isComparable",
+                      "set_by": "golang",
+                      "value": true
+                    }
+                  ]
+                },
+                "name": "int",
+                "pos": {
+                  "column": 25,
+                  "file": "source.go",
+                  "line": 11,
+                  "offset": 400
+                },
+                "type_kind": 0
+              }
+            }
+          ],
+          "pos": {
+            "column": 1,
+            "file": "source.go",
+            "line": 11,
+            "offset": 376
+          },
+          "receiver": {
+            "meta": {
+              "entries": [
+                {
+                  "authority": 0,
+                  "name": "go.isComparable",
+                  "pos": {
+                    "column": 6,
+                    "file": "source.go",
+                    "line": 7,
+                    "offset": 238
+                  },
+                  "set_by": "golang",
+                  "value": true
+                }
+              ]
+            },
+            "name": "Seconds",
+            "package": "example.com/golangtest",
+            "pos": {
+              "column": 9,
+              "file": "source.go",
+              "line": 11,
+              "offset": 384
+            },
+            "type_kind": 0
+          },
+          "receiver_name": "s",
+          "returns": [
+            {
+              "meta": {
+                "entries": [
+                  {
+                    "authority": 0,
+                    "name": "go.isComparable",
+                    "pos": {
+                      "column": 6,
+                      "file": "source.go",
+                      "line": 7,
+                      "offset": 238
+                    },
+                    "set_by": "golang",
+                    "value": true
+                  }
+                ]
+              },
+              "name": "Seconds",
+              "package": "example.com/golangtest",
+              "pos": {
+                "column": 30,
+                "file": "source.go",
+                "line": 11,
+                "offset": 405
+              },
+              "type_kind": 0
+            }
+          ]
+        }
+      ],
+      "name": "Seconds",
+      "package": "example.com/golangtest",
+      "pos": {
+        "column": 6,
+        "file": "source.go",
+        "line": 7,
+        "offset": 238
+      },
+      "target": {
+        "meta": {
+          "entries": [
+            {
+              "authority": 0,
+              "name": "go.isComparable",
+              "set_by": "golang",
+              "value": true
+            }
+          ]
+        },
+        "name": "int",
+        "type_kind": 0
+      }
+    }
+  ],
+  "docs": [
+    "Package fixture exercises methods on a named-type alias —",
+    "`type Seconds int` carries a method set that the converter must",
+    "route to the Alias node (not orphan)."
+  ],
+  "files": [
+    {
+      "docs": [
+        "Package fixture exercises methods on a named-type alias —",
+        "`type Seconds int` carries a method set that the converter must",
+        "route to the Alias node (not orphan)."
+      ],
+      "meta": {
+        "entries": []
+      },
+      "name": "source.go",
+      "path": "source.go",
+      "pos": {
+        "column": 1,
+        "file": "source.go",
+        "line": 4,
+        "offset": 171
+      }
+    }
+  ],
+  "meta": {
+    "entries": []
+  },
+  "name": "fixture",
+  "path": "example.com/golangtest"
+}

@@ -99,7 +99,10 @@ func (c *converter) run() *node.Package {
 
 // convertFiles produces a [node.File] entry per syntax file in the
 // converter's deterministic order, populating each file's imports
-// and the file-level doc-comment block.
+// and the file-level doc-comment block. Directives in the comment
+// block above `package` are intentionally not recorded on the file
+// node — Go has no per-file directive concept, so they belong on
+// the package (see [converter.collectPackageDoc]).
 func (c *converter) convertFiles() {
 	for _, syntax := range c.pkgFiles {
 		pos := c.fset.Position(syntax.Package)
@@ -130,20 +133,21 @@ func (c *converter) convertFiles() {
 }
 
 // collectPackageDoc hoists the first non-empty package-level doc
-// comment found across files into [node.Package.DocLines]. Go's
-// convention places the package doc above the `package` clause in
-// a `doc.go` file, but accepting the first non-empty occurrence
-// across all files matches the behaviour of go/doc and other
-// tooling.
+// comment found across files into [node.Package.DocLines] together
+// with its directives. Go's convention places the package doc above
+// the `package` clause in a `doc.go` file, but accepting the first
+// non-empty occurrence across all files matches the behaviour of
+// go/doc and other tooling.
 func (c *converter) collectPackageDoc() {
 	for _, syntax := range c.pkgFiles {
 		if syntax.Doc == nil {
 			continue
 		}
 		// go/parser guarantees a non-nil CommentGroup carries at
-		// least one Comment, so docLinesFromCommentGroup yields a
-		// non-empty slice here.
-		c.out.DocLines = docLinesFromCommentGroup(syntax.Doc)
+		// least one Comment, so the docs slice is non-empty here.
+		docs, dirs := c.docsAndDirectives(syntax.Doc, nil)
+		c.out.DocLines = docs
+		c.out.DirectiveList = dirs
 		return
 	}
 }

@@ -1,0 +1,250 @@
+{
+  "docs": [
+    "Package fixture exercises interface conversion with explicit",
+    "methods (params + returns) plus an embedded interface."
+  ],
+  "files": [
+    {
+      "docs": [
+        "Package fixture exercises interface conversion with explicit",
+        "methods (params + returns) plus an embedded interface."
+      ],
+      "meta": {
+        "entries": []
+      },
+      "name": "source.go",
+      "path": "source.go",
+      "pos": {
+        "column": 1,
+        "file": "source.go",
+        "line": 3,
+        "offset": 122
+      }
+    }
+  ],
+  "interfaces": [
+    {
+      "docs": [
+        "Closer mirrors io.Closer to keep the fixture self-contained."
+      ],
+      "meta": {
+        "entries": []
+      },
+      "methods": [
+        {
+          "docs": [
+            "Close releases any resources the implementation holds."
+          ],
+          "meta": {
+            "entries": []
+          },
+          "name": "Close",
+          "pos": {
+            "column": 2,
+            "file": "source.go",
+            "line": 8,
+            "offset": 287
+          },
+          "returns": [
+            {
+              "meta": {
+                "entries": [
+                  {
+                    "authority": 0,
+                    "name": "go.isComparable",
+                    "set_by": "golang",
+                    "value": true
+                  },
+                  {
+                    "authority": 0,
+                    "name": "go.isError",
+                    "set_by": "golang",
+                    "value": true
+                  }
+                ]
+              },
+              "name": "error",
+              "pos": {
+                "column": 10,
+                "file": "source.go",
+                "line": 8,
+                "offset": 295
+              },
+              "type_kind": 0
+            }
+          ]
+        }
+      ],
+      "name": "Closer",
+      "package": "example.com/golangtest",
+      "pos": {
+        "column": 6,
+        "file": "source.go",
+        "line": 6,
+        "offset": 208
+      }
+    },
+    {
+      "docs": [
+        "Reader is a small interface that embeds Closer and adds one",
+        "method with a non-trivial signature."
+      ],
+      "embeds": [
+        {
+          "pos": {
+            "column": 2,
+            "file": "source.go",
+            "line": 14,
+            "offset": 432
+          },
+          "type": {
+            "meta": {
+              "entries": [
+                {
+                  "authority": 0,
+                  "name": "go.isComparable",
+                  "pos": {
+                    "column": 6,
+                    "file": "source.go",
+                    "line": 6,
+                    "offset": 208
+                  },
+                  "set_by": "golang",
+                  "value": true
+                }
+              ]
+            },
+            "name": "Closer",
+            "package": "example.com/golangtest",
+            "pos": {
+              "column": 2,
+              "file": "source.go",
+              "line": 14,
+              "offset": 432
+            },
+            "type_kind": 0
+          }
+        }
+      ],
+      "meta": {
+        "entries": []
+      },
+      "methods": [
+        {
+          "docs": [
+            "Read fills p and returns the number of bytes read plus an",
+            "optional error."
+          ],
+          "meta": {
+            "entries": []
+          },
+          "name": "Read",
+          "params": [
+            {
+              "name": "p",
+              "pos": {
+                "column": 7,
+                "file": "source.go",
+                "line": 18,
+                "offset": 528
+              },
+              "type": {
+                "elem": {
+                  "meta": {
+                    "entries": [
+                      {
+                        "authority": 0,
+                        "name": "go.isComparable",
+                        "set_by": "golang",
+                        "value": true
+                      }
+                    ]
+                  },
+                  "name": "byte",
+                  "type_kind": 0
+                },
+                "meta": {
+                  "entries": []
+                },
+                "pos": {
+                  "column": 9,
+                  "file": "source.go",
+                  "line": 18,
+                  "offset": 530
+                },
+                "type_kind": 2
+              }
+            }
+          ],
+          "pos": {
+            "column": 2,
+            "file": "source.go",
+            "line": 18,
+            "offset": 523
+          },
+          "returns": [
+            {
+              "meta": {
+                "entries": [
+                  {
+                    "authority": 0,
+                    "name": "go.isComparable",
+                    "set_by": "golang",
+                    "value": true
+                  }
+                ]
+              },
+              "name": "int",
+              "pos": {
+                "column": 20,
+                "file": "source.go",
+                "line": 18,
+                "offset": 541
+              },
+              "type_kind": 0
+            },
+            {
+              "meta": {
+                "entries": [
+                  {
+                    "authority": 0,
+                    "name": "go.isComparable",
+                    "set_by": "golang",
+                    "value": true
+                  },
+                  {
+                    "authority": 0,
+                    "name": "go.isError",
+                    "set_by": "golang",
+                    "value": true
+                  }
+                ]
+              },
+              "name": "error",
+              "pos": {
+                "column": 29,
+                "file": "source.go",
+                "line": 18,
+                "offset": 550
+              },
+              "type_kind": 0
+            }
+          ]
+        }
+      ],
+      "name": "Reader",
+      "package": "example.com/golangtest",
+      "pos": {
+        "column": 6,
+        "file": "source.go",
+        "line": 13,
+        "offset": 412
+      }
+    }
+  ],
+  "meta": {
+    "entries": []
+  },
+  "name": "fixture",
+  "path": "example.com/golangtest"
+}

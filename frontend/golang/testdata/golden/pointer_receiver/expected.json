@@ -1,0 +1,224 @@
+{
+  "docs": [
+    "Package fixture exercises go.receiverIsPointer on methods. The",
+    "converter stamps the flag whenever the receiver expression is",
+    "`*T`; value-receiver methods on the same type carry no marker."
+  ],
+  "files": [
+    {
+      "docs": [
+        "Package fixture exercises go.receiverIsPointer on methods. The",
+        "converter stamps the flag whenever the receiver expression is",
+        "`*T`; value-receiver methods on the same type carry no marker."
+      ],
+      "meta": {
+        "entries": []
+      },
+      "name": "source.go",
+      "path": "source.go",
+      "pos": {
+        "column": 1,
+        "file": "source.go",
+        "line": 4,
+        "offset": 197
+      }
+    }
+  ],
+  "meta": {
+    "entries": []
+  },
+  "name": "fixture",
+  "path": "example.com/golangtest",
+  "structs": [
+    {
+      "docs": [
+        "Counter holds a single tally. Two methods share the receiver",
+        "type so the golden pins both the pointer-receiver positive case",
+        "and the value-receiver negative case in one fixture."
+      ],
+      "fields": [
+        {
+          "meta": {
+            "entries": []
+          },
+          "name": "N",
+          "pos": {
+            "column": 2,
+            "file": "source.go",
+            "line": 10,
+            "offset": 424
+          },
+          "type": {
+            "meta": {
+              "entries": [
+                {
+                  "authority": 0,
+                  "name": "go.isComparable",
+                  "set_by": "golang",
+                  "value": true
+                }
+              ]
+            },
+            "name": "int",
+            "pos": {
+              "column": 4,
+              "file": "source.go",
+              "line": 10,
+              "offset": 426
+            },
+            "type_kind": 0
+          }
+        }
+      ],
+      "meta": {
+        "entries": []
+      },
+      "methods": [
+        {
+          "docs": [
+            "Bump increments the counter. Pointer receiver: stamps",
+            "go.receiverIsPointer = true."
+          ],
+          "meta": {
+            "entries": [
+              {
+                "authority": 0,
+                "name": "go.receiverIsPointer",
+                "pos": {
+                  "column": 1,
+                  "file": "source.go",
+                  "line": 15,
+                  "offset": 522
+                },
+                "set_by": "golang",
+                "value": true
+              }
+            ]
+          },
+          "name": "Bump",
+          "pos": {
+            "column": 1,
+            "file": "source.go",
+            "line": 15,
+            "offset": 522
+          },
+          "receiver": {
+            "elem": {
+              "meta": {
+                "entries": [
+                  {
+                    "authority": 0,
+                    "name": "go.isComparable",
+                    "pos": {
+                      "column": 6,
+                      "file": "source.go",
+                      "line": 9,
+                      "offset": 406
+                    },
+                    "set_by": "golang",
+                    "value": true
+                  }
+                ]
+              },
+              "name": "Counter",
+              "package": "example.com/golangtest",
+              "type_kind": 0
+            },
+            "meta": {
+              "entries": [
+                {
+                  "authority": 0,
+                  "name": "go.isComparable",
+                  "set_by": "golang",
+                  "value": true
+                }
+              ]
+            },
+            "pos": {
+              "column": 9,
+              "file": "source.go",
+              "line": 15,
+              "offset": 530
+            },
+            "type_kind": 1
+          },
+          "receiver_name": "c"
+        },
+        {
+          "docs": [
+            "Read returns the current count. Value receiver: must NOT stamp",
+            "go.receiverIsPointer (its absence is the assertion)."
+          ],
+          "meta": {
+            "entries": []
+          },
+          "name": "Read",
+          "pos": {
+            "column": 1,
+            "file": "source.go",
+            "line": 19,
+            "offset": 680
+          },
+          "receiver": {
+            "meta": {
+              "entries": [
+                {
+                  "authority": 0,
+                  "name": "go.isComparable",
+                  "pos": {
+                    "column": 6,
+                    "file": "source.go",
+                    "line": 9,
+                    "offset": 406
+                  },
+                  "set_by": "golang",
+                  "value": true
+                }
+              ]
+            },
+            "name": "Counter",
+            "package": "example.com/golangtest",
+            "pos": {
+              "column": 9,
+              "file": "source.go",
+              "line": 19,
+              "offset": 688
+            },
+            "type_kind": 0
+          },
+          "receiver_name": "c",
+          "returns": [
+            {
+              "meta": {
+                "entries": [
+                  {
+                    "authority": 0,
+                    "name": "go.isComparable",
+                    "set_by": "golang",
+                    "value": true
+                  }
+                ]
+              },
+              "name": "int",
+              "pos": {
+                "column": 25,
+                "file": "source.go",
+                "line": 19,
+                "offset": 704
+              },
+              "type_kind": 0
+            }
+          ]
+        }
+      ],
+      "name": "Counter",
+      "package": "example.com/golangtest",
+      "pos": {
+        "column": 6,
+        "file": "source.go",
+        "line": 9,
+        "offset": 406
+      }
+    }
+  ]
+}

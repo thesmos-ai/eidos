@@ -1,0 +1,164 @@
+{
+  "docs": [
+    "Package fixture exercises struct-tag stamping under go.tag.*."
+  ],
+  "files": [
+    {
+      "docs": [
+        "Package fixture exercises struct-tag stamping under go.tag.*."
+      ],
+      "meta": {
+        "entries": []
+      },
+      "name": "source.go",
+      "path": "source.go",
+      "pos": {
+        "column": 1,
+        "file": "source.go",
+        "line": 2,
+        "offset": 65
+      }
+    }
+  ],
+  "meta": {
+    "entries": []
+  },
+  "name": "fixture",
+  "path": "example.com/golangtest",
+  "structs": [
+    {
+      "docs": [
+        "Record carries serialisation-relevant tags on every field."
+      ],
+      "fields": [
+        {
+          "meta": {
+            "entries": [
+              {
+                "authority": 0,
+                "name": "go.tag.db",
+                "pos": {
+                  "column": 2,
+                  "file": "source.go",
+                  "line": 6,
+                  "offset": 166
+                },
+                "set_by": "golang",
+                "value": "id_col"
+              },
+              {
+                "authority": 0,
+                "name": "go.tag.json",
+                "pos": {
+                  "column": 2,
+                  "file": "source.go",
+                  "line": 6,
+                  "offset": 166
+                },
+                "set_by": "golang",
+                "value": "id"
+              }
+            ]
+          },
+          "name": "ID",
+          "pos": {
+            "column": 2,
+            "file": "source.go",
+            "line": 6,
+            "offset": 166
+          },
+          "tag": "json:\"id\"   db:\"id_col\"",
+          "type": {
+            "meta": {
+              "entries": [
+                {
+                  "authority": 0,
+                  "name": "go.isComparable",
+                  "set_by": "golang",
+                  "value": true
+                }
+              ]
+            },
+            "name": "string",
+            "pos": {
+              "column": 7,
+              "file": "source.go",
+              "line": 6,
+              "offset": 171
+            },
+            "type_kind": 0
+          }
+        },
+        {
+          "meta": {
+            "entries": [
+              {
+                "authority": 0,
+                "name": "go.tag.json",
+                "pos": {
+                  "column": 2,
+                  "file": "source.go",
+                  "line": 7,
+                  "offset": 205
+                },
+                "set_by": "golang",
+                "value": "name"
+              },
+              {
+                "authority": 0,
+                "name": "go.tag.yaml",
+                "pos": {
+                  "column": 2,
+                  "file": "source.go",
+                  "line": 7,
+                  "offset": 205
+                },
+                "set_by": "golang",
+                "value": "display"
+              }
+            ]
+          },
+          "name": "Name",
+          "pos": {
+            "column": 2,
+            "file": "source.go",
+            "line": 7,
+            "offset": 205
+          },
+          "tag": "json:\"name\" yaml:\"display\"",
+          "type": {
+            "meta": {
+              "entries": [
+                {
+                  "authority": 0,
+                  "name": "go.isComparable",
+                  "set_by": "golang",
+                  "value": true
+                }
+              ]
+            },
+            "name": "string",
+            "pos": {
+              "column": 7,
+              "file": "source.go",
+              "line": 7,
+              "offset": 210
+            },
+            "type_kind": 0
+          }
+        }
+      ],
+      "meta": {
+        "entries": []
+      },
+      "name": "Record",
+      "package": "example.com/golangtest",
+      "pos": {
+        "column": 6,
+        "file": "source.go",
+        "line": 5,
+        "offset": 149
+      }
+    }
+  ]
+}

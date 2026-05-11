@@ -1,0 +1,310 @@
+{
+  "docs": [
+    "Package fixture exercises iter.Seq / iter.Seq2 detection on",
+    "function return types — the converter stamps go.isIterSeq /",
+    "go.isIterSeq2 plus go.iterKeyType / go.iterValueType."
+  ],
+  "files": [
+    {
+      "docs": [
+        "Package fixture exercises iter.Seq / iter.Seq2 detection on",
+        "function return types — the converter stamps go.isIterSeq /",
+        "go.isIterSeq2 plus go.iterKeyType / go.iterValueType."
+      ],
+      "imports": [
+        {
+          "meta": {
+            "entries": []
+          },
+          "path": "iter",
+          "pos": {
+            "column": 8,
+            "file": "source.go",
+            "line": 6,
+            "offset": 209
+          }
+        }
+      ],
+      "meta": {
+        "entries": []
+      },
+      "name": "source.go",
+      "path": "source.go",
+      "pos": {
+        "column": 1,
+        "file": "source.go",
+        "line": 4,
+        "offset": 185
+      }
+    }
+  ],
+  "functions": [
+    {
+      "docs": [
+        "All yields every element of items. Drives the go.isIterSeq",
+        "stamping path with a primitive element type."
+      ],
+      "meta": {
+        "entries": [
+          {
+            "authority": 0,
+            "name": "go.isIterSeq",
+            "pos": {
+              "column": 1,
+              "file": "source.go",
+              "line": 10,
+              "offset": 327
+            },
+            "set_by": "golang",
+            "value": true
+          },
+          {
+            "authority": 0,
+            "name": "go.iterValueType",
+            "pos": {
+              "column": 1,
+              "file": "source.go",
+              "line": 10,
+              "offset": 327
+            },
+            "set_by": "golang",
+            "value": "string"
+          }
+        ]
+      },
+      "name": "All",
+      "package": "example.com/golangtest",
+      "params": [
+        {
+          "name": "items",
+          "pos": {
+            "column": 10,
+            "file": "source.go",
+            "line": 10,
+            "offset": 336
+          },
+          "type": {
+            "elem": {
+              "meta": {
+                "entries": [
+                  {
+                    "authority": 0,
+                    "name": "go.isComparable",
+                    "set_by": "golang",
+                    "value": true
+                  }
+                ]
+              },
+              "name": "string",
+              "type_kind": 0
+            },
+            "meta": {
+              "entries": []
+            },
+            "pos": {
+              "column": 16,
+              "file": "source.go",
+              "line": 10,
+              "offset": 342
+            },
+            "type_kind": 2
+          }
+        }
+      ],
+      "pos": {
+        "column": 1,
+        "file": "source.go",
+        "line": 10,
+        "offset": 327
+      },
+      "returns": [
+        {
+          "meta": {
+            "entries": []
+          },
+          "name": "Seq",
+          "package": "iter",
+          "pos": {
+            "column": 26,
+            "file": "source.go",
+            "line": 10,
+            "offset": 352
+          },
+          "type_args": [
+            {
+              "meta": {
+                "entries": [
+                  {
+                    "authority": 0,
+                    "name": "go.isComparable",
+                    "set_by": "golang",
+                    "value": true
+                  }
+                ]
+              },
+              "name": "string",
+              "type_kind": 0
+            }
+          ],
+          "type_kind": 0
+        }
+      ]
+    },
+    {
+      "docs": [
+        "Pairs yields each (index, value) pair from items. Drives the",
+        "go.isIterSeq2 + go.iterKeyType + go.iterValueType stamping path."
+      ],
+      "meta": {
+        "entries": [
+          {
+            "authority": 0,
+            "name": "go.isIterSeq2",
+            "pos": {
+              "column": 1,
+              "file": "source.go",
+              "line": 22,
+              "offset": 621
+            },
+            "set_by": "golang",
+            "value": true
+          },
+          {
+            "authority": 0,
+            "name": "go.iterKeyType",
+            "pos": {
+              "column": 1,
+              "file": "source.go",
+              "line": 22,
+              "offset": 621
+            },
+            "set_by": "golang",
+            "value": "int"
+          },
+          {
+            "authority": 0,
+            "name": "go.iterValueType",
+            "pos": {
+              "column": 1,
+              "file": "source.go",
+              "line": 22,
+              "offset": 621
+            },
+            "set_by": "golang",
+            "value": "string"
+          }
+        ]
+      },
+      "name": "Pairs",
+      "package": "example.com/golangtest",
+      "params": [
+        {
+          "name": "items",
+          "pos": {
+            "column": 12,
+            "file": "source.go",
+            "line": 22,
+            "offset": 632
+          },
+          "type": {
+            "elem": {
+              "meta": {
+                "entries": [
+                  {
+                    "authority": 0,
+                    "name": "go.isComparable",
+                    "set_by": "golang",
+                    "value": true
+                  }
+                ]
+              },
+              "name": "string",
+              "type_kind": 0
+            },
+            "meta": {
+              "entries": []
+            },
+            "pos": {
+              "column": 18,
+              "file": "source.go",
+              "line": 22,
+              "offset": 638
+            },
+            "type_kind": 2
+          }
+        }
+      ],
+      "pos": {
+        "column": 1,
+        "file": "source.go",
+        "line": 22,
+        "offset": 621
+      },
+      "returns": [
+        {
+          "meta": {
+            "entries": []
+          },
+          "name": "Seq2",
+          "package": "iter",
+          "pos": {
+            "column": 28,
+            "file": "source.go",
+            "line": 22,
+            "offset": 648
+          },
+          "type_args": [
+            {
+              "meta": {
+                "entries": [
+                  {
+                    "authority": 0,
+                    "name": "go.isComparable",
+                    "set_by": "golang",
+                    "value": true
+                  }
+                ]
+              },
+              "name": "int",
+              "type_kind": 0
+            },
+            {
+              "meta": {
+                "entries": [
+                  {
+                    "authority": 0,
+                    "name": "go.isComparable",
+                    "set_by": "golang",
+                    "value": true
+                  }
+                ]
+              },
+              "name": "string",
+              "type_kind": 0
+            }
+          ],
+          "type_kind": 0
+        }
+      ]
+    }
+  ],
+  "imports": [
+    {
+      "meta": {
+        "entries": []
+      },
+      "path": "iter",
+      "pos": {
+        "column": 8,
+        "file": "source.go",
+        "line": 6,
+        "offset": 209
+      }
+    }
+  ],
+  "meta": {
+    "entries": []
+  },
+  "name": "fixture",
+  "path": "example.com/golangtest"
+}

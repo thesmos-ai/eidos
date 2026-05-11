@@ -1,0 +1,165 @@
+{
+  "docs": [
+    "Package fixture exercises the typed-iota → Enum promotion path,",
+    "including iota-value stamping on each variant."
+  ],
+  "enums": [
+    {
+      "docs": [
+        "Status is the named type the const block below promotes to an",
+        "[node.Enum]."
+      ],
+      "meta": {
+        "entries": [
+          {
+            "authority": 0,
+            "name": "go.underlyingKind",
+            "pos": {
+              "column": 6,
+              "file": "source.go",
+              "line": 7,
+              "offset": 222
+            },
+            "set_by": "golang",
+            "value": "basic"
+          }
+        ]
+      },
+      "name": "Status",
+      "package": "example.com/golangtest",
+      "pos": {
+        "column": 6,
+        "file": "source.go",
+        "line": 7,
+        "offset": 222
+      },
+      "underlying": {
+        "meta": {
+          "entries": [
+            {
+              "authority": 0,
+              "name": "go.isComparable",
+              "set_by": "golang",
+              "value": true
+            }
+          ]
+        },
+        "name": "int",
+        "type_kind": 0
+      },
+      "variants": [
+        {
+          "docs": [
+            "StatusActive is the live state."
+          ],
+          "meta": {
+            "entries": [
+              {
+                "authority": 0,
+                "name": "go.iotaValue",
+                "pos": {
+                  "column": 2,
+                  "file": "source.go",
+                  "line": 11,
+                  "offset": 279
+                },
+                "set_by": "golang",
+                "value": 0
+              }
+            ]
+          },
+          "name": "StatusActive",
+          "pos": {
+            "column": 2,
+            "file": "source.go",
+            "line": 11,
+            "offset": 279
+          },
+          "value": "0"
+        },
+        {
+          "docs": [
+            "StatusPaused is the temporarily-suspended state."
+          ],
+          "meta": {
+            "entries": [
+              {
+                "authority": 0,
+                "name": "go.iotaValue",
+                "pos": {
+                  "column": 2,
+                  "file": "source.go",
+                  "line": 13,
+                  "offset": 360
+                },
+                "set_by": "golang",
+                "value": 1
+              }
+            ]
+          },
+          "name": "StatusPaused",
+          "pos": {
+            "column": 2,
+            "file": "source.go",
+            "line": 13,
+            "offset": 360
+          },
+          "value": "1"
+        },
+        {
+          "docs": [
+            "StatusArchived is the terminal state."
+          ],
+          "meta": {
+            "entries": [
+              {
+                "authority": 0,
+                "name": "go.iotaValue",
+                "pos": {
+                  "column": 2,
+                  "file": "source.go",
+                  "line": 15,
+                  "offset": 416
+                },
+                "set_by": "golang",
+                "value": 2
+              }
+            ]
+          },
+          "name": "StatusArchived",
+          "pos": {
+            "column": 2,
+            "file": "source.go",
+            "line": 15,
+            "offset": 416
+          },
+          "value": "2"
+        }
+      ]
+    }
+  ],
+  "files": [
+    {
+      "docs": [
+        "Package fixture exercises the typed-iota → Enum promotion path,",
+        "including iota-value stamping on each variant."
+      ],
+      "meta": {
+        "entries": []
+      },
+      "name": "source.go",
+      "path": "source.go",
+      "pos": {
+        "column": 1,
+        "file": "source.go",
+        "line": 3,
+        "offset": 119
+      }
+    }
+  ],
+  "meta": {
+    "entries": []
+  },
+  "name": "fixture",
+  "path": "example.com/golangtest"
+}

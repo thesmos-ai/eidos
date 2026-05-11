@@ -1,0 +1,497 @@
+{
+  "directives": [
+    {
+      "Args": null,
+      "KV": {
+        "kind": "package",
+        "owner": "core"
+      },
+      "Name": "scope",
+      "Negated": false,
+      "Pos": {
+        "column": 1,
+        "file": "source.go",
+        "line": 8,
+        "offset": 357
+      },
+      "Raw": "scope kind=package owner=core"
+    }
+  ],
+  "docs": [
+    "Package fixture exercises the directive-parsing surface across",
+    "every declaration kind the frontend extracts directives from:",
+    "the package itself, individual files, top-level types, struct",
+    "fields, methods, functions, and individual parameters. Each row",
+    "pins one representative directive shape so downstream code locks",
+    "in the wire format.",
+    "",
+    "+gen:scope kind=package owner=core"
+  ],
+  "files": [
+    {
+      "docs": [
+        "Package fixture exercises the directive-parsing surface across",
+        "every declaration kind the frontend extracts directives from:",
+        "the package itself, individual files, top-level types, struct",
+        "fields, methods, functions, and individual parameters. Each row",
+        "pins one representative directive shape so downstream code locks",
+        "in the wire format.",
+        "",
+        "+gen:scope kind=package owner=core"
+      ],
+      "meta": {
+        "entries": []
+      },
+      "name": "source.go",
+      "path": "source.go",
+      "pos": {
+        "column": 1,
+        "file": "source.go",
+        "line": 9,
+        "offset": 395
+      }
+    }
+  ],
+  "functions": [
+    {
+      "directives": [
+        {
+          "Args": null,
+          "KV": {},
+          "Name": "public",
+          "Negated": false,
+          "Pos": {
+            "column": 1,
+            "file": "source.go",
+            "line": 48,
+            "offset": 1554
+          },
+          "Raw": "public"
+        }
+      ],
+      "docs": [
+        "Greet returns a hello string. The function carries a single",
+        "neutral-form directive without arguments — the smallest valid",
+        "directive shape.",
+        "",
+        "gen:public"
+      ],
+      "meta": {
+        "entries": []
+      },
+      "name": "Greet",
+      "package": "example.com/golangtest",
+      "pos": {
+        "column": 1,
+        "file": "source.go",
+        "line": 49,
+        "offset": 1568
+      },
+      "returns": [
+        {
+          "meta": {
+            "entries": [
+              {
+                "authority": 0,
+                "name": "go.isComparable",
+                "set_by": "golang",
+                "value": true
+              }
+            ]
+          },
+          "name": "string",
+          "pos": {
+            "column": 14,
+            "file": "source.go",
+            "line": 49,
+            "offset": 1581
+          },
+          "type_kind": 0
+        }
+      ]
+    }
+  ],
+  "interfaces": [
+    {
+      "docs": [
+        "Context is a stand-in interface that exists only so the Save",
+        "receiver method has a non-stdlib parameter type. Carries no",
+        "directives intentionally — the golden negative case."
+      ],
+      "meta": {
+        "entries": []
+      },
+      "methods": [
+        {
+          "meta": {
+            "entries": []
+          },
+          "name": "Done",
+          "pos": {
+            "column": 25,
+            "file": "source.go",
+            "line": 42,
+            "offset": 1391
+          }
+        }
+      ],
+      "name": "Context",
+      "package": "example.com/golangtest",
+      "pos": {
+        "column": 6,
+        "file": "source.go",
+        "line": 42,
+        "offset": 1372
+      }
+    }
+  ],
+  "meta": {
+    "entries": []
+  },
+  "name": "fixture",
+  "path": "example.com/golangtest",
+  "structs": [
+    {
+      "directives": [
+        {
+          "Args": null,
+          "KV": {
+            "target": "UserRepo"
+          },
+          "Name": "mock",
+          "Negated": false,
+          "Pos": {
+            "column": 1,
+            "file": "source.go",
+            "line": 16,
+            "offset": 626
+          },
+          "Raw": "mock target=UserRepo"
+        },
+        {
+          "Args": null,
+          "KV": {},
+          "Name": "exported",
+          "Negated": true,
+          "Pos": {
+            "column": 1,
+            "file": "source.go",
+            "line": 17,
+            "offset": 655
+          },
+          "Raw": "exported"
+        }
+      ],
+      "docs": [
+        "User is the domain object the directives below decorate. The",
+        "struct itself carries one directive in set form and one in",
+        "negate form so both [directive.Directive.Negated] values appear",
+        "in the golden.",
+        "",
+        "+gen:mock target=UserRepo",
+        "-gen:exported"
+      ],
+      "fields": [
+        {
+          "directives": [
+            {
+              "Args": [
+                "primary"
+              ],
+              "KV": {
+                "name": "user_id"
+              },
+              "Name": "column",
+              "Negated": false,
+              "Pos": {
+                "column": 2,
+                "file": "source.go",
+                "line": 19,
+                "offset": 692
+              },
+              "Raw": "column name=\"user_id\" primary"
+            }
+          ],
+          "docs": [
+            "gen:column name=\"user_id\" primary"
+          ],
+          "meta": {
+            "entries": []
+          },
+          "name": "ID",
+          "pos": {
+            "column": 2,
+            "file": "source.go",
+            "line": 20,
+            "offset": 730
+          },
+          "type": {
+            "meta": {
+              "entries": [
+                {
+                  "authority": 0,
+                  "name": "go.isComparable",
+                  "set_by": "golang",
+                  "value": true
+                }
+              ]
+            },
+            "name": "int",
+            "pos": {
+              "column": 5,
+              "file": "source.go",
+              "line": 20,
+              "offset": 733
+            },
+            "type_kind": 0
+          }
+        },
+        {
+          "directives": [
+            {
+              "Args": null,
+              "KV": {
+                "name": "display_name"
+              },
+              "Name": "column",
+              "Negated": false,
+              "Pos": {
+                "column": 2,
+                "file": "source.go",
+                "line": 21,
+                "offset": 738
+              },
+              "Raw": "column name=\"display_name\""
+            }
+          ],
+          "docs": [
+            "+gen:column name=\"display_name\""
+          ],
+          "meta": {
+            "entries": []
+          },
+          "name": "Name",
+          "pos": {
+            "column": 2,
+            "file": "source.go",
+            "line": 22,
+            "offset": 774
+          },
+          "type": {
+            "meta": {
+              "entries": [
+                {
+                  "authority": 0,
+                  "name": "go.isComparable",
+                  "set_by": "golang",
+                  "value": true
+                }
+              ]
+            },
+            "name": "string",
+            "pos": {
+              "column": 7,
+              "file": "source.go",
+              "line": 22,
+              "offset": 779
+            },
+            "type_kind": 0
+          }
+        }
+      ],
+      "meta": {
+        "entries": []
+      },
+      "methods": [
+        {
+          "directives": [
+            {
+              "Args": [
+                "idempotent"
+              ],
+              "KV": {
+                "path": "/users",
+                "verb": "POST"
+              },
+              "Name": "rpc",
+              "Negated": false,
+              "Pos": {
+                "column": 1,
+                "file": "source.go",
+                "line": 30,
+                "offset": 1041
+              },
+              "Raw": "rpc verb=POST path=/users idempotent"
+            }
+          ],
+          "docs": [
+            "Save persists u. The method carries a single directive mixing",
+            "positional arguments and key=value pairs; the parameter list is",
+            "laid out across multiple lines so a per-parameter directive",
+            "attaches via the converter's ast.CommentMap index.",
+            "",
+            "gen:rpc verb=POST path=/users idempotent"
+          ],
+          "meta": {
+            "entries": [
+              {
+                "authority": 0,
+                "name": "go.receiverIsPointer",
+                "pos": {
+                  "column": 1,
+                  "file": "source.go",
+                  "line": 31,
+                  "offset": 1085
+                },
+                "set_by": "golang",
+                "value": true
+              }
+            ]
+          },
+          "name": "Save",
+          "params": [
+            {
+              "directives": [
+                {
+                  "Args": null,
+                  "KV": {
+                    "reason": "pii"
+                  },
+                  "Name": "redact",
+                  "Negated": false,
+                  "Pos": {
+                    "column": 2,
+                    "file": "source.go",
+                    "line": 32,
+                    "offset": 1107
+                  },
+                  "Raw": "redact reason=\"pii\""
+                }
+              ],
+              "docs": [
+                "gen:redact reason=\"pii\""
+              ],
+              "name": "ctx",
+              "pos": {
+                "column": 2,
+                "file": "source.go",
+                "line": 33,
+                "offset": 1135
+              },
+              "type": {
+                "meta": {
+                  "entries": [
+                    {
+                      "authority": 0,
+                      "name": "go.isComparable",
+                      "pos": {
+                        "column": 6,
+                        "file": "source.go",
+                        "line": 42,
+                        "offset": 1372
+                      },
+                      "set_by": "golang",
+                      "value": true
+                    }
+                  ]
+                },
+                "name": "Context",
+                "package": "example.com/golangtest",
+                "pos": {
+                  "column": 6,
+                  "file": "source.go",
+                  "line": 33,
+                  "offset": 1139
+                },
+                "type_kind": 0
+              }
+            }
+          ],
+          "pos": {
+            "column": 1,
+            "file": "source.go",
+            "line": 31,
+            "offset": 1085
+          },
+          "receiver": {
+            "elem": {
+              "meta": {
+                "entries": [
+                  {
+                    "authority": 0,
+                    "name": "go.isComparable",
+                    "pos": {
+                      "column": 6,
+                      "file": "source.go",
+                      "line": 18,
+                      "offset": 677
+                    },
+                    "set_by": "golang",
+                    "value": true
+                  }
+                ]
+              },
+              "name": "User",
+              "package": "example.com/golangtest",
+              "type_kind": 0
+            },
+            "meta": {
+              "entries": [
+                {
+                  "authority": 0,
+                  "name": "go.isComparable",
+                  "set_by": "golang",
+                  "value": true
+                }
+              ]
+            },
+            "pos": {
+              "column": 9,
+              "file": "source.go",
+              "line": 31,
+              "offset": 1093
+            },
+            "type_kind": 1
+          },
+          "receiver_name": "u",
+          "returns": [
+            {
+              "meta": {
+                "entries": [
+                  {
+                    "authority": 0,
+                    "name": "go.isComparable",
+                    "set_by": "golang",
+                    "value": true
+                  },
+                  {
+                    "authority": 0,
+                    "name": "go.isError",
+                    "set_by": "golang",
+                    "value": true
+                  }
+                ]
+              },
+              "name": "error",
+              "pos": {
+                "column": 3,
+                "file": "source.go",
+                "line": 34,
+                "offset": 1150
+              },
+              "type_kind": 0
+            }
+          ]
+        }
+      ],
+      "name": "User",
+      "package": "example.com/golangtest",
+      "pos": {
+        "column": 6,
+        "file": "source.go",
+        "line": 18,
+        "offset": 677
+      }
+    }
+  ]
+}

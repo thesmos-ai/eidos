@@ -1,0 +1,266 @@
+{
+  "docs": [
+    "Package fixture exercises channel-direction metadata. The",
+    "converter stamps go.isChannel plus go.chanDir and go.chanElem",
+    "onto every chan-typed reference; bidirectional, send-only, and",
+    "recv-only channels each carry a distinct direction string."
+  ],
+  "files": [
+    {
+      "docs": [
+        "Package fixture exercises channel-direction metadata. The",
+        "converter stamps go.isChannel plus go.chanDir and go.chanElem",
+        "onto every chan-typed reference; bidirectional, send-only, and",
+        "recv-only channels each carry a distinct direction string."
+      ],
+      "meta": {
+        "entries": []
+      },
+      "name": "source.go",
+      "path": "source.go",
+      "pos": {
+        "column": 1,
+        "file": "source.go",
+        "line": 5,
+        "offset": 254
+      }
+    }
+  ],
+  "meta": {
+    "entries": []
+  },
+  "name": "fixture",
+  "path": "example.com/golangtest",
+  "structs": [
+    {
+      "docs": [
+        "Pipes bundles all three channel directions so the golden pins",
+        "the full set without spreading the assertion across multiple",
+        "fixtures."
+      ],
+      "fields": [
+        {
+          "docs": [
+            "Both is a bidirectional channel of ints."
+          ],
+          "meta": {
+            "entries": []
+          },
+          "name": "Both",
+          "pos": {
+            "column": 2,
+            "file": "source.go",
+            "line": 12,
+            "offset": 479
+          },
+          "type": {
+            "meta": {
+              "entries": [
+                {
+                  "authority": 0,
+                  "name": "go.chanDir",
+                  "set_by": "golang",
+                  "value": "both"
+                },
+                {
+                  "authority": 0,
+                  "name": "go.chanElem",
+                  "set_by": "golang",
+                  "value": "int"
+                },
+                {
+                  "authority": 0,
+                  "name": "go.isChannel",
+                  "set_by": "golang",
+                  "value": true
+                },
+                {
+                  "authority": 0,
+                  "name": "go.isComparable",
+                  "set_by": "golang",
+                  "value": true
+                }
+              ]
+            },
+            "name": "chan",
+            "package": "go",
+            "pos": {
+              "column": 7,
+              "file": "source.go",
+              "line": 12,
+              "offset": 484
+            },
+            "type_args": [
+              {
+                "meta": {
+                  "entries": [
+                    {
+                      "authority": 0,
+                      "name": "go.isComparable",
+                      "set_by": "golang",
+                      "value": true
+                    }
+                  ]
+                },
+                "name": "int",
+                "type_kind": 0
+              }
+            ],
+            "type_kind": 0
+          }
+        },
+        {
+          "docs": [
+            "Out is a send-only channel of strings."
+          ],
+          "meta": {
+            "entries": []
+          },
+          "name": "Out",
+          "pos": {
+            "column": 2,
+            "file": "source.go",
+            "line": 14,
+            "offset": 537
+          },
+          "type": {
+            "meta": {
+              "entries": [
+                {
+                  "authority": 0,
+                  "name": "go.chanDir",
+                  "set_by": "golang",
+                  "value": "send"
+                },
+                {
+                  "authority": 0,
+                  "name": "go.chanElem",
+                  "set_by": "golang",
+                  "value": "string"
+                },
+                {
+                  "authority": 0,
+                  "name": "go.isChannel",
+                  "set_by": "golang",
+                  "value": true
+                },
+                {
+                  "authority": 0,
+                  "name": "go.isComparable",
+                  "set_by": "golang",
+                  "value": true
+                }
+              ]
+            },
+            "name": "chan",
+            "package": "go",
+            "pos": {
+              "column": 6,
+              "file": "source.go",
+              "line": 14,
+              "offset": 541
+            },
+            "type_args": [
+              {
+                "meta": {
+                  "entries": [
+                    {
+                      "authority": 0,
+                      "name": "go.isComparable",
+                      "set_by": "golang",
+                      "value": true
+                    }
+                  ]
+                },
+                "name": "string",
+                "type_kind": 0
+              }
+            ],
+            "type_kind": 0
+          }
+        },
+        {
+          "docs": [
+            "In is a recv-only channel of booleans."
+          ],
+          "meta": {
+            "entries": []
+          },
+          "name": "In",
+          "pos": {
+            "column": 2,
+            "file": "source.go",
+            "line": 16,
+            "offset": 599
+          },
+          "type": {
+            "meta": {
+              "entries": [
+                {
+                  "authority": 0,
+                  "name": "go.chanDir",
+                  "set_by": "golang",
+                  "value": "recv"
+                },
+                {
+                  "authority": 0,
+                  "name": "go.chanElem",
+                  "set_by": "golang",
+                  "value": "bool"
+                },
+                {
+                  "authority": 0,
+                  "name": "go.isChannel",
+                  "set_by": "golang",
+                  "value": true
+                },
+                {
+                  "authority": 0,
+                  "name": "go.isComparable",
+                  "set_by": "golang",
+                  "value": true
+                }
+              ]
+            },
+            "name": "chan",
+            "package": "go",
+            "pos": {
+              "column": 5,
+              "file": "source.go",
+              "line": 16,
+              "offset": 602
+            },
+            "type_args": [
+              {
+                "meta": {
+                  "entries": [
+                    {
+                      "authority": 0,
+                      "name": "go.isComparable",
+                      "set_by": "golang",
+                      "value": true
+                    }
+                  ]
+                },
+                "name": "bool",
+                "type_kind": 0
+              }
+            ],
+            "type_kind": 0
+          }
+        }
+      ],
+      "meta": {
+        "entries": []
+      },
+      "name": "Pipes",
+      "package": "example.com/golangtest",
+      "pos": {
+        "column": 6,
+        "file": "source.go",
+        "line": 10,
+        "offset": 418
+      }
+    }
+  ]
+}

@@ -1,0 +1,191 @@
+{
+  "docs": [
+    "Package fixture exercises generic type parameters and their",
+    "embedded-bound constraints."
+  ],
+  "files": [
+    {
+      "docs": [
+        "Package fixture exercises generic type parameters and their",
+        "embedded-bound constraints."
+      ],
+      "meta": {
+        "entries": []
+      },
+      "name": "source.go",
+      "path": "source.go",
+      "pos": {
+        "column": 1,
+        "file": "source.go",
+        "line": 3,
+        "offset": 94
+      }
+    }
+  ],
+  "interfaces": [
+    {
+      "docs": [
+        "Stringer mirrors fmt.Stringer for the bound below."
+      ],
+      "meta": {
+        "entries": []
+      },
+      "methods": [
+        {
+          "meta": {
+            "entries": []
+          },
+          "name": "String",
+          "pos": {
+            "column": 2,
+            "file": "source.go",
+            "line": 7,
+            "offset": 192
+          },
+          "returns": [
+            {
+              "meta": {
+                "entries": [
+                  {
+                    "authority": 0,
+                    "name": "go.isComparable",
+                    "set_by": "golang",
+                    "value": true
+                  }
+                ]
+              },
+              "name": "string",
+              "pos": {
+                "column": 11,
+                "file": "source.go",
+                "line": 7,
+                "offset": 201
+              },
+              "type_kind": 0
+            }
+          ]
+        }
+      ],
+      "name": "Stringer",
+      "package": "example.com/golangtest",
+      "pos": {
+        "column": 6,
+        "file": "source.go",
+        "line": 6,
+        "offset": 170
+      }
+    }
+  ],
+  "meta": {
+    "entries": []
+  },
+  "name": "fixture",
+  "path": "example.com/golangtest",
+  "structs": [
+    {
+      "docs": [
+        "Box is a generic container constrained by Stringer."
+      ],
+      "fields": [
+        {
+          "meta": {
+            "entries": []
+          },
+          "name": "Value",
+          "pos": {
+            "column": 2,
+            "file": "source.go",
+            "line": 12,
+            "offset": 297
+          },
+          "type": {
+            "meta": {
+              "entries": [
+                {
+                  "authority": 0,
+                  "name": "go.isStringer",
+                  "pos": {
+                    "column": 10,
+                    "file": "source.go",
+                    "line": 11,
+                    "offset": 275
+                  },
+                  "set_by": "golang",
+                  "value": true
+                }
+              ]
+            },
+            "name": "T",
+            "pos": {
+              "column": 8,
+              "file": "source.go",
+              "line": 12,
+              "offset": 303
+            },
+            "type_kind": 6
+          }
+        }
+      ],
+      "meta": {
+        "entries": []
+      },
+      "name": "Box",
+      "package": "example.com/golangtest",
+      "pos": {
+        "column": 6,
+        "file": "source.go",
+        "line": 11,
+        "offset": 271
+      },
+      "type_params": [
+        {
+          "constraint": {
+            "embedded": [
+              {
+                "meta": {
+                  "entries": [
+                    {
+                      "authority": 0,
+                      "name": "go.isComparable",
+                      "pos": {
+                        "column": 6,
+                        "file": "source.go",
+                        "line": 6,
+                        "offset": 170
+                      },
+                      "set_by": "golang",
+                      "value": true
+                    },
+                    {
+                      "authority": 0,
+                      "name": "go.isStringer",
+                      "pos": {
+                        "column": 6,
+                        "file": "source.go",
+                        "line": 6,
+                        "offset": 170
+                      },
+                      "set_by": "golang",
+                      "value": true
+                    }
+                  ]
+                },
+                "name": "Stringer",
+                "package": "example.com/golangtest",
+                "type_kind": 0
+              }
+            ],
+            "raw": "Stringer"
+          },
+          "name": "T",
+          "pos": {
+            "column": 10,
+            "file": "source.go",
+            "line": 11,
+            "offset": 275
+          }
+        }
+      ]
+    }
+  ]
+}

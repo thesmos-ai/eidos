@@ -1,0 +1,454 @@
+{
+  "docs": [
+    "Operations on the types declared in types.go. Living in a separate",
+    "file forces the converter to associate methods with receivers",
+    "declared in a sibling source file."
+  ],
+  "files": [
+    {
+      "docs": [
+        "Operations on the types declared in types.go. Living in a separate",
+        "file forces the converter to associate methods with receivers",
+        "declared in a sibling source file."
+      ],
+      "meta": {
+        "entries": []
+      },
+      "name": "ops.go",
+      "path": "ops.go",
+      "pos": {
+        "column": 1,
+        "file": "ops.go",
+        "line": 4,
+        "offset": 173
+      }
+    },
+    {
+      "docs": [
+        "Package fixture spans more than one .go file so the converter's",
+        "multi-file package assembly is exercised. types.go declares the",
+        "shared types; ops.go defines methods that operate on them. The",
+        "resulting node.Package must merge declarations from both files",
+        "into a single, deterministic package node."
+      ],
+      "meta": {
+        "entries": []
+      },
+      "name": "types.go",
+      "path": "types.go",
+      "pos": {
+        "column": 1,
+        "file": "types.go",
+        "line": 6,
+        "offset": 312
+      }
+    }
+  ],
+  "meta": {
+    "entries": []
+  },
+  "name": "fixture",
+  "path": "example.com/golangtest",
+  "structs": [
+    {
+      "docs": [
+        "User is the domain object referenced by helpers across the package."
+      ],
+      "fields": [
+        {
+          "meta": {
+            "entries": []
+          },
+          "name": "ID",
+          "pos": {
+            "column": 2,
+            "file": "types.go",
+            "line": 10,
+            "offset": 420
+          },
+          "type": {
+            "meta": {
+              "entries": [
+                {
+                  "authority": 0,
+                  "name": "go.isComparable",
+                  "set_by": "golang",
+                  "value": true
+                }
+              ]
+            },
+            "name": "int",
+            "pos": {
+              "column": 7,
+              "file": "types.go",
+              "line": 10,
+              "offset": 425
+            },
+            "type_kind": 0
+          }
+        },
+        {
+          "meta": {
+            "entries": []
+          },
+          "name": "Name",
+          "pos": {
+            "column": 2,
+            "file": "types.go",
+            "line": 11,
+            "offset": 430
+          },
+          "type": {
+            "meta": {
+              "entries": [
+                {
+                  "authority": 0,
+                  "name": "go.isComparable",
+                  "set_by": "golang",
+                  "value": true
+                }
+              ]
+            },
+            "name": "string",
+            "pos": {
+              "column": 7,
+              "file": "types.go",
+              "line": 11,
+              "offset": 435
+            },
+            "type_kind": 0
+          }
+        }
+      ],
+      "meta": {
+        "entries": []
+      },
+      "name": "User",
+      "package": "example.com/golangtest",
+      "pos": {
+        "column": 6,
+        "file": "types.go",
+        "line": 9,
+        "offset": 405
+      }
+    },
+    {
+      "docs": [
+        "Repo is a tiny in-memory collection of users."
+      ],
+      "fields": [
+        {
+          "meta": {
+            "entries": []
+          },
+          "name": "Users",
+          "pos": {
+            "column": 2,
+            "file": "types.go",
+            "line": 16,
+            "offset": 514
+          },
+          "type": {
+            "elem": {
+              "meta": {
+                "entries": [
+                  {
+                    "authority": 0,
+                    "name": "go.isComparable",
+                    "pos": {
+                      "column": 6,
+                      "file": "types.go",
+                      "line": 9,
+                      "offset": 405
+                    },
+                    "set_by": "golang",
+                    "value": true
+                  }
+                ]
+              },
+              "name": "User",
+              "package": "example.com/golangtest",
+              "type_kind": 0
+            },
+            "meta": {
+              "entries": []
+            },
+            "pos": {
+              "column": 8,
+              "file": "types.go",
+              "line": 16,
+              "offset": 520
+            },
+            "type_kind": 2
+          }
+        }
+      ],
+      "meta": {
+        "entries": []
+      },
+      "methods": [
+        {
+          "docs": [
+            "Add appends u to the repository and returns the new length."
+          ],
+          "meta": {
+            "entries": [
+              {
+                "authority": 0,
+                "name": "go.receiverIsPointer",
+                "pos": {
+                  "column": 1,
+                  "file": "ops.go",
+                  "line": 7,
+                  "offset": 253
+                },
+                "set_by": "golang",
+                "value": true
+              }
+            ]
+          },
+          "name": "Add",
+          "params": [
+            {
+              "name": "u",
+              "pos": {
+                "column": 20,
+                "file": "ops.go",
+                "line": 7,
+                "offset": 272
+              },
+              "type": {
+                "meta": {
+                  "entries": [
+                    {
+                      "authority": 0,
+                      "name": "go.isComparable",
+                      "pos": {
+                        "column": 6,
+                        "file": "types.go",
+                        "line": 9,
+                        "offset": 405
+                      },
+                      "set_by": "golang",
+                      "value": true
+                    }
+                  ]
+                },
+                "name": "User",
+                "package": "example.com/golangtest",
+                "pos": {
+                  "column": 22,
+                  "file": "ops.go",
+                  "line": 7,
+                  "offset": 274
+                },
+                "type_kind": 0
+              }
+            }
+          ],
+          "pos": {
+            "column": 1,
+            "file": "ops.go",
+            "line": 7,
+            "offset": 253
+          },
+          "receiver": {
+            "elem": {
+              "meta": {
+                "entries": []
+              },
+              "name": "Repo",
+              "package": "example.com/golangtest",
+              "type_kind": 0
+            },
+            "meta": {
+              "entries": [
+                {
+                  "authority": 0,
+                  "name": "go.isComparable",
+                  "set_by": "golang",
+                  "value": true
+                }
+              ]
+            },
+            "pos": {
+              "column": 9,
+              "file": "ops.go",
+              "line": 7,
+              "offset": 261
+            },
+            "type_kind": 1
+          },
+          "receiver_name": "r",
+          "returns": [
+            {
+              "meta": {
+                "entries": [
+                  {
+                    "authority": 0,
+                    "name": "go.isComparable",
+                    "set_by": "golang",
+                    "value": true
+                  }
+                ]
+              },
+              "name": "int",
+              "pos": {
+                "column": 28,
+                "file": "ops.go",
+                "line": 7,
+                "offset": 280
+              },
+              "type_kind": 0
+            }
+          ]
+        },
+        {
+          "docs": [
+            "Find returns the first user whose ID matches id, or the zero",
+            "User and false when no entry is present."
+          ],
+          "meta": {
+            "entries": [
+              {
+                "authority": 0,
+                "name": "go.receiverIsPointer",
+                "pos": {
+                  "column": 1,
+                  "file": "ops.go",
+                  "line": 14,
+                  "offset": 448
+                },
+                "set_by": "golang",
+                "value": true
+              }
+            ]
+          },
+          "name": "Find",
+          "params": [
+            {
+              "name": "id",
+              "pos": {
+                "column": 21,
+                "file": "ops.go",
+                "line": 14,
+                "offset": 468
+              },
+              "type": {
+                "meta": {
+                  "entries": [
+                    {
+                      "authority": 0,
+                      "name": "go.isComparable",
+                      "set_by": "golang",
+                      "value": true
+                    }
+                  ]
+                },
+                "name": "int",
+                "pos": {
+                  "column": 24,
+                  "file": "ops.go",
+                  "line": 14,
+                  "offset": 471
+                },
+                "type_kind": 0
+              }
+            }
+          ],
+          "pos": {
+            "column": 1,
+            "file": "ops.go",
+            "line": 14,
+            "offset": 448
+          },
+          "receiver": {
+            "elem": {
+              "meta": {
+                "entries": []
+              },
+              "name": "Repo",
+              "package": "example.com/golangtest",
+              "type_kind": 0
+            },
+            "meta": {
+              "entries": [
+                {
+                  "authority": 0,
+                  "name": "go.isComparable",
+                  "set_by": "golang",
+                  "value": true
+                }
+              ]
+            },
+            "pos": {
+              "column": 9,
+              "file": "ops.go",
+              "line": 14,
+              "offset": 456
+            },
+            "type_kind": 1
+          },
+          "receiver_name": "r",
+          "returns": [
+            {
+              "meta": {
+                "entries": [
+                  {
+                    "authority": 0,
+                    "name": "go.isComparable",
+                    "pos": {
+                      "column": 6,
+                      "file": "types.go",
+                      "line": 9,
+                      "offset": 405
+                    },
+                    "set_by": "golang",
+                    "value": true
+                  }
+                ]
+              },
+              "name": "User",
+              "package": "example.com/golangtest",
+              "pos": {
+                "column": 30,
+                "file": "ops.go",
+                "line": 14,
+                "offset": 477
+              },
+              "type_kind": 0
+            },
+            {
+              "meta": {
+                "entries": [
+                  {
+                    "authority": 0,
+                    "name": "go.isComparable",
+                    "set_by": "golang",
+                    "value": true
+                  }
+                ]
+              },
+              "name": "bool",
+              "pos": {
+                "column": 36,
+                "file": "ops.go",
+                "line": 14,
+                "offset": 483
+              },
+              "type_kind": 0
+            }
+          ]
+        }
+      ],
+      "name": "Repo",
+      "package": "example.com/golangtest",
+      "pos": {
+        "column": 6,
+        "file": "types.go",
+        "line": 15,
+        "offset": 499
+      }
+    }
+  ]
+}

@@ -11,12 +11,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"testing"
 )
 
 // updateGolden is the registered `-update-golden` flag. When set,
-// [FileAssertion.MatchesGolden] rewrites the golden file at the
-// supplied path with the current file's content instead of asserting
-// against it.
+// [FileAssertion.MatchesGolden] and [MatchesGoldenBytes] rewrite the
+// golden file at the supplied path with the current bytes instead of
+// asserting against it.
 //
 // The flag is registered at package init via [flag.Bool] against
 // [flag.CommandLine]; Go's test runner parses it automatically. Run
@@ -31,6 +32,44 @@ var updateGolden = flag.Bool("update-golden", false,
 // decide between assert and rewrite modes.
 func UpdateGolden() bool { return *updateGolden }
 
+// MatchesGoldenBytes compares body against the bytes stored at path
+// and reports a test failure on mismatch. When `-update-golden` is
+// set the path is rewritten atomically with body instead. The
+// directory containing path is created if it does not already exist.
+//
+// A missing golden file is treated as a test failure in assert mode
+// and as a fresh write in update mode. Read failures other than
+// "missing file" always fail the test — they typically indicate a
+// permissions problem worth fixing rather than a stale golden.
+//
+// MatchesGoldenBytes is the reusable primitive every golden-file
+// assertion in the project builds on: [FileAssertion.MatchesGolden]
+// delegates here, and frontend / backend integration tests call it
+// directly with their own marshalled payloads.
+func MatchesGoldenBytes(tb testing.TB, body []byte, path string) {
+	tb.Helper()
+	if *updateGolden {
+		if err := writeGolden(path, body); err != nil {
+			tb.Fatalf("testpipe: failed to rewrite golden %s: %v", path, err)
+		}
+		return
+	}
+	expected, err := os.ReadFile(path) //nolint:gosec // path is supplied by test code, not user input
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			tb.Errorf("testpipe: golden file %s missing; run with -update-golden to create it", path)
+			return
+		}
+		tb.Fatalf("testpipe: failed to read golden %s: %v", path, err)
+	}
+	if !bytes.Equal(body, expected) {
+		tb.Errorf(
+			"testpipe: bytes does not match golden %s\n----- got -----\n%s\n----- want -----\n%s\n----- end -----",
+			path, body, expected,
+		)
+	}
+}
+
 // MatchesGolden compares the file's content against the bytes stored
 // at path. When the `-update-golden` flag is set, MatchesGolden
 // rewrites path atomically with the current bytes (temp + rename) so
@@ -43,26 +82,7 @@ func UpdateGolden() bool { return *updateGolden }
 // permissions problem worth fixing rather than a stale golden.
 func (a *FileAssertion) MatchesGolden(path string) *FileAssertion {
 	a.t.Helper()
-	if *updateGolden {
-		if err := writeGolden(path, a.body); err != nil {
-			a.t.Fatalf("testpipe: failed to rewrite golden %s: %v", path, err)
-		}
-		return a
-	}
-	expected, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			a.t.Errorf("testpipe: golden file %s missing; run with -update-golden to create it", path)
-			return a
-		}
-		a.t.Fatalf("testpipe: failed to read golden %s: %v", path, err)
-	}
-	if !bytes.Equal(a.body, expected) {
-		a.t.Errorf(
-			"testpipe: file %s does not match golden %s\n----- got -----\n%s\n----- want -----\n%s\n----- end -----",
-			a.target.JoinPath(), path, a.body, expected,
-		)
-	}
+	MatchesGoldenBytes(a.t, a.body, path)
 	return a
 }
 
