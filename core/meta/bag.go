@@ -35,8 +35,9 @@ type entry struct {
 //
 // The zero value is unusable; construct with [NewBag].
 type Bag struct {
-	mu      sync.RWMutex
-	entries map[string]*[numAuthorities]*entry
+	mu        sync.RWMutex
+	entries   map[string]*[numAuthorities]*entry
+	observers []Observer
 }
 
 // NewBag returns an empty Bag ready for use.
@@ -45,12 +46,14 @@ func NewBag() *Bag {
 }
 
 // setEntry records value v at (name, auth), replacing any prior entry
-// at that slot.
+// at that slot. Registered observers fire after the slot mutation
+// while the write lock is still held.
 func (b *Bag) setEntry(name string, v any, auth Authority, setBy string, pos position.Pos) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	slot := b.slotLocked(name)
 	slot[auth] = &entry{value: v, setBy: setBy, pos: pos}
+	b.fireObservers(name)
 }
 
 // setTombstone records a tombstone at (name, auth), replacing any

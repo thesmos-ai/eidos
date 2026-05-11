@@ -7,9 +7,15 @@ import (
 	"errors"
 	"testing"
 
+	"go.thesmos.sh/eidos/core/meta"
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/store"
 )
+
+// keyNodeViewMeta is the meta.Key used by the NodeView meta-key
+// index test, declared once at package scope so the global key
+// registry never sees re-registration on -count > 1.
+var keyNodeViewMeta = meta.NewKey("store.node_view.meta", meta.BoolParser)
 
 func TestNodeView_AddPackage(t *testing.T) {
 	t.Parallel()
@@ -359,6 +365,44 @@ func TestNodeView_ByPackage(t *testing.T) {
 		s := store.New()
 		if s.Nodes().ByPackage().Get("missing") != nil {
 			t.Fatalf("ByPackage(unknown) should be nil")
+		}
+	})
+}
+
+func TestNodeView_ByMetaKey(t *testing.T) {
+	t.Parallel()
+
+	t.Run("captures keys set after AddPackage via the observer hook", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		assertNoError(t, s.Nodes().AddPackage(makeUserPackage()))
+		user, _ := s.Nodes().Structs().ByQName("github.com/example/users.User")
+		keyNodeViewMeta.Set(user.Meta(), true, "test")
+		got := s.Nodes().ByMetaKey().Get(keyNodeViewMeta.Name())
+		if len(got) != 1 || got[0] != node.Node(user) {
+			t.Fatalf("ByMetaKey should record the post-add Set; got %+v", got)
+		}
+	})
+
+	t.Run("captures keys already present when AddPackage runs", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		pre := makeUserPackage()
+		// Pre-stamp metadata before adding the package.
+		keyNodeViewMeta.Set(pre.Structs[0].Meta(), true, "pre-add")
+		assertNoError(t, s.Nodes().AddPackage(pre))
+		got := s.Nodes().ByMetaKey().Get(keyNodeViewMeta.Name())
+		if len(got) != 1 {
+			t.Fatalf("ByMetaKey should seed pre-existing keys; got %+v", got)
+		}
+	})
+
+	t.Run("returns nil for unset keys", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		assertNoError(t, s.Nodes().AddPackage(makeUserPackage()))
+		if s.Nodes().ByMetaKey().Get("never.set") != nil {
+			t.Fatalf("ByMetaKey on unset key should be nil")
 		}
 	})
 }

@@ -40,6 +40,7 @@ type EmitView struct {
 	byPackage   *MultiIndex[string, emit.Node]
 	byDirective *MultiIndex[directive.Name, emit.Node]
 	byTarget    *MultiIndex[emit.Target, emit.Node]
+	byMetaKey   *MultiIndex[string, emit.Node]
 }
 
 // newEmitView constructs an empty EmitView with all buckets and
@@ -62,6 +63,7 @@ func newEmitView() *EmitView {
 		byPackage:    NewMultiIndex[string, emit.Node](),
 		byDirective:  NewMultiIndex[directive.Name, emit.Node](),
 		byTarget:     NewMultiIndex[emit.Target, emit.Node](),
+		byMetaKey:    NewMultiIndex[string, emit.Node](),
 	}
 }
 
@@ -136,6 +138,9 @@ func (v *EmitView) AddPackage(p *emit.Package) error {
 // A zero-value [emit.Target] skips the by-target indexing — callers
 // pass the entity's Target when it is routable, or the zero value
 // for entities (Package, Import) that route alongside their owner.
+// The meta-key index is seeded from any keys already set on the
+// entity's [meta.Bag] and kept current via an [meta.Observer]
+// registered for future Set calls.
 func (v *EmitView) indexCommon(n emit.Node, pkgPath string, target emit.Target) {
 	v.byPackage.Add(pkgPath, n)
 	for _, d := range n.Directives() {
@@ -144,6 +149,13 @@ func (v *EmitView) indexCommon(n emit.Node, pkgPath string, target emit.Target) 
 	if !target.IsZero() {
 		v.byTarget.Add(target, n)
 	}
+	bag := n.Meta()
+	for _, name := range bag.Names() {
+		v.byMetaKey.Add(name, n)
+	}
+	bag.AddObserver(func(name string) {
+		v.byMetaKey.Add(name, n)
+	})
 }
 
 func (v *EmitView) addFile(f *emit.File, pkgPath string) error {
@@ -303,3 +315,10 @@ func (v *EmitView) ByDirective() *MultiIndex[directive.Name, emit.Node] { return
 // backend uses this index to group emit entities into the
 // appropriate output files.
 func (v *EmitView) ByTarget() *MultiIndex[emit.Target, emit.Node] { return v.byTarget }
+
+// ByMetaKey returns the cross-cutting "by metadata key presence"
+// index. Like the node-side equivalent, the index is additive: Set
+// operations append (key, entity) pairs and tombstones do not
+// remove. Callers needing exact "currently set" semantics combine
+// with [meta.Bag.Has].
+func (v *EmitView) ByMetaKey() *MultiIndex[string, emit.Node] { return v.byMetaKey }

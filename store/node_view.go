@@ -39,6 +39,7 @@ type NodeView struct {
 
 	byPackage   *MultiIndex[string, node.Node]
 	byDirective *MultiIndex[directive.Name, node.Node]
+	byMetaKey   *MultiIndex[string, node.Node]
 }
 
 // newNodeView constructs an empty NodeView with all buckets and
@@ -60,6 +61,7 @@ func newNodeView() *NodeView {
 		aliases:      NewBucket[*node.Alias](),
 		byPackage:    NewMultiIndex[string, node.Node](),
 		byDirective:  NewMultiIndex[directive.Name, node.Node](),
+		byMetaKey:    NewMultiIndex[string, node.Node](),
 	}
 }
 
@@ -132,13 +134,24 @@ func (v *NodeView) AddPackage(p *node.Package) error {
 	return nil
 }
 
-// indexCommon updates the cross-cutting [NodeView.byPackage] and
-// [NodeView.byDirective] indices for n.
+// indexCommon updates the cross-cutting [NodeView.byPackage],
+// [NodeView.byDirective], and [NodeView.byMetaKey] indices for n.
+// The meta-key index is seeded from any keys already set on the
+// node's [meta.Bag] at the time of indexing, then kept current via
+// an [meta.Observer] that fires on every future Set against the
+// same bag.
 func (v *NodeView) indexCommon(n node.Node, pkgPath string) {
 	v.byPackage.Add(pkgPath, n)
 	for _, d := range n.Directives() {
 		v.byDirective.Add(d.Name, n)
 	}
+	bag := n.Meta()
+	for _, name := range bag.Names() {
+		v.byMetaKey.Add(name, n)
+	}
+	bag.AddObserver(func(name string) {
+		v.byMetaKey.Add(name, n)
+	})
 }
 
 func (v *NodeView) addFile(f *node.File, pkgPath string) error {
@@ -299,3 +312,12 @@ func (v *NodeView) ByPackage() *MultiIndex[string, node.Node] { return v.byPacka
 // index. Lookups by directive name return every node carrying that
 // directive in the order the frontend recorded.
 func (v *NodeView) ByDirective() *MultiIndex[directive.Name, node.Node] { return v.byDirective }
+
+// ByMetaKey returns the cross-cutting "by metadata key presence"
+// index. The index is additive — it records every (key, node) pair
+// observed via [meta.Bag.AddObserver]. Tombstones do not remove
+// entries; queries that need exact "currently set" semantics
+// combine the index with [meta.Bag.Has] checks per node. The same
+// node can appear under a key multiple times if the key has been
+// re-Set; deduplication is the caller's concern when relevant.
+func (v *NodeView) ByMetaKey() *MultiIndex[string, node.Node] { return v.byMetaKey }

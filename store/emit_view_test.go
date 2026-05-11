@@ -8,10 +8,15 @@ import (
 	"testing"
 
 	"go.thesmos.sh/eidos/core/directive"
+	"go.thesmos.sh/eidos/core/meta"
 	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/store"
 )
+
+// keyEmitViewMeta is the meta.Key used by the EmitView meta-key
+// index test, declared once at package scope.
+var keyEmitViewMeta = meta.NewKey("store.emit_view.meta", meta.BoolParser)
 
 // makeUserEmitPackage builds a representative [emit.Package] with
 // one file, two structs, an interface, function, variable, constant,
@@ -394,6 +399,34 @@ func TestEmitView_ByDirective(t *testing.T) {
 		got := s.Emit().ByDirective().Get("repo")
 		if len(got) != 1 {
 			t.Fatalf("ByDirective(repo) = %d, want 1", len(got))
+		}
+	})
+}
+
+func TestEmitView_ByMetaKey(t *testing.T) {
+	t.Parallel()
+
+	t.Run("captures keys set after AddPackage via the observer hook", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		assertNoError(t, s.Emit().AddPackage(makeUserEmitPackage()))
+		user, _ := s.Emit().Structs().ByQName("users.User")
+		keyEmitViewMeta.Set(user.Meta(), true, "test")
+		got := s.Emit().ByMetaKey().Get(keyEmitViewMeta.Name())
+		if len(got) != 1 || got[0] != emit.Node(user) {
+			t.Fatalf("ByMetaKey should record the post-add Set; got %+v", got)
+		}
+	})
+
+	t.Run("captures keys already present when AddPackage runs", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		pre := makeUserEmitPackage()
+		keyEmitViewMeta.Set(pre.Structs[0].Meta(), true, "pre-add")
+		assertNoError(t, s.Emit().AddPackage(pre))
+		got := s.Emit().ByMetaKey().Get(keyEmitViewMeta.Name())
+		if len(got) != 1 {
+			t.Fatalf("ByMetaKey should seed pre-existing keys; got %+v", got)
 		}
 	})
 }
