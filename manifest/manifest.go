@@ -1,0 +1,85 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
+package manifest
+
+import "go.thesmos.sh/eidos/emit"
+
+// Version is the current manifest schema version. Bump whenever the
+// on-disk format changes incompatibly so older readers detect the
+// mismatch and refuse to interpret the file rather than silently
+// mis-parsing it.
+const Version = 1
+
+// Output is one entry in a [Manifest] — the [emit.Target] the
+// pipeline routed the file to, the plugins that contributed to it,
+// and the SHA-256 hex digest of the final file content.
+type Output struct {
+	// Target identifies the destination the pipeline routed this
+	// file to.
+	Target emit.Target `json:"target"`
+
+	// Plugins is the list of plugin names that contributed to the
+	// rendered file. Multiple plugins appear when free-floating
+	// declarations from different generators share a Target or
+	// when slot-based composition mixes contributions.
+	Plugins []string `json:"plugins"`
+
+	// Hash is the SHA-256 hex digest of the rendered file content
+	// prefixed with "sha256:". A change in any plugin's
+	// contribution flips the hash and so flips this Output's
+	// fingerprint for the next run's prune diff.
+	Hash string `json:"hash"`
+}
+
+// Manifest is the per-run record of every [Output] the pipeline
+// produced. The Version field disambiguates schema generations;
+// RunID identifies the run for diagnostics; Outputs is the full
+// set of files the pipeline claimed in the run.
+type Manifest struct {
+	// Version is the manifest schema version.
+	Version int `json:"version"`
+
+	// RunID identifies the run that produced the manifest. The
+	// pipeline typically uses an RFC 3339 UTC timestamp; the field
+	// is opaque to the manifest package — clients write whatever
+	// they need to attribute outputs back to a run.
+	RunID string `json:"run_id"`
+
+	// Outputs is the list of every file the run produced.
+	Outputs []Output `json:"outputs"`
+}
+
+// New returns a Manifest stamped with the current [Version] and the
+// supplied RunID. Outputs starts empty; clients append entries as
+// the run produces files.
+func New(runID string) *Manifest {
+	return &Manifest{Version: Version, RunID: runID, Outputs: []Output{}}
+}
+
+// Add appends an output entry to the manifest.
+func (m *Manifest) Add(out Output) {
+	m.Outputs = append(m.Outputs, out)
+}
+
+// Targets returns the set of [emit.Target] values claimed by the
+// manifest's outputs. Used by [Prune] and by callers that want to
+// verify "did the previous run produce a file at this Target?".
+func (m *Manifest) Targets() []emit.Target {
+	out := make([]emit.Target, 0, len(m.Outputs))
+	for _, o := range m.Outputs {
+		out = append(out, o.Target)
+	}
+	return out
+}
+
+// HasTarget reports whether any output in the manifest claims the
+// supplied target.
+func (m *Manifest) HasTarget(t emit.Target) bool {
+	for _, o := range m.Outputs {
+		if o.Target == t {
+			return true
+		}
+	}
+	return false
+}
