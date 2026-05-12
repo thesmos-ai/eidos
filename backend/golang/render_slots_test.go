@@ -7,6 +7,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"testing/fstest"
+	"text/template"
 
 	"go.thesmos.sh/eidos/backend/golang"
 	"go.thesmos.sh/eidos/core/diag"
@@ -51,6 +53,65 @@ func TestSlots_StructFields_AppendByPluginTopo(t *testing.T) {
 		addEmitPackage(t, ctx, emitPackage("users", host))
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
 		mustOrderedSubstrings(t, string(body), "ID ", "AuditedAt ", "Required ")
+	})
+}
+
+// TestSlots_StructEmbeds_FromSlot covers the cross-cutting `embeds`
+// slot on a struct. A slot-contributed embed renders inline inside
+// the struct body alongside any typed embeds, in plugin-topo order.
+func TestSlots_StructEmbeds_FromSlot(t *testing.T) {
+	t.Parallel()
+
+	t.Run("typed + slot embeds render inline inside the struct", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		ctx.Ordered = []plugin.Plugin{stubPluginVersion{name: "tracegen"}}
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		host := &emit.Struct{
+			Name: "Wrapper", Package: "x", Target: target,
+			Embeds: []*emit.Embed{{Type: emit.External("io", "Reader")}},
+			Fields: []*emit.Field{{Name: "N", Type: emit.Builtin("int")}},
+		}
+		if err := host.EmbedsSlot().Append(
+			&emit.Embed{Type: emit.External("io", "Closer")},
+			emit.Provenance{SetBy: "tracegen"},
+		); err != nil {
+			t.Fatalf("append embed slot: %v", err)
+		}
+		addEmitPackage(t, ctx, emitPackage("x", host))
+		body := string(assertRenderSucceeds(t, ctx, mem, d, target))
+		mustOrderedSubstrings(t, body, "io.Reader", "io.Closer", "N int")
+	})
+}
+
+// TestSlots_InterfaceEmbeds_FromSlot covers the cross-cutting
+// `embeds` slot on an interface — a slot-contributed embed
+// renders inline inside the interface body alongside the typed
+// embeds, in plugin-topo order.
+func TestSlots_InterfaceEmbeds_FromSlot(t *testing.T) {
+	t.Parallel()
+
+	t.Run("typed + slot embeds render inline inside the interface", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		ctx.Ordered = []plugin.Plugin{stubPluginVersion{name: "metricsgen"}}
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		iface := &emit.Interface{
+			Name: "Service", Package: "x", Target: target,
+			Embeds: []*emit.Embed{{Type: emit.External("io", "Reader")}},
+		}
+		if err := iface.EmbedsSlot().Append(
+			&emit.Embed{Type: emit.External("io", "Closer")},
+			emit.Provenance{SetBy: "metricsgen"},
+		); err != nil {
+			t.Fatalf("append embed slot: %v", err)
+		}
+		addEmitPackage(t, ctx, &emit.Package{
+			Name: "x", Path: "x",
+			Interfaces: []*emit.Interface{iface},
+		})
+		body := string(assertRenderSucceeds(t, ctx, mem, d, target))
+		mustOrderedSubstrings(t, body, "io.Reader", "io.Closer")
 	})
 }
 
@@ -114,11 +175,10 @@ func TestSlots_StructMethods_RenderedInline(t *testing.T) {
 // TestErrNilHost pins the exported sentinel surfaced by every
 // funcmap-exposed render helper when invoked with a nil host. The
 // helpers are unreachable from core templates (the kind dispatcher
-// always passes a real host), so the wrapped-message diagnostic
-// surface only fires from plugin-supplied templates that call the
-// canonical helpers with a wrong dot. This test pins the
-// sentinel's exported shape so plugin authors can match it via
-// [errors.Is].
+// always passes a real host), so the diagnostic surface fires
+// from plugin-supplied templates that call the canonical helpers
+// with a wrong dot. The table drives each helper via a plugin
+// template that overrides `emit.constant` and passes a typed nil.
 func TestErrNilHost(t *testing.T) {
 	t.Parallel()
 
@@ -131,6 +191,89 @@ func TestErrNilHost(t *testing.T) {
 			t.Fatalf("ErrNilHost must satisfy errors.Is reflexivity")
 		}
 	})
+
+	// nilProviderFuncs supplies typed-nil constructors so the
+	// per-helper subtests can build a plugin template that invokes
+	// each canonical helper with a nil host — the only public
+	// surface today that reaches the helper's nil-host guard.
+	nilProviderFuncs := template.FuncMap{
+		"nilStruct":    func() *emit.Struct { return nil },
+		"nilInterface": func() *emit.Interface { return nil },
+		"nilEnum":      func() *emit.Enum { return nil },
+		"nilFunction":  func() *emit.Function { return nil },
+		"nilMethod":    func() *emit.Method { return nil },
+	}
+	cases := []struct {
+		helper string
+		host   string
+		invoke string
+	}{
+		{"renderStructFields", "*emit.Struct", "renderStructFields nilStruct"},
+		{"renderStructEmbeds", "*emit.Struct", "renderStructEmbeds nilStruct"},
+		{"renderStructMethods", "*emit.Struct", "{{ range renderStructMethods nilStruct }}{{ end }}"},
+		{"renderInterfaceEmbeds", "*emit.Interface", "renderInterfaceEmbeds nilInterface"},
+		{"renderInterfaceMethods", "*emit.Interface", "{{ range renderInterfaceMethods nilInterface }}{{ end }}"},
+		{"renderEnumVariants", "*emit.Enum", "renderEnumVariants nilEnum"},
+		{"renderFunctionBody", "*emit.Function", "renderFunctionBody nilFunction"},
+		{"renderFunctionParams", "*emit.Function", "renderFunctionParams nilFunction"},
+		{"renderMethodBody", "*emit.Method", "renderMethodBody nilMethod"},
+		{"renderMethodParams", "*emit.Method", "renderMethodParams nilMethod"},
+		{"renderReceiver", "*emit.Method", "renderReceiver nilMethod"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.helper+"_returns_ErrNilHost_when_host_is_nil", func(t *testing.T) {
+			t.Parallel()
+			ctx, mem, d := newBackendContext(t)
+			// The plugin template overrides emit.constant — the
+			// constant the test seeds is rendered through the
+			// override, which invokes the helper-under-test with
+			// a typed-nil pulled from the plugin's funcmap.
+			body := "{{ define \"emit.constant\" }}" + maybeWrapAction(tc.invoke) + "{{ end }}"
+			provider := &stubTemplateProvider{
+				name:  "niltest",
+				funcs: nilProviderFuncs,
+				tmplFS: fstest.MapFS{
+					"templates/golang/override.tmpl": &fstest.MapFile{Data: []byte(body)},
+				},
+			}
+			ctx.Plugins = []plugin.Plugin{provider}
+			ctx.Ordered = []plugin.Plugin{provider}
+			target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+			addEmitPackage(t, ctx, &emit.Package{
+				Name: "x", Path: "x",
+				Constants: []*emit.Constant{{
+					Name: "K", Package: "x", Target: target,
+					Value: &emit.Expr{ExprKind: emit.ExprLiteral, LitKind: emit.LitInt, RawText: "0"},
+				}},
+			})
+			if err := mustNew(t).Render(ctx); err != nil {
+				t.Fatalf("Render: %v", err)
+			}
+			if _, ok := mem.Get(target); ok {
+				t.Fatalf("nil-host invocation must suppress sink output")
+			}
+			if !diagnosticsContain(d, diag.Error, "nil host passed to funcmap helper") {
+				t.Fatalf("expected ErrNilHost diagnostic; got %+v", d.Diagnostics())
+			}
+			if !diagnosticsContain(d, diag.Error, tc.helper) {
+				t.Fatalf("diagnostic should name helper %q; got %+v", tc.helper, d.Diagnostics())
+			}
+			if !diagnosticsContain(d, diag.Error, tc.host) {
+				t.Fatalf("diagnostic should name host type %q; got %+v", tc.host, d.Diagnostics())
+			}
+		})
+	}
+}
+
+// maybeWrapAction wraps a bare action expression in `{{ … }}` so
+// the table can carry either a single helper invocation
+// (`renderStructFields nilStruct`) or a multi-action sequence
+// already containing `{{ … }}` (e.g. a range over a method slice).
+func maybeWrapAction(s string) string {
+	if strings.HasPrefix(s, "{{") {
+		return s
+	}
+	return "{{ " + s + " }}"
 }
 
 // TestSlots_DuplicateEntity covers the slot-internal collision

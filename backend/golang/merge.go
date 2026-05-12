@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"path"
 	"text/template"
 
@@ -155,7 +156,10 @@ func parseTemplatesFromPlugins(
 		if !has {
 			continue
 		}
-		if err := parseOnePluginFS(merged, fsys, p.Name(), contributors, ps); err != nil {
+		pluginFuncs := template.FuncMap{}
+		maps.Copy(pluginFuncs, tp.TemplateFuncs(ctx.Lang))
+		maps.Copy(pluginFuncs, tp.TemplateOverrides(ctx.Lang))
+		if err := parseOnePluginFS(merged, fsys, p.Name(), pluginFuncs, contributors, ps); err != nil {
 			return nil, err
 		}
 	}
@@ -181,6 +185,7 @@ func parseOnePluginFS(
 	merged *template.Template,
 	fsys fs.FS,
 	pluginName string,
+	pluginFuncs template.FuncMap,
 	contributors map[string]string,
 	ps *diag.PluginSink,
 ) error {
@@ -188,7 +193,12 @@ func parseOnePluginFS(
 	if err != nil {
 		return fmt.Errorf("backend/golang: walk plugin %q templates: %w", pluginName, err)
 	}
-	private := template.New(pluginName).Funcs(parsePlaceholders)
+	// Bind the plugin's own funcmap entries alongside the core
+	// placeholders so the plugin's templates can reference its
+	// extensions / overrides at parse time. Real bindings are
+	// supplied per-Target via [newRenderState]; the parse step
+	// only checks name and arity.
+	private := template.New(pluginName).Funcs(parsePlaceholders).Funcs(pluginFuncs)
 	for _, tf := range tmplFiles {
 		body, readErr := fs.ReadFile(fsys, tf)
 		if readErr != nil {
