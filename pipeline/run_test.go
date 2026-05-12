@@ -647,10 +647,11 @@ func TestPipeline_Run_ParallelAnnotatorsWithPlainPlugin(t *testing.T) {
 	})
 }
 
+// test reads os.Args or asserts on BackendContext.Command, so
+// parallel siblings stay safe across the mutation window.
+//
+//nolint:paralleltest // mutates os.Args; must run serial. No sibling
 func TestPipeline_Run_LibraryCommandLine(t *testing.T) {
-	// Serial: mutates os.Args. No sibling test reads os.Args or
-	// asserts on BackendContext.Command, so parallel siblings stay
-	// safe across the mutation window.
 	t.Run("commandLine returns the library marker when os.Args carries no positional arguments", func(t *testing.T) {
 		orig := os.Args
 		t.Cleanup(func() { os.Args = orig })

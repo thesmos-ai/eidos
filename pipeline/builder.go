@@ -303,17 +303,35 @@ func (b *Builder) validateEmitVersions() []error {
 }
 
 // buildDirectiveRegistry constructs a [directive.Registry] populated
-// from every schema supplied via [Builder.WithDirective]. Schema
-// name conflicts surface as [ErrDuplicateDirective] (wrapping the
-// underlying [directive.ErrSchemaConflict]); the returned registry
-// is non-nil even when errors occur so the caller can still expose
-// the partial registry for diagnostics.
+// from every schema supplied via [Builder.WithDirective] plus every
+// schema returned by plugins that implement
+// [plugin.DirectiveProvider]. Schema name conflicts surface as
+// [ErrDuplicateDirective] (wrapping the underlying
+// [directive.ErrSchemaConflict]); the returned registry is non-nil
+// even when errors occur so the caller can still expose the partial
+// registry for diagnostics.
+//
+// Auto-collection from DirectiveProvider plugins runs after the
+// builder-supplied schemas so manual WithDirective calls win on
+// collision — the surface is deliberately tilted toward the
+// caller's explicit declarations.
 func (b *Builder) buildDirectiveRegistry() (*directive.Registry, []error) {
 	r := directive.NewRegistry()
 	var errs []error
 	for _, s := range b.directives {
 		if err := r.Register(s); err != nil {
 			errs = append(errs, fmt.Errorf("%w: %w", ErrDuplicateDirective, err))
+		}
+	}
+	for _, p := range allPlugins(b.frontends, b.annotators, b.generators, b.backends) {
+		dp, ok := p.(plugin.DirectiveProvider)
+		if !ok {
+			continue
+		}
+		for _, s := range dp.Directives() {
+			if err := r.Register(s); err != nil {
+				errs = append(errs, fmt.Errorf("%w: %w", ErrDuplicateDirective, err))
+			}
 		}
 	}
 	return r, errs
