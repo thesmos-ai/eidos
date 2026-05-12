@@ -28,11 +28,12 @@ func (b *PackageBuilder) Variable(
 	fn func(*VariableBuilder),
 ) *PackageBuilder {
 	v := &emit.Variable{
-		Name:    name,
-		Package: b.pkg.Path,
-		Type:    typ,
-		Init:    init,
-		Target:  b.ctx.target,
+		BaseEmit: emit.BaseEmit{SetByName: b.ctx.SetBy()},
+		Name:     name,
+		Package:  b.pkg.Path,
+		Type:     typ,
+		Init:     init,
+		Target:   b.ctx.target,
 	}
 	vb := &VariableBuilder{ctx: b.ctx, v: v}
 	if fn != nil {

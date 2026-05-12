@@ -37,7 +37,11 @@ type PackageBuilder struct {
 func (c *Context) Package(name, path string) *PackageBuilder {
 	return &PackageBuilder{
 		ctx: c,
-		pkg: &emit.Package{Name: name, Path: path},
+		pkg: &emit.Package{
+			BaseEmit: emit.BaseEmit{SetByName: c.SetBy()},
+			Name:     name,
+			Path:     path,
+		},
 	}
 }
 

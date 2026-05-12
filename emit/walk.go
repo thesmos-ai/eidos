@@ -177,14 +177,14 @@ func walkPackage(p *Package, v Visitor) {
 	for _, a := range p.Aliases {
 		Walk(a, v)
 	}
-	walkSlots(p.slotsByName(), v)
+	walkSlots(p.SlotsByName(), v)
 }
 
 func walkFile(f *File, v Visitor) {
 	for _, imp := range f.Imports {
 		Walk(imp, v)
 	}
-	walkSlots(f.slotsByName(), v)
+	walkSlots(f.SlotsByName(), v)
 }
 
 func walkStruct(s *Struct, v Visitor) {
@@ -200,7 +200,7 @@ func walkStruct(s *Struct, v Visitor) {
 	for _, m := range s.Methods {
 		Walk(m, v)
 	}
-	walkSlots(s.slotsByName(), v)
+	walkSlots(s.SlotsByName(), v)
 }
 
 func walkInterface(i *Interface, v Visitor) {
@@ -213,7 +213,7 @@ func walkInterface(i *Interface, v Visitor) {
 	for _, e := range i.Embeds {
 		Walk(e, v)
 	}
-	walkSlots(i.slotsByName(), v)
+	walkSlots(i.SlotsByName(), v)
 }
 
 func walkMethod(m *Method, v Visitor) {
@@ -232,7 +232,7 @@ func walkMethod(m *Method, v Visitor) {
 	for _, s := range m.Body {
 		Walk(s, v)
 	}
-	walkSlots(m.slotsByName(), v)
+	walkSlots(m.SlotsByName(), v)
 }
 
 func walkFunction(f *Function, v Visitor) {
@@ -250,12 +250,12 @@ func walkFunction(f *Function, v Visitor) {
 	for _, s := range f.Body {
 		Walk(s, v)
 	}
-	walkSlots(f.slotsByName(), v)
+	walkSlots(f.SlotsByName(), v)
 }
 
 func walkField(f *Field, v Visitor) {
 	Walk(f.Type, v)
-	walkSlots(f.slotsByName(), v)
+	walkSlots(f.SlotsByName(), v)
 }
 
 func walkEnum(e *Enum, v Visitor) {
@@ -263,7 +263,7 @@ func walkEnum(e *Enum, v Visitor) {
 	for _, vt := range e.Variants {
 		Walk(vt, v)
 	}
-	walkSlots(e.slotsByName(), v)
+	walkSlots(e.SlotsByName(), v)
 }
 
 func walkAlias(a *Alias, v Visitor) {

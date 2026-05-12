@@ -45,4 +45,11 @@ type Node interface {
 	// generators use Origin to follow back to the source for
 	// position, doc comments, and source-level metadata.
 	Origin() node.Node
+	// SetBy returns the plugin identifier that produced this emit
+	// value. Empty for entities constructed without a builder
+	// context. Backends use it to compose per-target plugin
+	// attribution (the rendered file's `Plugins:` header, the
+	// run's manifest entry's Plugins list); the empty string is
+	// treated as "unattributed".
+	SetBy() string
 }

@@ -60,11 +60,12 @@ func (b *PackageBuilder) appendAlias(
 	fn func(*AliasBuilder),
 ) *PackageBuilder {
 	a := &emit.Alias{
-		Name:    name,
-		Package: b.pkg.Path,
-		Target:  target,
-		IsAlias: isAlias,
-		File:    b.ctx.target,
+		BaseEmit: emit.BaseEmit{SetByName: b.ctx.SetBy()},
+		Name:     name,
+		Package:  b.pkg.Path,
+		Target:   target,
+		IsAlias:  isAlias,
+		File:     b.ctx.target,
 	}
 	ab := &AliasBuilder{ctx: b.ctx, parent: b, a: a}
 	if fn != nil {

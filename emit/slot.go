@@ -232,8 +232,10 @@ func (m *slotMap) slot(owner Node, name string, elemKind directive.Kind) *Slot {
 
 // SlotsByName returns every slot registered on this host, indexed
 // by name. The returned map aliases the host's internal state;
-// callers must not mutate it.
-func (m *slotMap) slotsByName() map[string]*Slot {
+// callers must not mutate it. Useful for tooling that walks a
+// host's full slot surface (provenance reporters, drift checkers,
+// per-target plugin-attribution collectors).
+func (m *slotMap) SlotsByName() map[string]*Slot {
 	if m.slots == nil {
 		m.slots = map[string]*Slot{}
 	}

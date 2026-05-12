@@ -45,6 +45,22 @@ type BaseEmit struct {
 	// OriginNode is the source [node.Node] this emit value was
 	// derived from. nil for purely-generated artifacts.
 	OriginNode node.Node `json:"-"`
+
+	// SetByName is the plugin identifier that produced this emit
+	// value. Stamped at construction time by the builder constructors
+	// (e.g. [builder.PackageBuilder.Struct]) from the originating
+	// [builder.Context]'s SetBy value. The backend reads it to
+	// compose the per-file `Plugins:` header from only the plugins
+	// that actually contributed entities to the target; the
+	// pipeline's manifest sink reads it for the same per-target
+	// plugin attribution.
+	//
+	// Empty for entities constructed without a builder context
+	// (hand-rolled test fixtures, synthetic entities the framework
+	// stitches together internally) — callers treat the empty
+	// string as "unattributed" and drop it from any plugin set.
+	// Access via [BaseEmit.SetBy].
+	SetByName string `json:"set_by,omitempty"`
 }
 
 // Pos returns [BaseEmit.SourcePos].
@@ -102,3 +118,8 @@ func (b *BaseEmit) Meta() *meta.Bag {
 // Origin returns [BaseEmit.OriginNode] — the source node this emit
 // value was derived from, or nil for purely-generated artifacts.
 func (b *BaseEmit) Origin() node.Node { return b.OriginNode }
+
+// SetBy returns [BaseEmit.SetByName] — the plugin identifier that
+// produced this emit value, or the empty string for entities
+// constructed without a builder context.
+func (b *BaseEmit) SetBy() string { return b.SetByName }

@@ -6,11 +6,13 @@ package pipeline
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"strings"
 	"sync"
 
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/manifest"
 	"go.thesmos.sh/eidos/sink"
+	"go.thesmos.sh/eidos/store"
 )
 
 // recordingSink wraps the user-supplied [sink.Sink] and captures
@@ -50,20 +52,103 @@ func (r *recordingSink) Write(target emit.Target, body []byte) error {
 
 // asManifest produces a [manifest.Manifest] from every captured
 // write. Each entry's Hash is the SHA-256 hex digest of the
-// payload prefixed with "sha256:"; Plugins is left empty because
-// the pipeline does not yet have per-plugin write attribution (the
-// backend writes through ctx.Sink without identifying which plugin
-// contributed which payload).
-func (r *recordingSink) asManifest(runID string) *manifest.Manifest {
+// payload prefixed with "sha256:". Plugins is the list of plugin
+// names that produced entities routed to this target — derived
+// from each entity's [emit.Node.SetBy] via s.Emit().ByTarget(),
+// ordered by `order` (the pipeline's registration order) so two
+// runs over the same input produce byte-identical manifests.
+//
+// The same per-target attribution flows into the rendered file's
+// `Plugins:` header (see backend/golang.pluginsFor), so manifest
+// and on-disk provenance agree on which plugins contributed to
+// each output.
+func (r *recordingSink) asManifest(runID string, s *store.Store, order []string) *manifest.Manifest {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	m := manifest.New(runID)
 	for target, body := range r.files {
 		sum := sha256.Sum256(body)
 		m.Add(manifest.Output{
-			Target: target,
-			Hash:   "sha256:" + hex.EncodeToString(sum[:]),
+			Target:  target,
+			Plugins: pluginsForTarget(s, target, order),
+			Hash:    "sha256:" + hex.EncodeToString(sum[:]),
 		})
 	}
 	return m
+}
+
+// pluginsForTarget returns the unique plugin identifiers that
+// produced content routed to target, ordered by the pipeline's
+// registration order. Both top-level entity attribution
+// ([emit.Node.SetBy]) and slot-contribution provenance
+// ([emit.Provenance.SetBy], including method-body weaver
+// contributions) participate. The empty string ("unattributed")
+// drops out unconditionally.
+//
+// Falls back to the full `order` slice when no entity carries
+// attribution — the test-fixture case where entities are
+// hand-built outside the builder — so the manifest's per-output
+// Plugins list stays consistent with the rendered file's
+// `Plugins:` header in either regime.
+func pluginsForTarget(s *store.Store, target emit.Target, order []string) []string {
+	if s == nil {
+		return append([]string(nil), order...)
+	}
+	contributed := map[string]bool{}
+	for _, e := range s.Emit().ByTarget().Get(target) {
+		collectTargetContributors(e, contributed)
+	}
+	if len(contributed) == 0 {
+		return append([]string(nil), order...)
+	}
+	out := make([]string, 0, len(contributed))
+	for _, name := range order {
+		if contributed[name] {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// collectTargetContributors walks n's own SetBy plus the SetBy of
+// every Provenance stamped on n's slots, recursing one level into
+// the methods of method-bearing hosts. Mirrors the per-target
+// collector the backend's header renderer uses so manifest and
+// header report the same per-target plugin set.
+func collectTargetContributors(n emit.Node, out map[string]bool) {
+	if n == nil {
+		return
+	}
+	if name := strings.TrimSpace(n.SetBy()); name != "" {
+		out[name] = true
+	}
+	if host, ok := n.(slotEnumerator); ok {
+		for _, slot := range host.SlotsByName() {
+			for _, prov := range slot.ProvenanceList {
+				if name := strings.TrimSpace(prov.SetBy); name != "" {
+					out[name] = true
+				}
+			}
+		}
+	}
+	switch host := n.(type) {
+	case *emit.Struct:
+		for _, m := range host.Methods {
+			collectTargetContributors(m, out)
+		}
+	case *emit.Interface:
+		for _, m := range host.Methods {
+			collectTargetContributors(m, out)
+		}
+	case *emit.Alias:
+		for _, m := range host.Methods {
+			collectTargetContributors(m, out)
+		}
+	}
+}
+
+// slotEnumerator is the read-only counterpart of the (unexported)
+// slotMap embedded by every emit host.
+type slotEnumerator interface {
+	SlotsByName() map[string]*emit.Slot
 }

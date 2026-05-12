@@ -70,7 +70,7 @@ func (p *Pipeline) Run(ctx context.Context, patterns ...string) error {
 	p.runRouter(s)    // resolve Target.Dir / Target.Filename before structure freeze
 	s.Emit().Freeze() // post-generator + post-router: emit structure is frozen
 	p.runBackend(s, recorder)
-	p.writeManifest(recorder)
+	p.writeManifest(recorder, s)
 	p.logRunSummary()
 
 	if p.diag.HasErrors() {
@@ -84,14 +84,37 @@ func (p *Pipeline) Run(ctx context.Context, patterns ...string) error {
 // surface as Warn diagnostics (the manifest is observability, not
 // correctness) so a manifest-write failure does not turn the run
 // into a failed one.
-func (p *Pipeline) writeManifest(rec *recordingSink) {
+func (p *Pipeline) writeManifest(rec *recordingSink, s *store.Store) {
 	if p.manifestPath == "" {
 		return
 	}
-	m := rec.asManifest(time.Now().UTC().Format(time.RFC3339))
+	m := rec.asManifest(time.Now().UTC().Format(time.RFC3339), s, p.pluginNames())
 	if err := manifest.Write(p.manifestPath, m); err != nil {
 		p.diag.For("pipeline").Warnf(position.Pos{}, "manifest write failed: %v", err)
 	}
+}
+
+// pluginNames returns the registered plugins' [plugin.Plugin.Name]
+// values in registration order — frontends, annotators, generators,
+// then the backend. The manifest's per-output Plugins list quotes
+// this slice so every entry shares the run's plugin universe; the
+// rendered file's `Plugins:` header is composed from the same set,
+// so manifest and on-disk provenance stay aligned.
+func (p *Pipeline) pluginNames() []string {
+	out := make([]string, 0, len(p.frontends)+len(p.annotators)+len(p.generators)+1)
+	for _, fe := range p.frontends {
+		out = append(out, fe.Name())
+	}
+	for _, ann := range p.annotators {
+		out = append(out, ann.Name())
+	}
+	for _, gen := range p.generators {
+		out = append(out, gen.Name())
+	}
+	if p.backend != nil {
+		out = append(out, p.backend.Name())
+	}
+	return out
 }
 
 // DryRun returns the resolved [Plan] without executing any phase.

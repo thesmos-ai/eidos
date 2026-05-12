@@ -31,9 +31,10 @@ type StructBuilder struct {
 // builder if a caller needs them rewired.
 func (b *PackageBuilder) Struct(name string, fn func(*StructBuilder)) *PackageBuilder {
 	s := &emit.Struct{
-		Name:    name,
-		Package: b.pkg.Path,
-		Target:  b.ctx.target,
+		BaseEmit: emit.BaseEmit{SetByName: b.ctx.SetBy()},
+		Name:     name,
+		Package:  b.pkg.Path,
+		Target:   b.ctx.target,
 	}
 	sb := &StructBuilder{ctx: b.ctx, s: s}
 	if fn != nil {

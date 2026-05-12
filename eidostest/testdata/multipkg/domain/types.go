@@ -60,14 +60,16 @@ type OrderItem struct {
 // Product carries the third generator triple — repo + builder +
 // register — so the multi-generator file-composition path is
 // exercised for a non-User, non-Order entity too. The
-// `+gen:out=product_codegen.go` directive renames the rendered
-// builder file from the conventional `product_builder.go` to
-// demonstrate the [pipeline.OutDirective] override path.
+// `+gen:out product_codegen.go` directive renames the rendered
+// builder file from the conventional `types_builder.go` to
+// demonstrate the [pipeline.OutDirective] override path. The
+// directive's `filename` parameter is positional (space-separated),
+// not key=value, per the directive schema.
 //
 // +gen:repo
 // +gen:builder
 // +gen:register
-// +gen:out=product_codegen.go
+// +gen:out product_codegen.go
 type Product struct {
 	ID    ID
 	Name  string

@@ -25,9 +25,10 @@ type InterfaceBuilder struct {
 // b.Node().Path and Target = ctx.Target().
 func (b *PackageBuilder) Interface(name string, fn func(*InterfaceBuilder)) *PackageBuilder {
 	i := &emit.Interface{
-		Name:    name,
-		Package: b.pkg.Path,
-		Target:  b.ctx.target,
+		BaseEmit: emit.BaseEmit{SetByName: b.ctx.SetBy()},
+		Name:     name,
+		Package:  b.pkg.Path,
+		Target:   b.ctx.target,
 	}
 	ib := &InterfaceBuilder{ctx: b.ctx, i: i}
 	if fn != nil {

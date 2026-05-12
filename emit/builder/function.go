@@ -25,9 +25,10 @@ type FunctionBuilder struct {
 // carries Package = b.Node().Path and Target = ctx.Target().
 func (b *PackageBuilder) Function(name string, fn func(*FunctionBuilder)) *PackageBuilder {
 	f := &emit.Function{
-		Name:    name,
-		Package: b.pkg.Path,
-		Target:  b.ctx.target,
+		BaseEmit: emit.BaseEmit{SetByName: b.ctx.SetBy()},
+		Name:     name,
+		Package:  b.pkg.Path,
+		Target:   b.ctx.target,
 	}
 	fb := &FunctionBuilder{ctx: b.ctx, f: f}
 	if fn != nil {

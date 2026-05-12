@@ -27,11 +27,12 @@ func (b *PackageBuilder) Constant(
 	fn func(*ConstantBuilder),
 ) *PackageBuilder {
 	c := &emit.Constant{
-		Name:    name,
-		Package: b.pkg.Path,
-		Type:    typ,
-		Value:   value,
-		Target:  b.ctx.target,
+		BaseEmit: emit.BaseEmit{SetByName: b.ctx.SetBy()},
+		Name:     name,
+		Package:  b.pkg.Path,
+		Type:     typ,
+		Value:    value,
+		Target:   b.ctx.target,
 	}
 	cb := &ConstantBuilder{ctx: b.ctx, c: c}
 	if fn != nil {

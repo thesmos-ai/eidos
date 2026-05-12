@@ -27,6 +27,7 @@ type EnumBuilder struct {
 // non-nil callers typically pass `emit.Builtin("int")` or similar.
 func (b *PackageBuilder) Enum(name string, underlying emit.Ref, fn func(*EnumBuilder)) *PackageBuilder {
 	e := &emit.Enum{
+		BaseEmit:   emit.BaseEmit{SetByName: b.ctx.SetBy()},
 		Name:       name,
 		Package:    b.pkg.Path,
 		Underlying: underlying,

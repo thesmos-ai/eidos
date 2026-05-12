@@ -340,6 +340,7 @@ func (p *Plugin) appendRegistration(
 	typeRef emit.Ref,
 ) {
 	reg := &Registration{
+		BaseEmit:     emit.BaseEmit{SetByName: c.SetBy()},
 		Name:         src.Name,
 		NameLit:      emit.NewLiteralString(src.Name),
 		Init:         emit.NewComposite(typeRef, nil),
