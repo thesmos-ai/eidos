@@ -312,3 +312,108 @@ func TestDiscoverConfig(t *testing.T) {
 		}
 	})
 }
+
+// extendedConfig models the embedder pattern [LoadConfigInto]
+// supports: inline-embed [cli.Config] under the same YAML
+// namespace, add caller-defined extension fields alongside.
+type extendedConfig struct {
+	cli.Config `yaml:",inline"`
+
+	App appExtras `yaml:"app"`
+}
+
+// appExtras is the embedder-side configuration surface — arbitrary
+// shape, owned by the embedder.
+type appExtras struct {
+	Region   string   `yaml:"region"`
+	Replicas int      `yaml:"replicas"`
+	Tags     []string `yaml:"tags,omitempty"`
+}
+
+// TestLoadConfigInto covers the generic-loader path: embedders
+// compose their own typed configuration around [cli.Config], parse
+// through [LoadConfigInto], then run [ValidateConfig] on the
+// embedded portion to share the framework's validation pass.
+func TestLoadConfigInto(t *testing.T) {
+	t.Parallel()
+
+	t.Run("inline-embedded extension parses alongside the framework keys", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := filepath.Join(dir, ".app.yaml")
+		body := []byte(`version: 1
+sources:
+  - frontend: golang
+    patterns: ["./..."]
+plugins:
+  - name: repogen
+    options:
+      output_package: gen
+app:
+  region: eu-west-1
+  replicas: 3
+  tags: ["alpha", "beta"]
+`)
+		if err := os.WriteFile(path, body, 0o600); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+		cfg := &extendedConfig{Config: *cli.DefaultConfig()}
+		if err := cli.LoadConfigInto(path, cfg); err != nil {
+			t.Fatalf("LoadConfigInto: %v", err)
+		}
+		if err := cli.ValidateConfig(&cfg.Config, path); err != nil {
+			t.Fatalf("ValidateConfig: %v", err)
+		}
+		if cfg.App.Region != "eu-west-1" || cfg.App.Replicas != 3 {
+			t.Fatalf("embedder extension not populated: %+v", cfg.App)
+		}
+		if len(cfg.Sources) != 1 || cfg.Sources[0].Frontend != "golang" {
+			t.Fatalf("framework section not populated: %+v", cfg.Sources)
+		}
+		if cfg.Plugins[0].Name != "repogen" {
+			t.Fatalf("framework plugins section not populated: %+v", cfg.Plugins)
+		}
+	})
+
+	t.Run("empty path leaves the seeded target untouched", func(t *testing.T) {
+		t.Parallel()
+		cfg := &extendedConfig{
+			Config: *cli.DefaultConfig(),
+			App:    appExtras{Region: "us-east-1", Replicas: 1},
+		}
+		if err := cli.LoadConfigInto("", cfg); err != nil {
+			t.Fatalf("LoadConfigInto(\"\"): %v", err)
+		}
+		if cfg.App.Region != "us-east-1" || cfg.App.Replicas != 1 {
+			t.Fatalf("seeded App should be preserved; got %+v", cfg.App)
+		}
+		if cfg.Sink.Kind != "disk" {
+			t.Fatalf("seeded framework defaults should be preserved; got Sink.Kind=%q", cfg.Sink.Kind)
+		}
+	})
+
+	t.Run("missing file surfaces a *ConfigError", func(t *testing.T) {
+		t.Parallel()
+		cfg := &extendedConfig{Config: *cli.DefaultConfig()}
+		err := cli.LoadConfigInto(filepath.Join(t.TempDir(), "nope.yaml"), cfg)
+		var ce *cli.ConfigError
+		if !errors.As(err, &ce) {
+			t.Fatalf("expected *cli.ConfigError; got %T (%v)", err, err)
+		}
+	})
+
+	t.Run("malformed YAML surfaces a *ConfigError", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := filepath.Join(dir, ".bad.yaml")
+		if err := os.WriteFile(path, []byte("not: [valid: yaml"), 0o600); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+		cfg := &extendedConfig{Config: *cli.DefaultConfig()}
+		err := cli.LoadConfigInto(path, cfg)
+		var ce *cli.ConfigError
+		if !errors.As(err, &ce) {
+			t.Fatalf("expected *cli.ConfigError; got %T (%v)", err, err)
+		}
+	})
+}

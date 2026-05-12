@@ -9,17 +9,6 @@ import (
 	"go.yaml.in/yaml/v4"
 )
 
-// parseConfig decodes raw YAML into a *Config seeded with defaults.
-// YAML parse errors surface as [*ConfigError] with file:line:col
-// when the underlying yaml.TypeError carries position information.
-func parseConfig(path string, raw []byte) (*Config, error) {
-	c := DefaultConfig()
-	if err := yaml.Unmarshal(raw, c); err != nil {
-		return nil, yamlError(path, err)
-	}
-	return c, nil
-}
-
 // yamlError translates a yaml.v4 error into a [*ConfigError]
 // carrying the file path and the underlying message. yaml.v4
 // surfaces structured load errors as [*yaml.LoadErrors]; lexer /

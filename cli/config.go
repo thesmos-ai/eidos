@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"go.yaml.in/yaml/v4"
+
 	"go.thesmos.sh/eidos/core/directive"
 )
 
@@ -180,21 +182,60 @@ func LoadConfig(path string) (*Config, error) {
 	if path == "" {
 		return DefaultConfig(), nil
 	}
+	cfg := DefaultConfig()
+	if err := LoadConfigInto(path, cfg); err != nil {
+		return nil, err
+	}
+	if err := ValidateConfig(cfg, path); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
+// LoadConfigInto reads and parses the YAML at path into target,
+// surfacing read / parse errors as *[ConfigError]. Embedders use
+// this entry point to layer their own typed extensions onto the
+// framework's [Config] without re-implementing the I/O pipeline:
+//
+//	type AppConfig struct {
+//	    cli.Config `yaml:",inline"`
+//	    App        AppExtras `yaml:"app"`
+//	}
+//
+//	cfg := &AppConfig{Config: *cli.DefaultConfig(), App: appDefaults()}
+//	if err := cli.LoadConfigInto(path, cfg); err != nil {
+//	    return err
+//	}
+//	if err := cli.ValidateConfig(&cfg.Config, path); err != nil {
+//	    return err
+//	}
+//	// + embedder-side validation for cfg.App.
+//
+// target must be pre-seeded with whatever defaults the embedder
+// wants populated for omitted YAML keys — `yaml.Unmarshal` only
+// overwrites the keys the file mentions. Inline embedding is
+// recommended so the framework's keys and the extension's keys
+// share one flat YAML namespace.
+//
+// LoadConfigInto does not validate target; framework consumers call
+// [ValidateConfig] on the embedded [Config] portion after this
+// returns, and the embedder validates its own extension fields.
+// An empty path is a no-op — target stays at its seeded defaults.
+func LoadConfigInto[T any](path string, target *T) error {
+	if path == "" {
+		return nil
+	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, &ConfigError{Path: path, Reason: "config file not found"}
+			return &ConfigError{Path: path, Reason: "config file not found"}
 		}
-		return nil, &ConfigError{Path: path, Reason: "read failed: " + err.Error()}
+		return &ConfigError{Path: path, Reason: "read failed: " + err.Error()}
 	}
-	c, perr := parseConfig(path, raw)
-	if perr != nil {
-		return nil, perr
+	if err := yaml.Unmarshal(raw, target); err != nil {
+		return yamlError(path, err)
 	}
-	if err := validateConfig(c, path); err != nil {
-		return nil, err
-	}
-	return c, nil
+	return nil
 }
 
 // DiscoverConfig walks up from start looking for the file named
@@ -221,10 +262,18 @@ func DiscoverConfig(start, filename string) (string, bool) {
 	}
 }
 
-// validateConfig enforces structural invariants the YAML decoder
+// ValidateConfig enforces structural invariants the YAML decoder
 // can't express: known Version, plugins must have names, sources
-// must have a frontend, etc.
-func validateConfig(c *Config, path string) error {
+// must have a frontend, etc. The function also fills in framework
+// defaults for fields the parser left zero (Sink.Kind,
+// Directives.Prefix, Version) so callers observe a uniform shape
+// regardless of file content.
+//
+// Exposed for embedders that compose their own Config via inline
+// embedding through [LoadConfigInto]: after the typed extension
+// parses, embedders call ValidateConfig on the embedded *Config
+// to share the framework's validation pass.
+func ValidateConfig(c *Config, path string) error {
 	if c.Version == 0 {
 		c.Version = ConfigVersion
 	}
