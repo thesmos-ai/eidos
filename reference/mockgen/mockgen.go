@@ -127,7 +127,11 @@ func (p *Plugin) Generate(ctx *plugin.GeneratorContext) error {
 		return errMissingOutputPackage
 	}
 	c := builder.For(Name, emit.Target{})
-	pkg := c.Package(p.opts.OutputPackage, p.opts.OutputPackage)
+	// Path is plugin-namespaced so mockgen sharing one
+	// OutputPackage with a foundation generator does not collide on
+	// the emit store's unique-path key. Routing to the rendered file
+	// still goes through each decl's Target.
+	pkg := c.Package(p.opts.OutputPackage, Name+":"+p.opts.OutputPackage)
 	for _, ei := range ctx.Reader.EmitInterfaces().Slice() {
 		if ei.HasNegatedDirective(DirectiveName) {
 			continue

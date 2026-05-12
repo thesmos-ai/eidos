@@ -1,0 +1,3 @@
+{{- define "registrygen.registration" -}}
+registry.Register({{ renderExpr .NameLit }}, {{ renderExpr .Init }})
+{{- end -}}

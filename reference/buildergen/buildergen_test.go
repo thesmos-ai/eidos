@@ -228,7 +228,7 @@ func TestGenerate_FieldTypeCoverage(t *testing.T) {
 		t.Fatalf("Generate: %v", err)
 	}
 
-	probe, ok := s.Emit().Structs().ByQName(outputPackage + ".ProbeBuilder")
+	probe, ok := s.Emit().Structs().ByQName(buildergen.Name + ":" + outputPackage + ".ProbeBuilder")
 	if !ok {
 		t.Fatalf("emit store missing ProbeBuilder; got %+v", s.Emit().Structs().Items())
 	}
