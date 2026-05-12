@@ -1,7 +1,7 @@
 // Copyright Thesmos B.V. 2026
 // SPDX-License-Identifier: MIT
 
-// Package debugweaver appends a `log.Printf` call to the
+// Package debugweaver appends a debug-trace call to the
 // [emit.Method.Prebody] slot of every method in the emit store —
 // the canonical "entry trace" cross-cutting concern. The plugin
 // runs in [priority.GeneratorCrossCutting] and advertises the
@@ -14,10 +14,21 @@
 // statement carries [Provenance.ID] `trace.entry` so later
 // cross-cutting plugins can position themselves relative to the
 // debug entry trace through `builder.Before` / `builder.After`.
+//
+// # Configurability
+//
+// [Options.Package] selects the import path of the package the
+// rendered call references; [Options.Func] selects the function on
+// that package. The renderer registers the import on the host
+// file's import set via [emit.NewExternal] — the same flow
+// [emit.External] type references use — so the rendered output is
+// structurally correct without any plugin-side import-management
+// scaffolding.
 package debugweaver
 
 import (
 	"go.thesmos.sh/eidos/core/directive"
+	"go.thesmos.sh/eidos/core/opt"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/emit/builder"
 	"go.thesmos.sh/eidos/node"
@@ -43,12 +54,49 @@ const DirectiveName directive.Name = "debug"
 // [builder.Before] / [builder.After].
 const EntryID = "trace.entry"
 
-// Plugin is the cross-cutting debug-weaver. The zero value is
-// usable — the plugin has no options.
-type Plugin struct{}
+// DefaultPackage is the import path the rendered call resolves to
+// when [Options.Package] is unset. Stdlib `log` keeps the demo
+// self-contained — projects override Package + Func to point at
+// their real trace surface.
+const DefaultPackage = "log"
 
-// New returns a fresh plugin instance.
-func New() *Plugin { return &Plugin{} }
+// DefaultFunc is the function name the rendered call resolves to
+// when [Options.Func] is unset.
+const DefaultFunc = "Printf"
+
+// DefaultFormat is the printf-style first argument to the trace
+// call when [Options.Format] is unset. `%s` interpolates the
+// fully-qualified method name (`<Type>.<Method>`).
+const DefaultFormat = "debug: %s entered"
+
+// Options carries the plugin's user-tunable settings.
+type Options struct {
+	// Package is the import path of the package the rendered trace
+	// call references. Defaults to [DefaultPackage].
+	Package string `eidos:"package,default=log"`
+
+	// Func is the function name called on the trace package.
+	// Defaults to [DefaultFunc].
+	Func string `eidos:"func,default=Printf"`
+
+	// Format is the printf-style first argument to the trace call.
+	// Defaults to [DefaultFormat].
+	Format string `eidos:"format,default=debug: %s entered"`
+}
+
+// Plugin is the cross-cutting debug-weaver.
+type Plugin struct {
+	*opt.Holder[Options]
+	opts Options
+}
+
+// New returns a fresh plugin instance with the options holder
+// bound.
+func New() *Plugin {
+	p := &Plugin{}
+	p.Holder = opt.Bind(&p.opts)
+	return p
+}
 
 // Name returns [Name].
 func (*Plugin) Name() string { return Name }
@@ -76,19 +124,22 @@ func (*Plugin) Directives() []directive.Schema {
 	}
 }
 
-// Generate walks every emit-store method and appends a Printf
-// call to its Prebody slot, except for methods that carry
-// `-gen:debug`. The Printf message is the fully-qualified method
-// name resolved at emit time so renderers see a literal string.
-func (*Plugin) Generate(ctx *plugin.GeneratorContext) error {
+// Generate walks every emit-store method and appends a trace call
+// to its Prebody slot, except for methods that carry `-gen:debug`.
+// The call resolves to `<Options.Package>.<Options.Func>(<format>,
+// "<Type>.<Method>")` — the renderer registers the import for
+// Options.Package on the host file's import set via the
+// [emit.NewExternal] expression.
+func (p *Plugin) Generate(ctx *plugin.GeneratorContext) error {
 	c := builder.For(Name, emit.Target{})
 	for _, m := range ctx.Reader.EmitMethods().Slice() {
 		if m.HasNegatedDirective(DirectiveName) {
 			continue
 		}
 		stmt := emit.NewExprStmt(emit.NewCall(
-			emit.NewField(emit.NewIdent("log"), "Printf"),
-			emit.NewLiteralString("debug: "+ownerName(m)+"."+m.Name+" entered"),
+			emit.NewExternal(p.pkg(), p.funcName()),
+			emit.NewLiteralString(p.format()),
+			emit.NewLiteralString(ownerName(m)+"."+m.Name),
 		))
 		// AppendPrebody can only fail when host is nil or carries
 		// an unsupported kind — neither possible for the *emit.Method
@@ -97,6 +148,29 @@ func (*Plugin) Generate(ctx *plugin.GeneratorContext) error {
 		_ = c.AppendPrebody(m, stmt, EntryID)
 	}
 	return nil
+}
+
+// pkg / funcName / format return the configured option value or
+// the documented default when the option is empty.
+func (p *Plugin) pkg() string {
+	if p.opts.Package != "" {
+		return p.opts.Package
+	}
+	return DefaultPackage
+}
+
+func (p *Plugin) funcName() string {
+	if p.opts.Func != "" {
+		return p.opts.Func
+	}
+	return DefaultFunc
+}
+
+func (p *Plugin) format() string {
+	if p.opts.Format != "" {
+		return p.opts.Format
+	}
+	return DefaultFormat
 }
 
 // ownerName returns the simple receiver-type name of m's owner so

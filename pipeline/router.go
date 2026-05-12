@@ -118,6 +118,11 @@ func (p *Pipeline) runRouter(s *store.Store) {
 		e.File = t
 		return true
 	})
+
+	// Rebuild the byTarget index so the backend's per-Target file
+	// grouping reflects the resolved routes rather than the (often
+	// incomplete) Targets recorded at AddPackage time.
+	v.RebuildByTarget()
 }
 
 // resolveTarget applies the router precedence to a Target and its

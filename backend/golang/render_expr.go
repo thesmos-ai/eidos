@@ -119,6 +119,12 @@ func (s *renderState) renderExpr(e *emit.Expr) (string, error) {
 		return "&" + operand, nil
 	case emit.ExprRaw:
 		return e.RawText, nil
+	case emit.ExprExternal:
+		alias, err := s.imports.Imp(e.Pkg)
+		if err != nil {
+			return "", fmt.Errorf("backend/golang: renderExpr ExternalRef: %w", err)
+		}
+		return alias + "." + e.Name, nil
 	default:
 		return "", fmt.Errorf("%w: ExprKind=%s", ErrUnsupportedExpr, e.ExprKind)
 	}

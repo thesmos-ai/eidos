@@ -49,11 +49,21 @@ func (d *Disk) Root() string { return d.root }
 // atomically. Returns [ErrInvalidTarget] when target.Filename is
 // empty. Filesystem errors propagate wrapped with the destination
 // path for diagnostics.
+//
+// An absolute target.Dir bypasses root — used for routes that
+// already encode a workdir-anchored path (typically because the
+// router resolved the Dir from a source file's absolute path).
+// Relative target.Dir joins under root.
 func (d *Disk) Write(target emit.Target, body []byte) error {
 	if target.Filename == "" {
 		return fmt.Errorf("%w: %+v", ErrInvalidTarget, target)
 	}
-	full := filepath.Join(d.root, target.Dir, target.Filename)
+	var full string
+	if filepath.IsAbs(target.Dir) {
+		full = filepath.Join(target.Dir, target.Filename)
+	} else {
+		full = filepath.Join(d.root, target.Dir, target.Filename)
+	}
 	dir := filepath.Dir(full)
 	tmpPath := full + tempSuffix
 

@@ -11,8 +11,12 @@ import (
 
 	backend_golang "go.thesmos.sh/eidos/backend/golang"
 	"go.thesmos.sh/eidos/core/diag"
+	"go.thesmos.sh/eidos/core/directive"
+	"go.thesmos.sh/eidos/core/opt"
+	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/eidostest/demopipe"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/reference/registrygen"
 	"go.thesmos.sh/eidos/sink"
@@ -107,7 +111,11 @@ func TestGenerate_EndToEnd(t *testing.T) {
 		Generators: []plugin.Generator{registrygen.New()},
 		Backend:    backend_golang.New(),
 		PluginOptions: map[string]map[string]string{
-			registrygen.Name: {"output_package": outputPackage},
+			registrygen.Name: {
+				"output_package":   outputPackage,
+				"register_package": "registry",
+				"register_func":    "Register",
+			},
 		},
 	})
 	if result.Diag.HasErrors() {
@@ -153,23 +161,62 @@ func TestGenerate_EndToEnd(t *testing.T) {
 	})
 }
 
-// TestGenerate_MissingOutputPackage covers the option-precondition
-// branch.
-func TestGenerate_MissingOutputPackage(t *testing.T) {
+// TestGenerate_AlongsideSourceLayout covers the default layout:
+// an unconfigured plugin emits one `registry.go` per source
+// package, with [emit.Target.Dir] derived from the package's first
+// source file. The init block lives alongside the package it
+// registers.
+func TestGenerate_AlongsideSourceLayout(t *testing.T) {
 	t.Parallel()
 
-	p := registrygen.New()
-	s := store.New()
-	ctx := &plugin.GeneratorContext{
-		Store: s, Reader: store.NewReader(s), Diag: diag.New(),
-	}
-	err := p.Generate(ctx)
-	if err == nil {
-		t.Fatalf("Generate without OutputPackage should error; got nil")
-	}
-	if !strings.Contains(err.Error(), "OutputPackage") {
-		t.Fatalf("error should reference OutputPackage; got %q", err)
-	}
+	t.Run("registry.go drops alongside the source package", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		srcPkg := &node.Package{
+			Name: "blog", Path: "example.com/blog",
+			Files: []*node.File{{Path: "blog/article.go"}},
+		}
+		src := &node.Struct{
+			Name:    "Article",
+			Package: srcPkg.Path,
+			BaseNode: node.BaseNode{
+				SourcePos:     position.Pos{File: "blog/article.go", Line: 1},
+				DirectiveList: []*directive.Directive{{Name: registrygen.DirectiveName}},
+			},
+		}
+		srcPkg.Structs = append(srcPkg.Structs, src)
+		if err := s.Nodes().AddPackage(srcPkg); err != nil {
+			t.Fatalf("AddPackage: %v", err)
+		}
+
+		p := registrygen.New()
+		if err := p.SetOptions(opt.New(p.OptionsSchema(), nil)); err != nil {
+			t.Fatalf("SetOptions: %v", err)
+		}
+		ctx := &plugin.GeneratorContext{
+			Store: s, Reader: store.NewReader(s), Diag: diag.New(),
+		}
+		if err := p.Generate(ctx); err != nil {
+			t.Fatalf("Generate: %v", err)
+		}
+
+		target := emit.Target{Dir: "blog", Filename: registrygen.DefaultFilename, Package: "blog"}
+		file, err := s.Emit().FileFor(target)
+		if err != nil {
+			t.Fatalf("FileFor: %v", err)
+		}
+		entries := file.Init().Items
+		if len(entries) != 1 {
+			t.Fatalf("expected 1 Init entry alongside source; got %d", len(entries))
+		}
+		reg, ok := entries[0].(*registrygen.Registration)
+		if !ok {
+			t.Fatalf("Init entry should be *Registration; got %T", entries[0])
+		}
+		if reg.Name != "Article" {
+			t.Fatalf("Registration.Name = %q, want Article", reg.Name)
+		}
+	})
 }
 
 // readTemplate pulls the named template body out of fsys as a

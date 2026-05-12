@@ -11,6 +11,20 @@
 // Detection is directive-driven; the heuristic-driven shape-writer
 // pattern doesn't apply. `+gen:repo` opts a struct into emission;
 // `-gen:repo` suppresses it.
+//
+// # Output layout
+//
+// repogen supports two layouts:
+//
+//   - Alongside source (default, when [Options.OutputPackage] is unset):
+//     one emitted file per source struct, dropped next to the source
+//     file. The router fills [emit.Target.Dir] from the source's
+//     directory; the package clause matches the source package. The
+//     emitted filename is `<src>_repo.go`.
+//   - Centralised (when [Options.OutputPackage] is set): every emitted
+//     decl lands in one Go package + directory. The filename is
+//     `<src>.go` so repogen and buildergen targeting the same
+//     OutputPackage compose into one file per source struct.
 package repogen
 
 import (
@@ -39,6 +53,12 @@ const Capability = "repository"
 // `-gen:` prefix) the plugin reads from each source struct.
 const DirectiveName directive.Name = "repo"
 
+// FilenameSuffix is appended to the lower-cased source struct name
+// to form the alongside-source output filename: `<src>_repo.go`.
+// Distinct from the source file so the second run doesn't conflate
+// generated output with hand-written code.
+const FilenameSuffix = "_repo.go"
+
 // NamingPascal selects the canonical PascalCase identifier shape
 // (e.g. `ArticleRepository`, `Get`). Default for the Naming option.
 const NamingPascal = "Pascal"
@@ -51,10 +71,13 @@ const NamingCamel = "Camel"
 // Options carries the plugin's user-tunable settings.
 type Options struct {
 	// OutputPackage is the Go package name + directory the emitted
-	// repository decls land in. Required — the plugin has no
-	// default; callers configure it through
-	// [pipeline.Builder.WithPluginOptions].
-	OutputPackage string `eidos:"output_package,required"`
+	// repository decls land in. When unset (the default), repogen
+	// drops one `<src>_repo.go` file alongside each source struct;
+	// the router resolves [emit.Target.Dir] from the source's
+	// directory and the package clause matches the source. Set
+	// OutputPackage when the project keeps generated code in a
+	// dedicated sibling package.
+	OutputPackage string `eidos:"output_package"`
 
 	// InterfaceSuffix is appended to the source struct's name to
 	// form the emitted interface's identifier
@@ -121,34 +144,104 @@ func (*Plugin) Directives() []directive.Schema {
 // Repository interface + implementing struct for each `+gen:repo`
 // target. Suppression via `-gen:repo` skips the source struct
 // even when other generators (builder, registry) act on it.
+//
+// Output layout depends on [Options.OutputPackage]:
+//
+//   - Unset (default): one emit.Package per source package, emitted
+//     alongside the source files.
+//   - Set: every decl lands in a single centralised emit.Package.
 func (p *Plugin) Generate(ctx *plugin.GeneratorContext) error {
-	if p.opts.OutputPackage == "" {
-		return errMissingOutputPackage
+	if p.opts.OutputPackage != "" {
+		return p.generateCentralised(ctx)
 	}
+	return p.generateAlongsideSource(ctx)
+}
+
+// generateCentralised drops every emitted decl into one shared
+// emit.Package keyed by [Options.OutputPackage]. The behaviour
+// downstream consumers depended on before alongside-source routing
+// existed.
+func (p *Plugin) generateCentralised(ctx *plugin.GeneratorContext) error {
 	c := builder.For(Name, emit.Target{})
-	// Path is plugin-namespaced so multiple foundation generators
-	// sharing one OutputPackage do not collide on the emit store's
-	// unique-path key. Routing to the rendered file still goes
-	// through each decl's Target.
 	pkg := c.Package(p.opts.OutputPackage, Name+":"+p.opts.OutputPackage)
 	ctx.Reader.Structs().Each(func(s *node.Struct) {
 		if !p.shouldEmit(s) {
 			return
 		}
-		p.emitOne(pkg, s)
+		target := emit.Target{
+			Dir:      p.opts.OutputPackage,
+			Filename: strings.ToLower(s.Name) + ".go",
+			Package:  p.opts.OutputPackage,
+		}
+		p.emitOne(pkg, s, target, emit.External(s.Package, s.Name))
 	})
 	out, err := pkg.Build()
 	if err != nil {
 		return err
 	}
-	return ctx.Store.Emit().AddPackage(out)
+	if err := ctx.Store.Emit().AddPackage(out); err != nil {
+		return errors.Join(errAddPackage, err)
+	}
+	return nil
 }
 
-// errMissingOutputPackage is returned when [Plugin.Generate] runs
-// without the required OutputPackage option populated. The
-// pipeline surfaces it as a positioned diagnostic on the plugin's
-// configuration entry.
-var errMissingOutputPackage = errors.New("repogen: OutputPackage option is required")
+// generateAlongsideSource emits one emit.Package per source package,
+// containing one decl per `+gen:repo` target. Each emitted decl's
+// Target is filename-only — the router fills Target.Dir from the
+// source's directory at the routing phase.
+func (p *Plugin) generateAlongsideSource(ctx *plugin.GeneratorContext) error {
+	var firstErr error
+	ctx.Reader.Packages().Each(func(srcPkg *node.Package) {
+		matches := matchingStructs(srcPkg, p.shouldEmit)
+		if len(matches) == 0 {
+			return
+		}
+		c := builder.For(Name, emit.Target{})
+		pkg := c.Package(srcPkg.Name, Name+":"+srcPkg.Path)
+		for _, s := range matches {
+			target := emit.Target{
+				Filename: strings.ToLower(s.Name) + FilenameSuffix,
+				Package:  srcPkg.Name,
+			}
+			// Source lives in the same Go package as the output —
+			// emit a bare-identifier reference so the renderer
+			// doesn't insert a self-import.
+			p.emitOne(pkg, s, target, emit.Builtin(s.Name))
+		}
+		out, err := pkg.Build()
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			return
+		}
+		if err := ctx.Store.Emit().AddPackage(out); err != nil {
+			if firstErr == nil {
+				firstErr = errors.Join(errAddPackage, err)
+			}
+		}
+	})
+	return firstErr
+}
+
+// errAddPackage is the sentinel wrapped around store-side AddPackage
+// failures. Tests and callers detect the class with errors.Is.
+//
+//nolint:gochecknoglobals // sentinel.
+var errAddPackage = errors.New("repogen: add package to store")
+
+// matchingStructs returns srcPkg's structs the predicate accepts, in
+// declaration order. Extracted so both layouts share the predicate
+// path and the per-package slice allocation pattern.
+func matchingStructs(srcPkg *node.Package, ok func(*node.Struct) bool) []*node.Struct {
+	out := make([]*node.Struct, 0, len(srcPkg.Structs))
+	for _, s := range srcPkg.Structs {
+		if ok(s) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
 
 // shouldEmit reports whether the source struct opts into
 // repository emission. Only `+gen:repo` enables; absence or
@@ -162,14 +255,23 @@ func (*Plugin) shouldEmit(s *node.Struct) bool {
 // emitted method signatures cover the canonical CRUD set with
 // `context.Context` first parameters and `error` returns; bodies
 // are empty so cross-cutting weavers have a clean slot surface.
-func (p *Plugin) emitOne(pkg *builder.PackageBuilder, src *node.Struct) {
+//
+// srcRef is the reference the emitted methods use for the source
+// type — callers in centralised layout pass [emit.External] so the
+// renderer adds the import; callers in alongside-source layout pass
+// [emit.Builtin] so the renderer emits a bare identifier without a
+// self-import.
+//
+// The Origin of each emitted decl is set to src so the router can
+// resolve Target.Dir from the source's file path when target.Dir
+// is empty (alongside-source layout).
+func (p *Plugin) emitOne(pkg *builder.PackageBuilder, src *node.Struct, target emit.Target, srcRef emit.Ref) {
 	ifaceName := p.identifier(src.Name + p.opts.InterfaceSuffix)
 	structName := p.identifier(src.Name + p.opts.StructSuffix)
-	srcRef := emit.External(src.Package, src.Name)
-	target := p.targetFor(src.Name)
 
 	pkg.Interface(ifaceName, func(i *builder.InterfaceBuilder) {
 		i.Target(target)
+		i.Node().OriginNode = src
 		i.Docs(ifaceName + " stores and retrieves " + src.Name + " values.")
 		i.Method(p.identifier("Get"), func(m *builder.MethodBuilder) {
 			m.Param("ctx", emit.External("context", "Context"))
@@ -196,6 +298,7 @@ func (p *Plugin) emitOne(pkg *builder.PackageBuilder, src *node.Struct) {
 
 	pkg.Struct(structName, func(st *builder.StructBuilder) {
 		st.Target(target)
+		st.Node().OriginNode = src
 		st.Docs(structName + " is the default in-memory implementation of " + ifaceName + ".")
 		st.Method(p.identifier("Get"), func(m *builder.MethodBuilder) {
 			m.Receiver("r", emit.Ptr(emit.Internal(st.Node())))
@@ -203,40 +306,30 @@ func (p *Plugin) emitOne(pkg *builder.PackageBuilder, src *node.Struct) {
 			m.Param("id", emit.Builtin("string"))
 			m.Return(emit.Ptr(srcRef))
 			m.Return(emit.Builtin("error"))
+			m.Body(emit.NewReturn(emit.NewLiteralNil(), emit.NewLiteralNil()))
 		})
 		st.Method(p.identifier("List"), func(m *builder.MethodBuilder) {
 			m.Receiver("r", emit.Ptr(emit.Internal(st.Node())))
 			m.Param("ctx", emit.External("context", "Context"))
 			m.Return(emit.SliceOf(emit.Ptr(srcRef)))
 			m.Return(emit.Builtin("error"))
+			m.Body(emit.NewReturn(emit.NewLiteralNil(), emit.NewLiteralNil()))
 		})
 		st.Method(p.identifier("Save"), func(m *builder.MethodBuilder) {
 			m.Receiver("r", emit.Ptr(emit.Internal(st.Node())))
 			m.Param("ctx", emit.External("context", "Context"))
 			m.Param("value", emit.Ptr(srcRef))
 			m.Return(emit.Builtin("error"))
+			m.Body(emit.NewReturn(emit.NewLiteralNil()))
 		})
 		st.Method(p.identifier("Delete"), func(m *builder.MethodBuilder) {
 			m.Receiver("r", emit.Ptr(emit.Internal(st.Node())))
 			m.Param("ctx", emit.External("context", "Context"))
 			m.Param("id", emit.Builtin("string"))
 			m.Return(emit.Builtin("error"))
+			m.Body(emit.NewReturn(emit.NewLiteralNil()))
 		})
 	})
-}
-
-// targetFor builds the canonical [emit.Target] for the supplied
-// source struct: Dir + Package come from [Options.OutputPackage];
-// Filename is the lower-cased source name with the standard `.go`
-// extension. The shared convention keeps repogen and buildergen
-// output for the same source struct composing into one file when
-// callers pick the same OutputPackage.
-func (p *Plugin) targetFor(srcName string) emit.Target {
-	return emit.Target{
-		Dir:      p.opts.OutputPackage,
-		Filename: strings.ToLower(srcName) + ".go",
-		Package:  p.opts.OutputPackage,
-	}
 }
 
 // identifier applies the configured naming style. Pascal returns

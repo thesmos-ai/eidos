@@ -51,8 +51,8 @@ func TestEndToEnd(t *testing.T) {
 		article := sinkBodyFromResult(t, result, "article.go")
 		// Both contributions must appear inside the same method's
 		// body and in the canonical order.
-		debugIdx := strings.Index(article, `log.Printf("debug: ArticleRepo.Get entered")`)
-		auditIdx := strings.Index(article, `audit.Record("ArticleRepo.Get")`)
+		debugIdx := strings.Index(article, `log.Printf("debug: %s entered", "ArticleRepo.Get")`)
+		auditIdx := strings.Index(article, `audit.Record("%s", "ArticleRepo.Get")`)
 		if debugIdx < 0 || auditIdx < 0 {
 			t.Fatalf("article.go missing prebody contributions: debug=%d audit=%d", debugIdx, auditIdx)
 		}
@@ -153,10 +153,19 @@ func runAllPlugins(t *testing.T) demopipe.Result {
 		},
 		Backend: backend_golang.New(),
 		PluginOptions: map[string]map[string]string{
-			repogen.Name:     {"output_package": outputPackage},
-			buildergen.Name:  {"output_package": outputPackage},
-			mockgen.Name:     {"output_package": outputPackage},
-			registrygen.Name: {"output_package": outputPackage},
+			repogen.Name:    {"output_package": outputPackage},
+			buildergen.Name: {"output_package": outputPackage},
+			mockgen.Name:    {"output_package": outputPackage},
+			registrygen.Name: {
+				"output_package":   outputPackage,
+				"register_package": "registry",
+				"register_func":    "Register",
+			},
+			auditweaver.Name: {
+				"package": "audit",
+				"func":    "Record",
+				"format":  "%s",
+			},
 		},
 	})
 }

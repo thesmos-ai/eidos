@@ -80,10 +80,10 @@ func TestGenerate_WeavesEveryEmitMethod(t *testing.T) {
 
 	body := sinkBody(t, result.Sink, "article.go")
 	for _, want := range []string{
-		`log.Printf("debug: ArticleRepo.Get entered")`,
-		`log.Printf("debug: ArticleRepo.List entered")`,
-		`log.Printf("debug: ArticleRepo.Save entered")`,
-		`log.Printf("debug: ArticleRepo.Delete entered")`,
+		`log.Printf("debug: %s entered", "ArticleRepo.Get")`,
+		`log.Printf("debug: %s entered", "ArticleRepo.List")`,
+		`log.Printf("debug: %s entered", "ArticleRepo.Save")`,
+		`log.Printf("debug: %s entered", "ArticleRepo.Delete")`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("article.go missing entry trace %q; got:\n%s", want, body)

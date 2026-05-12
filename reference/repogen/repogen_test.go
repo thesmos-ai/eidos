@@ -12,6 +12,7 @@ import (
 	"go.thesmos.sh/eidos/core/diag"
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/opt"
+	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/eidostest/demopipe"
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/plugin"
@@ -210,25 +211,70 @@ func TestGenerate_DirectiveGating(t *testing.T) {
 	}
 }
 
-// TestGenerate_MissingOutputPackage covers the option-precondition
-// branch: an unconfigured plugin returns the sentinel error rather
-// than emitting decls with an empty Target that would be silently
-// dropped downstream.
-func TestGenerate_MissingOutputPackage(t *testing.T) {
+// TestGenerate_AlongsideSourceLayout covers the default layout: an
+// unconfigured plugin (OutputPackage empty) emits one decl per
+// source struct with [emit.Target.Dir] left empty and a
+// `<src>_repo.go` filename so the pipeline router fills the Dir
+// from the source's directory at the routing phase.
+func TestGenerate_AlongsideSourceLayout(t *testing.T) {
 	t.Parallel()
 
-	p := repogen.New()
-	s := store.New()
-	ctx := &plugin.GeneratorContext{
-		Store: s, Reader: store.NewReader(s), Diag: diag.New(),
-	}
-	err := p.Generate(ctx)
-	if err == nil {
-		t.Fatalf("Generate without OutputPackage should error; got nil")
-	}
-	if !strings.Contains(err.Error(), "OutputPackage") {
-		t.Fatalf("error should reference OutputPackage; got %q", err)
-	}
+	t.Run("empty OutputPackage drops decls alongside the source", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		srcPkg := &node.Package{Name: "users", Path: "example.com/users"}
+		src := &node.Struct{
+			Name:    "Probe",
+			Package: srcPkg.Path,
+			BaseNode: node.BaseNode{
+				SourcePos:     position.Pos{File: "users/probe.go", Line: 1},
+				DirectiveList: []*directive.Directive{{Name: repogen.DirectiveName}},
+			},
+		}
+		srcPkg.Structs = append(srcPkg.Structs, src)
+		if err := s.Nodes().AddPackage(srcPkg); err != nil {
+			t.Fatalf("AddPackage: %v", err)
+		}
+
+		p := repogen.New()
+		if err := p.SetOptions(opt.New(p.OptionsSchema(), nil)); err != nil {
+			t.Fatalf("SetOptions: %v", err)
+		}
+		ctx := &plugin.GeneratorContext{
+			Store: s, Reader: store.NewReader(s), Diag: diag.New(),
+		}
+		if err := p.Generate(ctx); err != nil {
+			t.Fatalf("Generate: %v", err)
+		}
+
+		pkgs := s.Emit().Packages()
+		if pkgs.Len() != 1 {
+			t.Fatalf("expected one emit.Package; got %d", pkgs.Len())
+		}
+		emitPkg, _ := pkgs.ByQName(repogen.Name + ":" + srcPkg.Path)
+		if emitPkg == nil {
+			t.Fatalf("expected emit.Package keyed by plugin-namespaced source path; got %v", pkgs)
+		}
+		if emitPkg.Name != srcPkg.Name {
+			t.Fatalf("emit.Package.Name = %q, want %q (matches source pkg name)", emitPkg.Name, srcPkg.Name)
+		}
+		if len(emitPkg.Interfaces) != 1 {
+			t.Fatalf("expected one emitted interface; got %d", len(emitPkg.Interfaces))
+		}
+		iface := emitPkg.Interfaces[0]
+		if iface.Target.Dir != "" {
+			t.Fatalf("Target.Dir should be empty so the router fills it; got %q", iface.Target.Dir)
+		}
+		if iface.Target.Filename != "probe"+repogen.FilenameSuffix {
+			t.Fatalf("Target.Filename = %q, want probe%s", iface.Target.Filename, repogen.FilenameSuffix)
+		}
+		if iface.Target.Package != "users" {
+			t.Fatalf("Target.Package = %q, want users", iface.Target.Package)
+		}
+		if iface.Origin() != src {
+			t.Fatalf("Origin should be the source struct so the router can resolve Dir")
+		}
+	})
 }
 
 // runFixture builds the demopipe harness with repogen engaged and

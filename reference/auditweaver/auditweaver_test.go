@@ -60,7 +60,11 @@ func TestPluginShape(t *testing.T) {
 
 // TestGenerate_WeavesAuditRecord runs repogen + audit-weaver and
 // asserts every repogen-emitted method picks up the audit record
-// contribution in its rendered body.
+// contribution in its rendered body. The auditweaver options are
+// pointed at an `audit` import path so the rendered call reads
+// `audit.Record(...)` — the canonical demo shape; the renderer
+// registers the import on the host file's import set via the
+// [emit.NewExternal] expression the plugin emits.
 func TestGenerate_WeavesAuditRecord(t *testing.T) {
 	t.Parallel()
 
@@ -69,6 +73,11 @@ func TestGenerate_WeavesAuditRecord(t *testing.T) {
 		Backend:    backend_golang.New(),
 		PluginOptions: map[string]map[string]string{
 			repogen.Name: {"output_package": outputPackage},
+			auditweaver.Name: {
+				"package": "audit",
+				"func":    "Record",
+				"format":  "%s",
+			},
 		},
 	})
 	if result.Diag.HasErrors() {
@@ -80,10 +89,10 @@ func TestGenerate_WeavesAuditRecord(t *testing.T) {
 
 	body := sinkBody(t, result.Sink, "article.go")
 	for _, want := range []string{
-		`audit.Record("ArticleRepo.Get")`,
-		`audit.Record("ArticleRepo.List")`,
-		`audit.Record("ArticleRepo.Save")`,
-		`audit.Record("ArticleRepo.Delete")`,
+		`audit.Record("%s", "ArticleRepo.Get")`,
+		`audit.Record("%s", "ArticleRepo.List")`,
+		`audit.Record("%s", "ArticleRepo.Save")`,
+		`audit.Record("%s", "ArticleRepo.Delete")`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("article.go missing audit record %q; got:\n%s", want, body)
@@ -94,7 +103,9 @@ func TestGenerate_WeavesAuditRecord(t *testing.T) {
 // TestGenerate_OrdersAfterTrace runs both weavers together and
 // asserts the rendered Prebody lists the debug entry trace before
 // the audit record — the spec-mandated ordering driven by audit's
-// Requires: ["trace"] declaration.
+// Requires: ["trace"] declaration. Both weavers run with their
+// configurable options pointed at the demo `audit` / `log`
+// packages so the rendered output is stable across runs.
 func TestGenerate_OrdersAfterTrace(t *testing.T) {
 	t.Parallel()
 
@@ -103,6 +114,11 @@ func TestGenerate_OrdersAfterTrace(t *testing.T) {
 		Backend:    backend_golang.New(),
 		PluginOptions: map[string]map[string]string{
 			repogen.Name: {"output_package": outputPackage},
+			auditweaver.Name: {
+				"package": "audit",
+				"func":    "Record",
+				"format":  "%s",
+			},
 		},
 	})
 	if result.Diag.HasErrors() {
@@ -113,8 +129,8 @@ func TestGenerate_OrdersAfterTrace(t *testing.T) {
 	}
 
 	body := sinkBody(t, result.Sink, "article.go")
-	debugIdx := strings.Index(body, `log.Printf("debug: ArticleRepo.Get entered")`)
-	auditIdx := strings.Index(body, `audit.Record("ArticleRepo.Get")`)
+	debugIdx := strings.Index(body, `log.Printf("debug: %s entered", "ArticleRepo.Get")`)
+	auditIdx := strings.Index(body, `audit.Record("%s", "ArticleRepo.Get")`)
 	if debugIdx < 0 || auditIdx < 0 {
 		t.Fatalf("article.go missing one of the prebody contributions: debug=%d audit=%d", debugIdx, auditIdx)
 	}

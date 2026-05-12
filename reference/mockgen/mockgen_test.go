@@ -11,6 +11,7 @@ import (
 	"go.thesmos.sh/eidos/core/diag"
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/opt"
+	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/eidostest/demopipe"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/node"
@@ -377,24 +378,67 @@ func TestGenerate_AnonymousParamsGetNames(t *testing.T) {
 	}
 }
 
-// TestGenerate_MissingOutputPackage covers the option-precondition
-// branch: an unconfigured plugin returns the sentinel error rather
-// than emitting decls with an empty Target.
-func TestGenerate_MissingOutputPackage(t *testing.T) {
+// TestGenerate_AlongsideSourceLayout covers the default layout: an
+// unconfigured plugin (OutputPackage empty) emits one mock per
+// `+gen:mock` source interface with [emit.Target.Dir] left empty
+// and a `<src>_mock.go` filename so the pipeline router fills the
+// Dir from the source's directory at the routing phase.
+func TestGenerate_AlongsideSourceLayout(t *testing.T) {
 	t.Parallel()
 
-	p := mockgen.New()
-	s := store.New()
-	ctx := &plugin.GeneratorContext{
-		Store: s, Reader: store.NewReader(s), Diag: diag.New(),
-	}
-	err := p.Generate(ctx)
-	if err == nil {
-		t.Fatalf("Generate without OutputPackage should error; got nil")
-	}
-	if !strings.Contains(err.Error(), "OutputPackage") {
-		t.Fatalf("error should reference OutputPackage; got %q", err)
-	}
+	t.Run("empty OutputPackage drops decls alongside the source", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		srcPkg := &node.Package{Name: "search", Path: "example.com/search"}
+		iface := &node.Interface{
+			Name:    "Finder",
+			Package: srcPkg.Path,
+			BaseNode: node.BaseNode{
+				SourcePos:     position.Pos{File: "search/finder.go", Line: 1},
+				DirectiveList: []*directive.Directive{{Name: mockgen.DirectiveName}},
+			},
+		}
+		srcPkg.Interfaces = append(srcPkg.Interfaces, iface)
+		if err := s.Nodes().AddPackage(srcPkg); err != nil {
+			t.Fatalf("AddPackage: %v", err)
+		}
+
+		p := mockgen.New()
+		if err := p.SetOptions(opt.New(p.OptionsSchema(), nil)); err != nil {
+			t.Fatalf("SetOptions: %v", err)
+		}
+		ctx := &plugin.GeneratorContext{
+			Store: s, Reader: store.NewReader(s), Diag: diag.New(),
+		}
+		if err := p.Generate(ctx); err != nil {
+			t.Fatalf("Generate: %v", err)
+		}
+
+		pkgs := s.Emit().Packages()
+		if pkgs.Len() != 1 {
+			t.Fatalf("expected one emit.Package; got %d", pkgs.Len())
+		}
+		emitPkg, _ := pkgs.ByQName(mockgen.Name + ":src:" + srcPkg.Path)
+		if emitPkg == nil {
+			t.Fatalf("expected emit.Package keyed by plugin-namespaced source path; got %v", pkgs)
+		}
+		if emitPkg.Name != srcPkg.Name {
+			t.Fatalf("emit.Package.Name = %q, want %q", emitPkg.Name, srcPkg.Name)
+		}
+		if len(emitPkg.Structs) != 1 {
+			t.Fatalf("expected one mock struct; got %d", len(emitPkg.Structs))
+		}
+		mock := emitPkg.Structs[0]
+		if mock.Target.Dir != "" {
+			t.Fatalf("Target.Dir should be empty so the router fills it; got %q", mock.Target.Dir)
+		}
+		if mock.Target.Filename != "finder"+mockgen.FilenameSuffix {
+			t.Fatalf("Target.Filename = %q, want finder%s", mock.Target.Filename, mockgen.FilenameSuffix)
+		}
+		if mock.Origin() != iface {
+			t.Fatalf("Origin should be the source interface so the router can resolve Dir")
+		}
+	})
 }
 
 // configuredPlugin returns a fresh mockgen plugin with the minimum

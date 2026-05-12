@@ -75,6 +75,16 @@ const (
 	// ExprRaw is verbatim text in [Expr.RawText] — the escape hatch
 	// for expressions not modelled above.
 	ExprRaw
+	// ExprExternal references a symbol exported from another
+	// package. [Expr.Pkg] holds the package's import path,
+	// [Expr.Name] the symbol's identifier. Backends register the
+	// import with the file's [emit.File.ImportsSlot] (transparently,
+	// via the same import set the typed [emit.ExternalRef] flows
+	// through) and render the expression as
+	// `<resolved-alias>.<Name>` — the canonical way to refer to a
+	// cross-package symbol from a slot-contributed statement or
+	// expression.
+	ExprExternal
 )
 
 // String returns the lower-case textual form of k for diagnostics.
@@ -118,6 +128,8 @@ func (k ExprKind) String() string {
 		return "addr"
 	case ExprRaw:
 		return labelRaw
+	case ExprExternal:
+		return "external"
 	default:
 		return "expr_kind(?)"
 	}
@@ -251,6 +263,11 @@ type Expr struct {
 	// RawText is the rendered text for [ExprLiteral] (interpreted
 	// per [Expr.LitKind]) and [ExprRaw].
 	RawText string
+
+	// Pkg is the import path for [ExprExternal] — the package the
+	// referenced symbol lives in. Backends register the path with
+	// the rendered file's import set and resolve it to an alias.
+	Pkg string
 }
 
 // Kind returns [KindExpr] regardless of ExprKind — [ExprKind]
@@ -307,6 +324,19 @@ func NewLiteralRaw(text string) *Expr {
 // NewIdent returns an identifier-reference expression.
 func NewIdent(name string) *Expr {
 	return &Expr{ExprKind: ExprIdent, Name: name}
+}
+
+// NewExternal returns a package-qualified symbol-reference
+// expression. pkg is the import path of the package the symbol
+// lives in; name is the symbol's identifier. Backends register the
+// import with the rendered file's import set and emit the
+// expression as `<resolved-alias>.<name>` — the canonical way to
+// reference a cross-package symbol from a slot-contributed
+// statement or expression, equivalent in role to [emit.External]
+// (which models the same concept in type position via
+// [emit.ExternalRef]).
+func NewExternal(pkg, name string) *Expr {
+	return &Expr{ExprKind: ExprExternal, Pkg: pkg, Name: name}
 }
 
 // NewField returns a field/method selector — receiver.name.

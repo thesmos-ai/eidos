@@ -341,6 +341,68 @@ func (v *EmitView) ByDirective() *MultiIndex[directive.Name, emit.Node] { return
 // appropriate output files.
 func (v *EmitView) ByTarget() *MultiIndex[emit.Target, emit.Node] { return v.byTarget }
 
+// RebuildByTarget discards the byTarget index and reconstructs it
+// from the current Target of every routable entity. The pipeline
+// router calls this after rewriting Targets so the backend's
+// byTarget grouping reflects the resolved routing rather than the
+// targets recorded at AddPackage time.
+//
+// Every [emit.File] is re-indexed by its own Target so backends
+// (which look up the File for a Target via the index) continue to
+// find File entries the router didn't itself rewrite — File Targets
+// are pinned at FileFor-creation time.
+func (v *EmitView) RebuildByTarget() {
+	v.byTarget = NewMultiIndex[emit.Target, emit.Node]()
+	v.files.Range(func(e *emit.File) bool {
+		if t := e.Target(); !t.IsZero() {
+			v.byTarget.Add(t, e)
+		}
+		return true
+	})
+	v.structs.Range(func(e *emit.Struct) bool {
+		if !e.Target.IsZero() {
+			v.byTarget.Add(e.Target, e)
+		}
+		return true
+	})
+	v.interfaces.Range(func(e *emit.Interface) bool {
+		if !e.Target.IsZero() {
+			v.byTarget.Add(e.Target, e)
+		}
+		return true
+	})
+	v.functions.Range(func(e *emit.Function) bool {
+		if !e.Target.IsZero() {
+			v.byTarget.Add(e.Target, e)
+		}
+		return true
+	})
+	v.variables.Range(func(e *emit.Variable) bool {
+		if !e.Target.IsZero() {
+			v.byTarget.Add(e.Target, e)
+		}
+		return true
+	})
+	v.constants.Range(func(e *emit.Constant) bool {
+		if !e.Target.IsZero() {
+			v.byTarget.Add(e.Target, e)
+		}
+		return true
+	})
+	v.enums.Range(func(e *emit.Enum) bool {
+		if !e.Target.IsZero() {
+			v.byTarget.Add(e.Target, e)
+		}
+		return true
+	})
+	v.aliases.Range(func(e *emit.Alias) bool {
+		if !e.File.IsZero() {
+			v.byTarget.Add(e.File, e)
+		}
+		return true
+	})
+}
+
 // ByMetaKey returns the cross-cutting "by metadata key presence"
 // index. Like the node-side equivalent, the index is additive: Set
 // operations append (key, entity) pairs and tombstones do not
