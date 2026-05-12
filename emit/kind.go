@@ -30,6 +30,7 @@ const (
 	KindAlias       directive.Kind = "emit.alias"
 	KindEmbed       directive.Kind = "emit.embed"
 	KindParam       directive.Kind = "emit.param"
+	KindReturn      directive.Kind = "emit.return"
 	KindTypeParam   directive.Kind = "emit.type_param"
 	KindTag         directive.Kind = "emit.tag"
 

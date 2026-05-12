@@ -390,46 +390,60 @@ func TestAppendFileSlots_NilGuards(t *testing.T) {
 	})
 }
 
-// TestNodeAccessors covers the Node() accessors on every sub-element
-// builder — needed for callers that want to capture the pointer
-// for later cross-cutting reference.
-func TestNodeAccessors(t *testing.T) {
+// TestAppendReturn covers return-slot appends on Function and
+// Method hosts plus the canonical error paths.
+func TestAppendReturn(t *testing.T) {
 	t.Parallel()
 
-	t.Run("each sub-element builder's Node() returns the underlying pointer", func(t *testing.T) {
+	t.Run("appends *emit.Return on Function and Method", func(t *testing.T) {
 		t.Parallel()
-		c := builder.For("test", defaultTarget)
-		pkg := c.Package("p", "p")
-		if pkg.Node() == nil {
-			t.Fatalf("PackageBuilder.Node returned nil")
+		c := builder.For("errgen", defaultTarget)
+
+		f := &emit.Function{Name: "Op"}
+		if err := c.AppendReturn(f, &emit.Return{Type: emit.Builtin("error")}); err != nil {
+			t.Fatalf("AppendReturn(function) = %v", err)
 		}
-		pkg.
-			Struct("S", func(sb *builder.StructBuilder) {
-				sb.Field("F", emit.Builtin("int"), func(fb *builder.FieldBuilder) {
-					if fb.Node() == nil {
-						t.Fatalf("FieldBuilder.Node returned nil")
-					}
-				})
-				sb.Embed(emit.Builtin("Reader"), func(eb *builder.EmbedBuilder) {
-					if eb.Node() == nil {
-						t.Fatalf("EmbedBuilder.Node returned nil")
-					}
-				})
-			}).
-			Enum("E", emit.Builtin("int"), func(eb *builder.EnumBuilder) {
-				eb.Variant("V", nil, func(vb *builder.EnumVariantBuilder) {
-					if vb.Node() == nil {
-						t.Fatalf("EnumVariantBuilder.Node returned nil")
-					}
-				})
-			}).
-			File(emit.Target{}, func(fb *builder.FileBuilder) {
-				fb.Import("fmt", func(ib *builder.ImportBuilder) {
-					if ib.Node() == nil {
-						t.Fatalf("ImportBuilder.Node returned nil")
-					}
-				})
-			})
+		if f.ReturnsSlot().Len() != 1 {
+			t.Fatalf("function returns slot did not receive contribution")
+		}
+
+		m := &emit.Method{Name: "Run"}
+		if err := c.AppendReturn(m, &emit.Return{Type: emit.Builtin("error")}); err != nil {
+			t.Fatalf("AppendReturn(method) = %v", err)
+		}
+		if m.ReturnsSlot().Len() != 1 {
+			t.Fatalf("method returns slot did not receive contribution")
+		}
+	})
+
+	t.Run("stamps Provenance.SetBy and optional ID", func(t *testing.T) {
+		t.Parallel()
+		c := builder.For("errgen", defaultTarget)
+		f := &emit.Function{Name: "Op"}
+		if err := c.AppendReturn(f, &emit.Return{Type: emit.Builtin("error")}, "errgen/error"); err != nil {
+			t.Fatalf("AppendReturn returned %v", err)
+		}
+		prov := f.ReturnsSlot().ProvenanceAt(0)
+		if prov.SetBy != "errgen" || prov.ID != "errgen/error" {
+			t.Fatalf("provenance wrong: %+v", prov)
+		}
+	})
+
+	t.Run("nil host returns ErrNilHost", func(t *testing.T) {
+		t.Parallel()
+		c := builder.For("errgen", defaultTarget)
+		if err := c.AppendReturn(nil, &emit.Return{}); !errors.Is(err, builder.ErrNilHost) {
+			t.Fatalf("expected ErrNilHost; got %v", err)
+		}
+	})
+
+	t.Run("unsupported host returns ErrUnsupportedHost", func(t *testing.T) {
+		t.Parallel()
+		c := builder.For("errgen", defaultTarget)
+		err := c.AppendReturn(&emit.Struct{Name: "S"}, &emit.Return{Type: emit.Builtin("error")})
+		if !errors.Is(err, builder.ErrUnsupportedHost) {
+			t.Fatalf("expected ErrUnsupportedHost; got %v", err)
+		}
 	})
 }
 

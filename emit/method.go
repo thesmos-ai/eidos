@@ -80,8 +80,11 @@ func (m *Method) Postbody() *Slot { return m.slot(m, "postbody", KindStmt) }
 func (m *Method) ParamsSlot() *Slot { return m.slot(m, "params", KindParam) }
 
 // ReturnsSlot returns the "returns" slot for cross-cutting
-// return-type injection.
-func (m *Method) ReturnsSlot() *Slot { return m.slot(m, "returns", "") }
+// return-type injection. The slot's element kind is [KindReturn],
+// so contributions are typed [*Return] values; the backend merges
+// the typed [Method.Returns] slice with slot contributions in
+// capability-topo + append order.
+func (m *Method) ReturnsSlot() *Slot { return m.slot(m, "returns", KindReturn) }
 
 // Slot returns the named slot, creating it lazily without an
 // element-kind constraint. Used for custom slot names a plugin

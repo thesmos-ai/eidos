@@ -79,13 +79,19 @@ func (b *MethodBuilder) Return(t emit.Ref, name ...string) *MethodBuilder {
 	return b
 }
 
-// TypeParam appends a generic type parameter to the method.
-func (b *MethodBuilder) TypeParam(name string, constraint *emit.Constraint) *MethodBuilder {
-	b.m.TypeParams = append(b.m.TypeParams, &emit.TypeParam{
-		Name:       name,
-		Constraint: constraint,
-		Owner:      b.m,
-	})
+// TypeParam appends a generic type parameter to the method. fn
+// (which may be nil) configures position / docs / directives on
+// the resulting [emit.TypeParam].
+func (b *MethodBuilder) TypeParam(
+	name string,
+	constraint *emit.Constraint,
+	fn ...func(*TypeParamBuilder),
+) *MethodBuilder {
+	p := &emit.TypeParam{Name: name, Constraint: constraint, Owner: b.m}
+	if len(fn) > 0 && fn[0] != nil {
+		fn[0](&TypeParamBuilder{ctx: b.ctx, p: p})
+	}
+	b.m.TypeParams = append(b.m.TypeParams, p)
 	return b
 }
 

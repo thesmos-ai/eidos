@@ -651,6 +651,63 @@ func TestSlots_FunctionParamsSlot(t *testing.T) {
 	})
 }
 
+// TestSlots_FunctionReturnsSlot covers the function's `returns`
+// slot — a cross-cutting plugin appends an extra return type
+// that renders after the typed returns. Pinning the anonymous
+// case (the common Go signature shape) is enough; the mixed
+// named/anonymous case surfaces as [emit.ErrMixedNamedReturns]
+// via the existing renderReturns check.
+func TestSlots_FunctionReturnsSlot(t *testing.T) {
+	t.Parallel()
+
+	t.Run("slot return renders after typed returns", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		ctx.Ordered = []plugin.Plugin{stubPluginVersion{name: "errgen"}}
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		fn := &emit.Function{
+			Name: "Save", Package: "x", Target: target,
+			Returns: []*emit.Return{{Type: emit.Builtin("int")}},
+		}
+		if err := fn.ReturnsSlot().Append(
+			&emit.Return{Type: emit.Builtin("error")},
+			emit.Provenance{SetBy: "errgen"},
+		); err != nil {
+			t.Fatalf("append returns slot: %v", err)
+		}
+		addEmitPackage(t, ctx, &emit.Package{
+			Name: "x", Path: "x",
+			Functions: []*emit.Function{fn},
+		})
+		out := string(assertRenderSucceeds(t, ctx, mem, d, target))
+		if !strings.Contains(out, "func Save() (int, error)") {
+			t.Fatalf("slot return must follow typed return; got:\n%s", out)
+		}
+	})
+
+	t.Run("void function with only a slot return renders the slot type", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		ctx.Ordered = []plugin.Plugin{stubPluginVersion{name: "errgen"}}
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		fn := &emit.Function{Name: "Run", Package: "x", Target: target}
+		if err := fn.ReturnsSlot().Append(
+			&emit.Return{Type: emit.Builtin("error")},
+			emit.Provenance{SetBy: "errgen"},
+		); err != nil {
+			t.Fatalf("append returns slot: %v", err)
+		}
+		addEmitPackage(t, ctx, &emit.Package{
+			Name: "x", Path: "x",
+			Functions: []*emit.Function{fn},
+		})
+		out := string(assertRenderSucceeds(t, ctx, mem, d, target))
+		if !strings.Contains(out, "func Run() error {") {
+			t.Fatalf("void function with slot return must render the slot type; got:\n%s", out)
+		}
+	})
+}
+
 // TestSlots_FieldTagsViaSlot covers the tag-slot composition under
 // the plugin-topo treatment: two plugins each append a tag, and
 // the rendered struct field stitches them in topo order after

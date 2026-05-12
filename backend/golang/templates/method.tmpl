@@ -1,6 +1,6 @@
 {{- define "emit.method" -}}
 {{ renderDocs .DocLines -}}
-func{{ with renderReceiver . }} {{ . }}{{ end }} {{ .Name }}{{ renderTypeParams .TypeParams }}{{ renderMethodParams . }}{{ if .Returns }} {{ renderReturns .Returns }}{{ end }} {
+func{{ with renderReceiver . }} {{ . }}{{ end }} {{ .Name }}{{ renderTypeParams .TypeParams }}{{ renderMethodParams . }}{{ renderMethodReturns . }} {
 {{ renderMethodBody . -}}
 }
 {{- end -}}

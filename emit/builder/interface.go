@@ -93,11 +93,17 @@ func (b *InterfaceBuilder) Embed(t emit.Ref, fn func(*EmbedBuilder)) *InterfaceB
 }
 
 // TypeParam appends a generic type parameter to the interface.
-func (b *InterfaceBuilder) TypeParam(name string, constraint *emit.Constraint) *InterfaceBuilder {
-	b.i.TypeParams = append(b.i.TypeParams, &emit.TypeParam{
-		Name:       name,
-		Constraint: constraint,
-		Owner:      b.i,
-	})
+// fn (which may be nil) configures position / docs / directives on
+// the resulting [emit.TypeParam].
+func (b *InterfaceBuilder) TypeParam(
+	name string,
+	constraint *emit.Constraint,
+	fn ...func(*TypeParamBuilder),
+) *InterfaceBuilder {
+	p := &emit.TypeParam{Name: name, Constraint: constraint, Owner: b.i}
+	if len(fn) > 0 && fn[0] != nil {
+		fn[0](&TypeParamBuilder{ctx: b.ctx, p: p})
+	}
+	b.i.TypeParams = append(b.i.TypeParams, p)
 	return b
 }

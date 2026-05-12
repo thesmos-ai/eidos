@@ -448,6 +448,80 @@ func (s *renderState) renderMethodParams(host *emit.Method) (string, error) {
 	return s.renderParams(mergeParams(host.Params, s.mergedSlotParams(host.ParamsSlot())))
 }
 
+// renderFunctionReturns returns the rendered return clause for a
+// function — typed [emit.Function.Returns] followed by every
+// cross-cutting return contributed through
+// [emit.Function.ReturnsSlot], re-grouped by plugin topo order.
+// Surfaces [emit.ErrMixedNamedReturns] when the merged slice mixes
+// named and unnamed entries.
+//
+// The result includes its own leading space when non-empty so the
+// `emit.function` template can drop the surrounding `{{ if }}`
+// wrapper: a void function renders an empty string here.
+//
+// `renderFunctionReturns` is one of the reserved canonical-render
+// funcmap entries — plugin overrides are rejected at Build time.
+func (s *renderState) renderFunctionReturns(host *emit.Function) (string, error) {
+	if host == nil {
+		return "", nilHostErrf("renderFunctionReturns", "*emit.Function")
+	}
+	return s.composedReturns(mergeReturns(host.Returns, s.mergedSlotReturns(host.ReturnsSlot())))
+}
+
+// renderMethodReturns returns the rendered return clause for a
+// method — typed [emit.Method.Returns] followed by every
+// cross-cutting return contributed through
+// [emit.Method.ReturnsSlot], re-grouped by plugin topo order. The
+// result includes a leading space when non-empty.
+//
+// `renderMethodReturns` is one of the reserved canonical-render
+// funcmap entries — plugin overrides are rejected at Build time.
+func (s *renderState) renderMethodReturns(host *emit.Method) (string, error) {
+	if host == nil {
+		return "", nilHostErrf("renderMethodReturns", "*emit.Method")
+	}
+	return s.composedReturns(mergeReturns(host.Returns, s.mergedSlotReturns(host.ReturnsSlot())))
+}
+
+// composedReturns wraps [renderState.renderReturns], prefixing the
+// non-empty result with a single space so the per-host wrappers
+// drop the template-side `{{ if }}` conditional.
+func (s *renderState) composedReturns(returns []*emit.Return) (string, error) {
+	out, err := s.renderReturns(returns)
+	if err != nil || out == "" {
+		return out, err
+	}
+	return " " + out, nil
+}
+
+// mergedSlotReturns returns the additional [*emit.Return] entries
+// contributed via the supplied slot, re-grouped by plugin order.
+// Caller appends these to the host's typed Returns slice.
+func (s *renderState) mergedSlotReturns(slot *emit.Slot) []*emit.Return {
+	if slot.Len() == 0 {
+		return nil
+	}
+	items, _ := orderByPlugin(slot.Items, slot.ProvenanceList, s.pluginOrder)
+	out := make([]*emit.Return, 0, len(items))
+	for _, item := range items {
+		out = append(out, item.(*emit.Return))
+	}
+	return out
+}
+
+// mergeReturns appends slot-contributed returns after the typed
+// return list, returning a fresh slice. Empty inputs are handled
+// gracefully — typed is returned untouched when slot is empty.
+func mergeReturns(typed, slot []*emit.Return) []*emit.Return {
+	if len(slot) == 0 {
+		return typed
+	}
+	out := make([]*emit.Return, 0, len(typed)+len(slot))
+	out = append(out, typed...)
+	out = append(out, slot...)
+	return out
+}
+
 // composeBody concatenates the three statement segments — prebody,
 // typed body, postbody — in source order. Returns a fresh slice;
 // nil segments contribute zero entries.

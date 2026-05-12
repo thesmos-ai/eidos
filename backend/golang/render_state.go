@@ -152,6 +152,8 @@ func (s *renderState) coreFuncMap() template.FuncMap {
 		"renderMethodBody":       s.renderMethodBody,
 		"renderFunctionParams":   s.renderFunctionParams,
 		"renderMethodParams":     s.renderMethodParams,
+		"renderFunctionReturns":  s.renderFunctionReturns,
+		"renderMethodReturns":    s.renderMethodReturns,
 		"imp":                    s.imports.Imp,
 		"slot":                   slot,
 		"provenance":             provenance,

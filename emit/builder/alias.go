@@ -102,13 +102,19 @@ func (b *AliasBuilder) Directive(d *directive.Directive) *AliasBuilder {
 	return b
 }
 
-// TypeParam appends a generic type parameter.
-func (b *AliasBuilder) TypeParam(name string, constraint *emit.Constraint) *AliasBuilder {
-	b.a.TypeParams = append(b.a.TypeParams, &emit.TypeParam{
-		Name:       name,
-		Constraint: constraint,
-		Owner:      b.a,
-	})
+// TypeParam appends a generic type parameter. fn (which may be nil)
+// configures position / docs / directives on the resulting
+// [emit.TypeParam].
+func (b *AliasBuilder) TypeParam(
+	name string,
+	constraint *emit.Constraint,
+	fn ...func(*TypeParamBuilder),
+) *AliasBuilder {
+	p := &emit.TypeParam{Name: name, Constraint: constraint, Owner: b.a}
+	if len(fn) > 0 && fn[0] != nil {
+		fn[0](&TypeParamBuilder{ctx: b.ctx, p: p})
+	}
+	b.a.TypeParams = append(b.a.TypeParams, p)
 	return b
 }
 

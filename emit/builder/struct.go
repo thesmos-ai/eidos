@@ -119,12 +119,18 @@ func (b *StructBuilder) Method(name string, fn func(*MethodBuilder)) *StructBuil
 }
 
 // TypeParam appends a generic type parameter to the struct.
-// constraint may be nil to denote the implicit-any bound.
-func (b *StructBuilder) TypeParam(name string, constraint *emit.Constraint) *StructBuilder {
-	b.s.TypeParams = append(b.s.TypeParams, &emit.TypeParam{
-		Name:       name,
-		Constraint: constraint,
-		Owner:      b.s,
-	})
+// constraint may be nil to denote the implicit-any bound; fn (which
+// may be nil) configures position / docs / directives on the
+// resulting [emit.TypeParam].
+func (b *StructBuilder) TypeParam(
+	name string,
+	constraint *emit.Constraint,
+	fn ...func(*TypeParamBuilder),
+) *StructBuilder {
+	p := &emit.TypeParam{Name: name, Constraint: constraint, Owner: b.s}
+	if len(fn) > 0 && fn[0] != nil {
+		fn[0](&TypeParamBuilder{ctx: b.ctx, p: p})
+	}
+	b.s.TypeParams = append(b.s.TypeParams, p)
 	return b
 }
