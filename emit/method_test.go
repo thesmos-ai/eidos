@@ -18,7 +18,7 @@ func makeMethod() *emit.Method {
 			{Name: "ctx", Type: externalRef("context", "Context")},
 			{Name: "user", Type: emit.Ptr(emit.Builtin("User"))},
 		},
-		Returns: []emit.Ref{builtinRef("error")},
+		Returns: emit.AnonReturns(builtinRef("error")),
 	}
 }
 

@@ -117,29 +117,71 @@ func (s *renderState) renderReceiver(m *emit.Method) (string, error) {
 }
 
 // renderReturns produces the return-clause text of a Go function
-// or method signature, following the three-case truth table:
+// or method signature, following the four-case truth table:
 //
 //   - Zero returns → empty string (no clause).
 //   - Exactly one unnamed return → bare `renderType(Type)` (no
 //     parentheses).
-//   - Multiple returns → parenthesised, comma-separated list.
+//   - One named return OR multiple returns of any flavour →
+//     parenthesised, comma-separated list. Entries with a name
+//     render as `Name renderType(Type)`; unnamed entries render
+//     as bare `renderType(Type)`.
+//   - Mixed named/unnamed entries → [emit.ErrMixedNamedReturns]
+//     with the entity context wrapped in.
 //
 // `renderReturns` is one of the reserved canonical-render funcmap
 // entries — plugin overrides are rejected at Build time.
-func (s *renderState) renderReturns(returns []emit.Ref) (string, error) {
-	switch len(returns) {
-	case 0:
+func (s *renderState) renderReturns(returns []*emit.Return) (string, error) {
+	if len(returns) == 0 {
 		return "", nil
-	case 1:
-		return s.renderType(returns[0])
+	}
+	named, anon := classifyReturns(returns)
+	if named > 0 && anon > 0 {
+		return "", fmt.Errorf("%w: %s", emit.ErrMixedNamedReturns, returnSummary(returns))
+	}
+	if len(returns) == 1 && named == 0 {
+		return s.renderType(returns[0].Type)
 	}
 	parts := make([]string, 0, len(returns))
 	for _, r := range returns {
-		t, err := s.renderType(r)
+		t, err := s.renderType(r.Type)
 		if err != nil {
 			return "", err
 		}
-		parts = append(parts, t)
+		if r.Name != "" {
+			parts = append(parts, r.Name+" "+t)
+		} else {
+			parts = append(parts, t)
+		}
 	}
 	return "(" + strings.Join(parts, ", ") + ")", nil
+}
+
+// classifyReturns counts the named and anonymous slots in returns
+// — the count pair drives [renderReturns]'s mixed-state detection
+// and the bare-vs-parenthesised choice.
+func classifyReturns(returns []*emit.Return) (named, anon int) {
+	for _, r := range returns {
+		if r.Name == "" {
+			anon++
+		} else {
+			named++
+		}
+	}
+	return named, anon
+}
+
+// returnSummary renders a short, comma-separated list of the
+// return slots' names (using `_` for anonymous entries) suitable
+// for inclusion in diagnostic messages.
+func returnSummary(returns []*emit.Return) string {
+	names := make([]string, 0, len(returns))
+	for _, r := range returns {
+		if r.Name == "" {
+			names = append(names, "_")
+		} else {
+			names = append(names, r.Name)
+		}
+	}
+	return strings.Join(names, ", ")
 }

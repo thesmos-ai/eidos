@@ -428,7 +428,7 @@ func TestBackend_Golden(t *testing.T) {
 					{
 						Name:    "Read",
 						Params:  []*emit.Param{{Name: "p", Type: emit.Builtin("byte")}},
-						Returns: []emit.Ref{emit.Builtin("int"), emit.Builtin("error")},
+						Returns: emit.AnonReturns(emit.Builtin("int"), emit.Builtin("error")),
 					},
 					{Name: "Reset"},
 				},
@@ -671,7 +671,7 @@ func TestBackend_Golden(t *testing.T) {
 					{Name: "a", Type: emit.Builtin("int")},
 					{Name: "b", Type: emit.Builtin("int")},
 				},
-				Returns: []emit.Ref{emit.Builtin("int")},
+				Returns: emit.AnonReturns(emit.Builtin("int")),
 				Body: []*emit.Stmt{emit.NewReturn(&emit.Expr{
 					ExprKind: emit.ExprBinary, Op: "+",
 					Left:  &emit.Expr{ExprKind: emit.ExprIdent, Name: "a"},

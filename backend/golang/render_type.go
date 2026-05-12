@@ -115,7 +115,7 @@ func (s *renderState) renderFuncShape(params, returns []emit.Ref) (string, error
 		}
 		paramParts = append(paramParts, r)
 	}
-	retText, err := s.renderReturns(returns)
+	retText, err := s.renderReturns(emit.AnonReturns(returns...))
 	if err != nil {
 		return "", err
 	}

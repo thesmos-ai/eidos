@@ -225,7 +225,9 @@ func walkMethod(m *Method, v Visitor) {
 		Walk(p, v)
 	}
 	for _, r := range m.Returns {
-		Walk(r, v)
+		if r != nil {
+			Walk(r.Type, v)
+		}
 	}
 	for _, s := range m.Body {
 		Walk(s, v)
@@ -241,7 +243,9 @@ func walkFunction(f *Function, v Visitor) {
 		Walk(p, v)
 	}
 	for _, r := range f.Returns {
-		Walk(r, v)
+		if r != nil {
+			Walk(r.Type, v)
+		}
 	}
 	for _, s := range f.Body {
 		Walk(s, v)

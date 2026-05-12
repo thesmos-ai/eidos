@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"maps"
 	"path"
+	"strings"
 	"text/template"
 
 	"go.thesmos.sh/eidos/core/diag"
@@ -50,6 +51,22 @@ var ErrReservedFuncName = errors.New("backend/golang: reserved funcmap entry ove
 // plugins are rare; this sentinel surfaces the case when two
 // plugins claim the same emit kind by accident.
 var ErrTemplateNameCollision = errors.New("backend/golang: template name collision")
+
+// ErrReservedTemplatePrefix is returned when a plugin ships a
+// template whose name uses a reserved prefix. The `fragment.`
+// prefix is held for shared-partial templates whether or not the
+// backend currently ships any — plugin-defined emit kinds must
+// pick a different namespace (typically `<pluginname>.<kind>`)
+// to avoid colliding with future core partials.
+var ErrReservedTemplatePrefix = errors.New("backend/golang: reserved template-name prefix")
+
+// reservedTemplatePrefixes lists the template-name prefixes core
+// holds for its own use. Plugin templates whose `define` name
+// starts with any of these prefixes are rejected during the
+// per-plugin parse pass via [ErrReservedTemplatePrefix].
+//
+//nolint:gochecknoglobals // immutable lookup table.
+var reservedTemplatePrefixes = []string{"fragment."}
 
 // coreContributor is the marker the merge layer stamps for template
 // names and funcmap entries that originate from the backend itself
@@ -212,6 +229,14 @@ func parseOnePluginFS(
 		name := t.Name()
 		if name == pluginName {
 			continue
+		}
+		for _, prefix := range reservedTemplatePrefixes {
+			if strings.HasPrefix(name, prefix) {
+				return fmt.Errorf(
+					"%w: plugin %s defines %q (prefix %q is reserved)",
+					ErrReservedTemplatePrefix, pluginName, name, prefix,
+				)
+			}
 		}
 		prior, exists := contributors[name]
 		if exists && prior != coreContributor && prior != pluginName {

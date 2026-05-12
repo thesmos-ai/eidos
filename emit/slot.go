@@ -194,6 +194,20 @@ func (s *Slot) checkKind(item Node) error {
 	return nil
 }
 
+// SlotHost is the interface every emit value that owns slots
+// satisfies — [Struct], [Interface], [Function], [Method], [Enum],
+// [Alias], [File], and [Package] all expose `Slot(name)` for
+// generic, name-based slot access. Template helpers and tooling
+// that operate on "the slot named X on this host" without caring
+// about the concrete host type accept SlotHost.
+type SlotHost interface {
+	Node
+
+	// Slot returns the named slot on the host, creating it lazily
+	// without an element-kind constraint.
+	Slot(name string) *Slot
+}
+
 // slotMap is a small reusable type carrying a lazily-allocated map
 // of slots; embedded by every host kind that exposes slots. The
 // map's key is the slot name.

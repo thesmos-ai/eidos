@@ -21,8 +21,11 @@ type Function struct {
 	// order.
 	Params []*Param `json:"params,omitempty"`
 
-	// Returns are the function's return types in source order.
-	Returns []Ref `json:"-"`
+	// Returns are the function's return slots in source order.
+	// Each slot carries an optional Name plus a required Type;
+	// mixing named and unnamed slots in one slice is rejected at
+	// render with [ErrMixedNamedReturns].
+	Returns []*Return `json:"returns,omitempty"`
 
 	// TypeParams are the function's generic type parameters.
 	TypeParams []*TypeParam `json:"type_params,omitempty"`
@@ -108,9 +111,9 @@ func (f *Function) ParamAt(i int) *Param {
 	return f.Params[i]
 }
 
-// ReturnAt returns the return type at the given index, or nil when
+// ReturnAt returns the return slot at the given index, or nil when
 // out of range.
-func (f *Function) ReturnAt(i int) Ref {
+func (f *Function) ReturnAt(i int) *Return {
 	if i < 0 || i >= len(f.Returns) {
 		return nil
 	}

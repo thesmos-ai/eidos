@@ -38,8 +38,11 @@ type Method struct {
 	// Params are the method's positional parameters in source order.
 	Params []*Param `json:"params,omitempty"`
 
-	// Returns are the method's return types in source order.
-	Returns []Ref `json:"-"`
+	// Returns are the method's return slots in source order. Each
+	// slot carries an optional Name plus a required Type; mixing
+	// named and unnamed slots in one slice is rejected at render
+	// with [ErrMixedNamedReturns].
+	Returns []*Return `json:"returns,omitempty"`
 
 	// TypeParams are the method's generic type parameters.
 	TypeParams []*TypeParam `json:"type_params,omitempty"`
@@ -128,9 +131,9 @@ func (m *Method) ParamAt(i int) *Param {
 	return m.Params[i]
 }
 
-// ReturnAt returns the return type at the given index, or nil when
+// ReturnAt returns the return slot at the given index, or nil when
 // out of range.
-func (m *Method) ReturnAt(i int) Ref {
+func (m *Method) ReturnAt(i int) *Return {
 	if i < 0 || i >= len(m.Returns) {
 		return nil
 	}

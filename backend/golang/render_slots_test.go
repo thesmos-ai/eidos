@@ -136,7 +136,7 @@ func TestSlots_StructMethods_RenderedInline(t *testing.T) {
 			Name:         "ID",
 			Receiver:     emit.Internal(host),
 			ReceiverName: "u",
-			Returns:      []emit.Ref{emit.Builtin("int")},
+			Returns:      emit.AnonReturns(emit.Builtin("int")),
 			Body: []*emit.Stmt{emit.NewReturn(&emit.Expr{
 				ExprKind: emit.ExprLiteral, LitKind: emit.LitInt, RawText: "0",
 			})},
@@ -146,7 +146,7 @@ func TestSlots_StructMethods_RenderedInline(t *testing.T) {
 				Name:         "TraceID",
 				Receiver:     emit.Internal(host),
 				ReceiverName: "u",
-				Returns:      []emit.Ref{emit.Builtin("string")},
+				Returns:      emit.AnonReturns(emit.Builtin("string")),
 				Body: []*emit.Stmt{emit.NewReturn(&emit.Expr{
 					ExprKind: emit.ExprLiteral, LitKind: emit.LitString, RawText: "",
 				})},
@@ -321,7 +321,7 @@ func TestSlots_DuplicateEntity(t *testing.T) {
 		if _, ok := mem.Get(target); ok {
 			t.Fatalf("duplicate-method collision must suppress the sink write")
 		}
-		if !diagnosticsContain(d, diag.Error, "duplicate slot entity") {
+		if !diagnosticsContain(d, diag.Error, "duplicate entity") {
 			t.Fatalf("expected ErrDuplicateEntity diagnostic; got %+v", d.Diagnostics())
 		}
 	})
@@ -354,7 +354,7 @@ func TestSlots_DuplicateEntity(t *testing.T) {
 		if _, ok := mem.Get(target); ok {
 			t.Fatalf("duplicate-field collision must suppress the sink write")
 		}
-		if !diagnosticsContain(d, diag.Error, "duplicate slot entity") {
+		if !diagnosticsContain(d, diag.Error, "duplicate entity") {
 			t.Fatalf("expected ErrDuplicateEntity diagnostic; got %+v", d.Diagnostics())
 		}
 	})
@@ -417,7 +417,7 @@ func TestSlots_DuplicateEntity(t *testing.T) {
 		if _, ok := mem.Get(target); ok {
 			t.Fatalf("duplicate interface-method collision must suppress the sink write")
 		}
-		if !diagnosticsContain(d, diag.Error, "duplicate slot entity") {
+		if !diagnosticsContain(d, diag.Error, "duplicate entity") {
 			t.Fatalf("expected ErrDuplicateEntity diagnostic; got %+v", d.Diagnostics())
 		}
 	})
@@ -459,7 +459,7 @@ func TestSlots_DuplicateEntity(t *testing.T) {
 		if _, ok := mem.Get(target); ok {
 			t.Fatalf("duplicate enum-variant collision must suppress the sink write")
 		}
-		if !diagnosticsContain(d, diag.Error, "duplicate slot entity") {
+		if !diagnosticsContain(d, diag.Error, "duplicate entity") {
 			t.Fatalf("expected ErrDuplicateEntity diagnostic; got %+v", d.Diagnostics())
 		}
 	})
@@ -720,7 +720,7 @@ func TestSlots_StructSlot_Goldens(t *testing.T) {
 			Name:         "Identifier",
 			Receiver:     emit.Internal(host),
 			ReceiverName: "u",
-			Returns:      []emit.Ref{emit.Builtin("int")},
+			Returns:      emit.AnonReturns(emit.Builtin("int")),
 			Body: []*emit.Stmt{emit.NewReturn(&emit.Expr{
 				ExprKind: emit.ExprField,
 				Receiver: &emit.Expr{ExprKind: emit.ExprIdent, Name: "u"},
@@ -733,7 +733,7 @@ func TestSlots_StructSlot_Goldens(t *testing.T) {
 				Name:         "TraceID",
 				Receiver:     emit.Internal(host),
 				ReceiverName: "u",
-				Returns:      []emit.Ref{emit.Builtin("string")},
+				Returns:      emit.AnonReturns(emit.Builtin("string")),
 				Body: []*emit.Stmt{emit.NewReturn(&emit.Expr{
 					ExprKind: emit.ExprLiteral, LitKind: emit.LitString, RawText: "",
 				})},

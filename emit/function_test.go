@@ -16,7 +16,7 @@ func makeFunction() *emit.Function {
 		Params: []*emit.Param{
 			{Name: "path", Type: builtinRef("string")},
 		},
-		Returns: []emit.Ref{builtinRef("error")},
+		Returns: emit.AnonReturns(builtinRef("error")),
 	}
 }
 

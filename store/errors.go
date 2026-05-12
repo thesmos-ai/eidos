@@ -3,14 +3,33 @@
 
 package store
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
+
+// ErrDuplicateEntity is the umbrella sentinel for cross-plugin or
+// cross-generator duplicate declarations and slot entries. Two
+// emit values sharing a discriminator (qualified name, slot key,
+// …) that would collide in the rendered output surface this
+// sentinel — directly or via a more specific wrap such as
+// [ErrDuplicateQName].
+//
+// Backends and tooling match against this sentinel when they need
+// to recognise "two things wanted to be the one thing" regardless
+// of which layer detected the collision.
+var ErrDuplicateEntity = errors.New("duplicate entity")
 
 // ErrDuplicateQName is returned when an Add* call attempts to record
 // a value whose qualified name collides with one already present in
 // the store. Frontends and generators must not produce duplicate
 // declarations within a single run; collisions surface as bugs in
 // the producer or as a missing dedup step earlier in the pipeline.
-var ErrDuplicateQName = errors.New("store: duplicate qualified name")
+//
+// ErrDuplicateQName wraps [ErrDuplicateEntity] so consumers that
+// only care about the umbrella case can match the broader
+// sentinel via [errors.Is].
+var ErrDuplicateQName = fmt.Errorf("%w: store: duplicate qualified name", ErrDuplicateEntity)
 
 // ErrNilEntry is returned when an Add* call is invoked with a nil
 // pointer. Callers must produce non-nil entries before recording

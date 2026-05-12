@@ -9,18 +9,21 @@ import (
 
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/plugin"
+	"go.thesmos.sh/eidos/store"
 )
 
-// ErrDuplicateEntity is returned when two named contributions to the
-// same slot would emit identifiers that collide in the rendered
-// output. Today's enforcement targets the slot-internal duplicate
-// case: two methods of the same name appended to the same struct's
-// `methods` slot from two different plugins, two fields of the same
-// name appended to the `fields` slot, and so on. The wrapped
-// message names the offending identifier, the slot, and both
-// contributors' provenance so the diagnostic is actionable without
-// a stack trace.
-var ErrDuplicateEntity = errors.New("backend/golang: duplicate slot entity")
+// ErrDuplicateEntity is the umbrella sentinel for duplicate emit
+// values surfaced through the backend. Two slot contributions
+// sharing a discriminator (slot-level dedup), or two free-floating
+// decls sharing a `QName()` in the same Target (decl-level dedup
+// caught at AddPackage time via [store.ErrDuplicateQName]), both
+// chain back to this sentinel — consumers match against it via
+// [errors.Is] regardless of which layer detected the collision.
+//
+// Aliased to [store.ErrDuplicateEntity] so the umbrella sentinel
+// lives in one place; the alias keeps the spec-named identifier
+// available from the backend package surface for plugin authors.
+var ErrDuplicateEntity = store.ErrDuplicateEntity
 
 // ErrNilHost is returned by funcmap-exposed render helpers when
 // invoked with a nil host pointer. Core templates always pass a

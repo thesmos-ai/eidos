@@ -78,11 +78,16 @@ func brandOf(ctx *plugin.BackendContext) string {
 }
 
 // sourcesFor returns the list of source-path entries the Source:
-// header line surfaces. The list is `BackendContext.SourcesOverride`
+// header line surfaces. The list is [plugin.BackendContext.SourcesOverride]
 // when set; otherwise it is the deduplicated, sorted union of every
-// supplied entity's [emit.Node.Origin] source-file path. Returns
-// nil when nothing surfaces and no override is set — the caller
-// omits the Source: line in that case.
+// supplied entity's [emit.Node.Origin] source-file path.
+//
+// When entities is non-empty but no entity carries an Origin path
+// (a generator omitted provenance threading), the list collapses
+// to a single ["unknown"] entry so the Source: line still renders
+// — a visible marker that the file's provenance is unattributed
+// rather than the line silently disappearing. Returns nil when
+// entities is empty and no override is set.
 func sourcesFor(ctx *plugin.BackendContext, entities []emit.Node) []string {
 	if len(ctx.SourcesOverride) > 0 {
 		out := make([]string, len(ctx.SourcesOverride))
@@ -102,7 +107,10 @@ func sourcesFor(ctx *plugin.BackendContext, entities []emit.Node) []string {
 		set[file] = struct{}{}
 	}
 	if len(set) == 0 {
-		return nil
+		if len(entities) == 0 {
+			return nil
+		}
+		return []string{unknownSource}
 	}
 	out := make([]string, 0, len(set))
 	for k := range set {
@@ -111,6 +119,14 @@ func sourcesFor(ctx *plugin.BackendContext, entities []emit.Node) []string {
 	slices.Sort(out)
 	return out
 }
+
+// unknownSource is the synthetic placeholder the Source: header
+// line carries when entities exist but no entity threaded a
+// source-file path through its origin. Surfaces the missing
+// attribution rather than silently omitting the line — generators
+// that should have threaded provenance get a visible reminder in
+// every rendered file's header.
+const unknownSource = "unknown"
 
 // pluginsFor renders the Plugins: header line content from
 // `BackendContext.Plugins`. Each plugin contributes its Name(); if

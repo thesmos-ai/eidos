@@ -106,7 +106,7 @@ func newRenderState(
 // [ErrReservedFuncName] respectively.
 var reservedFuncNames = sync.OnceValue(func() map[string]struct{} {
 	probe := &renderState{imports: writer.NewImportSet(nil)}
-	fm := probe.funcMap()
+	fm := probe.coreFuncMap()
 	out := make(map[string]struct{}, len(fm))
 	for name := range fm {
 		out[name] = struct{}{}
@@ -119,6 +119,19 @@ var reservedFuncNames = sync.OnceValue(func() map[string]struct{} {
 // render-dispatch and import-collection families; plugin overrides
 // for these names are rejected at Build time.
 func (s *renderState) funcMap() template.FuncMap {
+	fm := s.coreFuncMap()
+	maps.Copy(fm, extrasFuncMap())
+	return fm
+}
+
+// coreFuncMap returns just the reserved canonical funcmap entries —
+// the dispatch, canonical-render, slot-composition, collision-
+// handling, and canonical-metadata categories. Plugin overrides
+// targeting these names fail at Build with [ErrReservedFuncName].
+// Overrideable entries (Naming, Meta-read, String, Debug) ride on
+// [extrasFuncMap] and are excluded from the reserved set so
+// plugins may replace them.
+func (s *renderState) coreFuncMap() template.FuncMap {
 	return template.FuncMap{
 		"render":                 s.render,
 		"renderType":             s.renderType,
@@ -140,6 +153,8 @@ func (s *renderState) funcMap() template.FuncMap {
 		"renderFunctionParams":   s.renderFunctionParams,
 		"renderMethodParams":     s.renderMethodParams,
 		"imp":                    s.imports.Imp,
+		"slot":                   slot,
+		"provenance":             provenance,
 	}
 }
 

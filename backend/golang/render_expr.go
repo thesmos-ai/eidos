@@ -266,7 +266,7 @@ func (s *renderState) renderFuncLit(e *emit.Expr) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	retText, err := s.renderReturns(e.FuncReturns)
+	retText, err := s.renderReturns(emit.AnonReturns(e.FuncReturns...))
 	if err != nil {
 		return "", err
 	}

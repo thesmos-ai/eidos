@@ -47,7 +47,7 @@ func TestTemplates_Interface(t *testing.T) {
 			Interfaces: []*emit.Interface{{
 				Name: "Closer", Package: "x", Target: target,
 				Methods: []*emit.Method{
-					{Name: "Close", Returns: []emit.Ref{emit.Builtin("error")}},
+					{Name: "Close", Returns: emit.AnonReturns(emit.Builtin("error"))},
 				},
 			}},
 		})
@@ -89,7 +89,7 @@ func TestTemplates_Interface(t *testing.T) {
 					{
 						Name:    "Read",
 						Params:  []*emit.Param{{Name: "n", Type: emit.Builtin("int")}},
-						Returns: []emit.Ref{emit.Builtin("int"), emit.Builtin("error")},
+						Returns: emit.AnonReturns(emit.Builtin("int"), emit.Builtin("error")),
 					},
 				},
 			}},
@@ -298,7 +298,7 @@ func TestTemplates_Function(t *testing.T) {
 					{Name: "a", Type: emit.Builtin("int")},
 					{Name: "b", Type: emit.Builtin("int")},
 				},
-				Returns: []emit.Ref{emit.Builtin("int")},
+				Returns: emit.AnonReturns(emit.Builtin("int")),
 				Body: []*emit.Stmt{emit.NewReturn(&emit.Expr{
 					ExprKind: emit.ExprBinary, Op: "+",
 					Left:  &emit.Expr{ExprKind: emit.ExprIdent, Name: "a"},
@@ -328,7 +328,7 @@ func TestTemplates_Function(t *testing.T) {
 					Constraint: &emit.Constraint{Embedded: []emit.Ref{emit.Builtin("any")}},
 				}},
 				Params:  []*emit.Param{{Name: "v", Type: emit.Builtin("int")}},
-				Returns: []emit.Ref{emit.Builtin("int")},
+				Returns: emit.AnonReturns(emit.Builtin("int")),
 				Body: []*emit.Stmt{emit.NewReturn(&emit.Expr{
 					ExprKind: emit.ExprIdent, Name: "v",
 				})},
@@ -383,7 +383,7 @@ func TestTemplates_Method(t *testing.T) {
 			Name:         "Save",
 			Receiver:     emit.Ptr(emit.Internal(holder)),
 			ReceiverName: "r",
-			Returns:      []emit.Ref{emit.Builtin("error")},
+			Returns:      emit.AnonReturns(emit.Builtin("error")),
 			Body:         []*emit.Stmt{emit.NewReturn(&emit.Expr{ExprKind: emit.ExprLiteral, LitKind: emit.LitNil})},
 		}}
 		addEmitPackage(t, ctx, emitPackage("x", holder))

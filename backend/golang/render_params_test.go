@@ -83,6 +83,119 @@ func TestRenderParams_MixedNamed(t *testing.T) {
 	})
 }
 
+// TestRenderReturns_NamedAnonymousVariants pins the four cases the
+// renderReturns helper handles:
+//
+//  1. Zero returns → no clause.
+//  2. One anonymous return → bare type.
+//  3. One named return → parenthesised `name type`.
+//  4. Two or more returns (named or anonymous) → parenthesised list.
+//
+// Mixed named/unnamed slots in a single signature surface as
+// [emit.ErrMixedNamedReturns].
+func TestRenderReturns_NamedAnonymousVariants(t *testing.T) {
+	t.Parallel()
+
+	t.Run("one anonymous return renders bare", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		addEmitPackage(t, ctx, &emit.Package{
+			Name: "x", Path: "x",
+			Functions: []*emit.Function{{
+				Name: "Single", Package: "x", Target: target,
+				Returns: emit.AnonReturns(emit.Builtin("int")),
+				Body: []*emit.Stmt{emit.NewReturn(&emit.Expr{
+					ExprKind: emit.ExprLiteral, LitKind: emit.LitInt, RawText: "0",
+				})},
+			}},
+		})
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		if !strings.Contains(string(body), "func Single() int {") {
+			t.Fatalf("one anonymous return should render bare; got:\n%s", body)
+		}
+	})
+
+	t.Run("one named return renders parenthesised name + type", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		addEmitPackage(t, ctx, &emit.Package{
+			Name: "x", Path: "x",
+			Functions: []*emit.Function{{
+				Name: "Counter", Package: "x", Target: target,
+				Returns: []*emit.Return{{Name: "n", Type: emit.Builtin("int")}},
+				Body: []*emit.Stmt{emit.NewReturn(&emit.Expr{
+					ExprKind: emit.ExprLiteral, LitKind: emit.LitInt, RawText: "0",
+				})},
+			}},
+		})
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		if !strings.Contains(string(body), "func Counter() (n int) {") {
+			t.Fatalf("one named return should render parenthesised; got:\n%s", body)
+		}
+	})
+
+	t.Run("multiple named returns render parenthesised list", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		addEmitPackage(t, ctx, &emit.Package{
+			Name: "x", Path: "x",
+			Functions: []*emit.Function{{
+				Name: "ReadAll", Package: "x", Target: target,
+				Returns: []*emit.Return{
+					{Name: "n", Type: emit.Builtin("int")},
+					{Name: "err", Type: emit.Builtin("error")},
+				},
+				Body: []*emit.Stmt{emit.NewReturn(
+					&emit.Expr{ExprKind: emit.ExprLiteral, LitKind: emit.LitInt, RawText: "0"},
+					&emit.Expr{ExprKind: emit.ExprLiteral, LitKind: emit.LitNil},
+				)},
+			}},
+		})
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		if !strings.Contains(string(body), "func ReadAll() (n int, err error) {") {
+			t.Fatalf("two named returns should render parenthesised; got:\n%s", body)
+		}
+	})
+
+	t.Run("mixed named and anonymous returns surface ErrMixedNamedReturns", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		addEmitPackage(t, ctx, &emit.Package{
+			Name: "x", Path: "x",
+			Functions: []*emit.Function{{
+				Name: "Mixed", Package: "x", Target: target,
+				Returns: []*emit.Return{
+					{Name: "n", Type: emit.Builtin("int")},
+					{Type: emit.Builtin("error")},
+				},
+			}},
+		})
+		if err := mustNew(t).Render(ctx); err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		if _, ok := mem.Get(target); ok {
+			t.Fatalf("mixed-named returns must suppress sink writes")
+		}
+		if !diagnosticsContain(d, diag.Error, "mix named and unnamed") {
+			t.Fatalf("expected ErrMixedNamedReturns diagnostic; got %+v", d.Diagnostics())
+		}
+	})
+
+	t.Run("ErrMixedNamedReturns is exported and satisfies errors.Is", func(t *testing.T) {
+		t.Parallel()
+		if emit.ErrMixedNamedReturns == nil {
+			t.Fatalf("ErrMixedNamedReturns must be exported and non-nil")
+		}
+		if !errors.Is(emit.ErrMixedNamedReturns, emit.ErrMixedNamedReturns) {
+			t.Fatalf("ErrMixedNamedReturns must satisfy errors.Is reflexivity")
+		}
+	})
+}
+
 // TestRenderReceiver_NilReceiver covers the renderReceiver branch
 // for a method whose [emit.Method.Receiver] is nil — the helper
 // returns the empty string so the method template can still render

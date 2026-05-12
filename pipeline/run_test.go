@@ -5,6 +5,7 @@ package pipeline_test
 
 import (
 	"errors"
+	"os"
 	"slices"
 	"testing"
 
@@ -642,6 +643,36 @@ func TestPipeline_Run_ParallelAnnotatorsWithPlainPlugin(t *testing.T) {
 		assertNoError(t, p.Run(t.Context()))
 		if plain.calls != 1 {
 			t.Fatalf("plain annotator should run; calls=%d", plain.calls)
+		}
+	})
+}
+
+func TestPipeline_Run_LibraryCommandLine(t *testing.T) {
+	// Serial: mutates os.Args. No sibling test reads os.Args or
+	// asserts on BackendContext.Command, so parallel siblings stay
+	// safe across the mutation window.
+	t.Run("commandLine returns the library marker when os.Args carries no positional arguments", func(t *testing.T) {
+		orig := os.Args
+		t.Cleanup(func() { os.Args = orig })
+		os.Args = []string{"some-binary"}
+
+		var captured string
+		be := &recBE{
+			name: "be",
+			lang: "stub",
+			render: func(ctx *plugin.BackendContext) {
+				captured = ctx.Command
+			},
+		}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithBackend(be).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context()))
+		if captured != "(library)" {
+			t.Fatalf("BackendContext.Command = %q, want %q", captured, "(library)")
 		}
 	})
 }

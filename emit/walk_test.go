@@ -199,7 +199,7 @@ func TestWalk_MethodDescent(t *testing.T) {
 			TypeParams: []*emit.TypeParam{{Name: "T"}},
 			Receiver:   builtinRef("Repo"),
 			Params:     []*emit.Param{{Name: "x", Type: builtinRef("int")}},
-			Returns:    []emit.Ref{builtinRef("error")},
+			Returns:    emit.AnonReturns(builtinRef("error")),
 			Body:       []*emit.Stmt{emit.NewReturn()},
 		}
 		got := recordWalk(m)
@@ -220,7 +220,7 @@ func TestWalk_FunctionDescent(t *testing.T) {
 		f := &emit.Function{
 			TypeParams: []*emit.TypeParam{{Name: "T"}},
 			Params:     []*emit.Param{{Name: "x", Type: builtinRef("int")}},
-			Returns:    []emit.Ref{builtinRef("error")},
+			Returns:    emit.AnonReturns(builtinRef("error")),
 			Body:       []*emit.Stmt{emit.NewReturn()},
 		}
 		got := recordWalk(f)
