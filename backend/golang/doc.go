@@ -45,14 +45,19 @@
 //
 // # Templates
 //
-// The backend ships nine kind-templates plus a shared partials file:
+// The backend ships eight kind-templates, one per renderable top-level emit
+// kind:
 //
-//	emit.file        emit.struct    emit.interface
-//	emit.function    emit.method    emit.enum
-//	emit.alias       emit.variable  emit.constant
+//	emit.struct    emit.interface  emit.function
+//	emit.method    emit.enum       emit.alias
+//	emit.variable  emit.constant
 //
 // Template names match [emit.Node.Kind] verbatim; the `render` funcmap entry
-// routes dispatch by `Node.Kind()`. Plugin-defined emit kinds follow the same
+// routes dispatch by `Node.Kind()`. [emit.File] is composed in Go (header,
+// imports, slot ordering, footer) and never goes through `render`. The
+// `fragment.` template-name prefix is reserved for future shared partials;
+// plugin-defined templates using it are rejected at parse time with
+// [ErrReservedTemplatePrefix]. Plugin-defined emit kinds follow the same
 // convention — a plugin that exposes Kind `sagagen.saga` ships a template
 // defining `sagagen.saga`.
 //
@@ -151,6 +156,10 @@
 //     to override a reserved canonical entry.
 //   - [ErrTemplateNameCollision] — two plugins both define a template
 //     under the same name.
+//   - [ErrReservedTemplatePrefix] — a plugin defines a template under a
+//     reserved name prefix (currently `fragment.`).
+//   - [ErrSlotHostUnsupported] — the `slot` funcmap helper was invoked
+//     against a value that doesn't implement [emit.SlotHost].
 //
 // # Concurrency
 //
@@ -161,10 +170,4 @@
 // isolation. Plugin templates merge into the per-Render clone, not the
 // parent, so concurrent Render calls remain race-free.
 //
-// # Spec reference
-//
-// Section 9 of the eidos v4 architecture spec is the authoritative reference
-// for the backend's contract — template names, funcmap categories, the
-// render pipeline, slot semantics, header/footer format, and the
-// deterministic-output guarantee.
 package golang

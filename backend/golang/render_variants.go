@@ -28,8 +28,10 @@ import (
 // gofmt inside the enclosing `const ( ... )` block aligns the
 // names and equals signs.
 //
-// `renderVariants` is one of the reserved canonical-render funcmap
-// entries — plugin overrides are rejected at Build time.
+// Internal helper: [renderState.renderEnumVariants] (the
+// funcmap-exposed entry) merges typed variants with slot
+// contributions then calls this helper to format the resulting
+// enum.
 func (s *renderState) renderVariants(e *emit.Enum) (string, error) {
 	typeName := ""
 	if e.Underlying != nil {

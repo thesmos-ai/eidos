@@ -33,8 +33,9 @@ import (
 // undocumented siblings, without introducing a trailing blank
 // before the closing brace.
 //
-// `renderFields` is one of the reserved canonical-render funcmap
-// entries — plugin overrides are rejected at Build time.
+// Internal helper: [renderState.renderStructFields] (the
+// funcmap-exposed entry) merges typed fields with slot contributions
+// then calls this helper to format the resulting slice.
 func (s *renderState) renderFields(fields []*emit.Field) (string, error) {
 	var b strings.Builder
 	for i, f := range fields {
@@ -96,8 +97,12 @@ func fieldTagBlob(f *emit.Field) string {
 // struct or interface body — one tab-indented `renderType(.Type)`
 // per embed, terminated by a newline. Empty input returns the
 // empty string; the caller emits no leading or trailing whitespace
-// for missing embeds. Currently used by the `emit.struct` and
-// `emit.interface` templates.
+// for missing embeds.
+//
+// Internal helper: [renderState.renderStructEmbeds] and
+// [renderState.renderInterfaceEmbeds] (the funcmap-exposed entries)
+// merge typed embeds with slot contributions then call this helper
+// to format the resulting slice.
 func (s *renderState) renderEmbeds(embeds []*emit.Embed) (string, error) {
 	var b strings.Builder
 	for _, e := range embeds {
