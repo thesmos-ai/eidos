@@ -40,6 +40,12 @@ type RunConfig struct {
 
 	// Quiet suppresses Warn diagnostics.
 	Quiet bool
+
+	// Routing carries the run's routing-layer flag overrides
+	// (`-target` / `-o` / `-p` / `-layout` / `-output-dir`). The
+	// values flow into the pipeline's Builder via
+	// [RoutingFlags.Apply] before [pipeline.Builder.Build] runs.
+	Routing RoutingFlags
 }
 
 // RunCommand executes the configured pipeline and writes output
@@ -62,6 +68,7 @@ func (c *RunCommand) RegisterFlags(fs *flag.FlagSet) {
 	fs.BoolVar(&c.Config.Verbose, FlagVerbose, false, UsageVerbose)
 	fs.BoolVar(&c.Config.Quiet, FlagQuiet, false, UsageQuiet)
 	fs.BoolVar(&c.Config.NoCache, FlagNoCache, false, UsageNoCache)
+	c.Config.Routing.Register(fs)
 }
 
 // Execute runs the pipeline.
@@ -72,9 +79,15 @@ func (c *RunCommand) Execute(ctx context.Context, env *Env) (exit int) {
 	if cfg == nil {
 		cfg = DefaultConfig()
 	}
+	routing, err := c.Config.Routing.Resolve(env, cfg, c.Config.Verbose)
+	if err != nil {
+		writeErr(env, "%v", err)
+		return ExitUserError
+	}
 	p, err := buildPipeline(env, cfg, c.Config.Plugins, pipelineOverride{
 		NoCache: c.Config.NoCache,
 		Verbose: c.Config.Verbose,
+		Routing: routing,
 	})
 	if err != nil {
 		writeErr(env, "%v", err)

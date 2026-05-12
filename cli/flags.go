@@ -39,14 +39,35 @@ const (
 	// against the cached value.
 	FlagVerifyCache = "verify-cache"
 
-	// FlagTarget restricts the pipeline to a single scope:
-	// "file=...", "interface=...", "struct=...", "package=...".
+	// FlagTarget restricts the pipeline to a single source-decl
+	// scope: a bare unqualified name (`-target Article`) or a
+	// qualified `pkg.Name` form (`-target blog.Article`) for the
+	// disambiguator case across packages.
 	FlagTarget = "target"
 
-	// FlagOutput overrides the rendered filename for the entity
-	// matched by the explain / run selector. Used by `go:generate`
-	// style one-shot invocations.
+	// FlagOutput pins the rendered filename for every emitted
+	// decl in scope. Used by `//go:generate` one-shot invocations
+	// where the rendered output collapses into a single named
+	// file. Requires [FlagTarget] (or [GOFILE]-driven inference)
+	// since pairing it with a multi-symbol scope produces
+	// undefined per-decl behaviour.
 	FlagOutput = "o"
+
+	// FlagPackage pins the rendered file's package name for
+	// every emitted decl in scope. Required when
+	// [FlagLayout]=centralised and the config supplies no
+	// `output.package`.
+	FlagPackage = "p"
+
+	// FlagLayout overrides the project-default layout policy
+	// for the run. Accepts [pipeline.LayoutAlongsideSource] or
+	// [pipeline.LayoutCentralised].
+	FlagLayout = "layout"
+
+	// FlagOutputDir sets the rendered output directory under
+	// centralised layout. Ignored — with a configuration warning
+	// — under alongside-source layout.
+	FlagOutputDir = "output-dir"
 
 	// FlagDryRun reports planned actions without performing them
 	// (currently used by `prune`).
@@ -63,7 +84,10 @@ const (
 	UsageQuiet       = "Suppress Warn diagnostics."
 	UsageNoCache     = "Disable the build cache for this invocation."
 	UsageVerifyCache = "Recompute output and assert byte-identity against the cached value."
-	UsageTarget      = "Restrict the pipeline to a single scope (file=, interface=, struct=, package=)."
-	UsageOutput      = "Override the rendered filename for the matched entity."
+	UsageTarget      = "Restrict the run to source decls whose unqualified name equals VALUE, or whose qualified name ends with .VALUE (pkg.Name disambiguates across packages)."
+	UsageOutput      = "Pin the rendered filename for every emitted decl in scope. Requires -target (or GOFILE inference)."
+	UsagePackage     = "Pin the rendered file's package name for every emitted decl in scope. Required when -layout=centralised has no config-side output.package."
+	UsageLayout      = "Override the project-default layout policy (alongside-source or centralised)."
+	UsageOutputDir   = "Output directory under -layout=centralised. Ignored under alongside-source."
 	UsageDryRun      = "Report planned actions without performing them."
 )

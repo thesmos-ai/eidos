@@ -30,6 +30,10 @@ type CheckConfig struct {
 	DiagFormat DiagFormat
 	Verbose    bool
 	Quiet      bool
+
+	// Routing carries the run's routing-layer flag overrides;
+	// see [RoutingFlags] for the per-field semantics.
+	Routing RoutingFlags
 }
 
 // CheckCommand implements the CI-gate `check` semantic. Returns:
@@ -47,6 +51,7 @@ func (c *CheckCommand) RegisterFlags(fs *flag.FlagSet) {
 	fs.Var(&c.Config.DiagFormat, FlagDiagFormat, UsageDiagFormat)
 	fs.BoolVar(&c.Config.Verbose, FlagVerbose, false, UsageVerbose)
 	fs.BoolVar(&c.Config.Quiet, FlagQuiet, false, UsageQuiet)
+	c.Config.Routing.Register(fs)
 }
 
 // Execute runs the pipeline through an in-memory sink and reports
@@ -58,10 +63,16 @@ func (c *CheckCommand) Execute(ctx context.Context, env *Env) (exit int) {
 	if cfg == nil {
 		cfg = DefaultConfig()
 	}
+	routing, err := c.Config.Routing.Resolve(env, cfg, c.Config.Verbose)
+	if err != nil {
+		writeErr(env, "%v", err)
+		return ExitUserError
+	}
 	memSink := sink.NewMemory()
 	p, err := buildPipeline(env, cfg, c.Config.Plugins, pipelineOverride{
 		Verbose:      c.Config.Verbose,
 		SinkOverride: memSink,
+		Routing:      routing,
 	})
 	if err != nil {
 		writeErr(env, "%v", err)

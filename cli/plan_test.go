@@ -6,10 +6,12 @@ package cli_test
 import (
 	"bytes"
 	"encoding/json"
+	"flag"
 	"strings"
 	"testing"
 
 	"go.thesmos.sh/eidos/cli"
+	"go.thesmos.sh/eidos/pipeline"
 	"go.thesmos.sh/eidos/plugin"
 )
 
@@ -160,6 +162,86 @@ func TestPlanCommand_StdinNilToleratedWhenUnused(t *testing.T) {
 		}}
 		if code := cmd.Execute(t.Context(), env); code != cli.ExitOK {
 			t.Fatalf("Execute = %d, want ExitOK", code)
+		}
+	})
+}
+
+// TestPlanCommand_RegisterFlags_Routing pins the routing-flag
+// wiring on PlanCommand — parsed values land on
+// [cli.PlanConfig.Routing].
+func TestPlanCommand_RegisterFlags_Routing(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Routing flags parse onto PlanCommand.Config.Routing", func(t *testing.T) {
+		t.Parallel()
+		var cmd cli.PlanCommand
+		fs := flag.NewFlagSet("plan", flag.ContinueOnError)
+		cmd.RegisterFlags(fs)
+		assertRoutingFlagsParse(t, fs, &cmd.Config.Routing)
+	})
+}
+
+// TestPlanCommand_ResolvedPolicySection pins the routing-policy
+// section in plan output: every registered plugin appears under
+// a "resolved policy" heading with its merged Layout / Package /
+// Dir values and the precedence-layer attribution for each.
+// Two consecutive invocations against identical inputs must
+// produce byte-identical text.
+func TestPlanCommand_ResolvedPolicySection(t *testing.T) {
+	t.Parallel()
+
+	t.Run("text output includes per-plugin resolved-policy section", func(t *testing.T) {
+		t.Parallel()
+		env, stdout, _ := freshEnv(t, "eidos")
+		cmd := &cli.PlanCommand{Config: cli.PlanConfig{
+			Plugins: []plugin.Plugin{
+				stubFrontend{name: "fe"},
+				stubGenerator{name: "rg"},
+				stubBackend{name: "be", lang: "stub"},
+			},
+			Routing: cli.RoutingFlags{
+				Layout:  pipeline.LayoutCentralised,
+				Package: "gen",
+			},
+		}}
+		if code := cmd.Execute(t.Context(), env); code != cli.ExitOK {
+			t.Fatalf("Execute = %d, want ExitOK", code)
+		}
+		out := stdout.String()
+		for _, want := range []string{
+			"resolved policy",
+			"rg:",
+			"layout=centralised",
+			"package=gen",
+		} {
+			if !strings.Contains(out, want) {
+				t.Errorf("plan output missing %q; got:\n%s", want, out)
+			}
+		}
+	})
+
+	t.Run("byte-stable across two invocations with identical inputs", func(t *testing.T) {
+		t.Parallel()
+		env1, stdout1, _ := freshEnv(t, "eidos")
+		env2, stdout2, _ := freshEnv(t, "eidos")
+		mk := func() *cli.PlanCommand {
+			return &cli.PlanCommand{Config: cli.PlanConfig{
+				Plugins: []plugin.Plugin{
+					stubFrontend{name: "fe"},
+					stubGenerator{name: "rg"},
+					stubBackend{name: "be", lang: "stub"},
+				},
+				Routing: cli.RoutingFlags{
+					Layout:  pipeline.LayoutCentralised,
+					Package: "gen",
+				},
+			}}
+		}
+		_ = mk().Execute(t.Context(), env1)
+		_ = mk().Execute(t.Context(), env2)
+		if stdout1.String() != stdout2.String() {
+			t.Fatalf("plan output not byte-stable across runs:\n--- run1 ---\n%s\n--- run2 ---\n%s",
+				stdout1.String(), stdout2.String())
 		}
 	})
 }

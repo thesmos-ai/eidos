@@ -28,6 +28,10 @@ type ExplainConfig struct {
 	Format   DiagFormat
 	Verbose  bool
 	Quiet    bool
+
+	// Routing carries the run's routing-layer flag overrides;
+	// see [RoutingFlags] for the per-field semantics.
+	Routing RoutingFlags
 }
 
 // ExplainCommand prints a provenance trace for an entity, slot,
@@ -47,6 +51,7 @@ func (c *ExplainCommand) RegisterFlags(fs *flag.FlagSet) {
 	fs.Var(&c.Config.Format, FlagDiagFormat, UsageDiagFormat)
 	fs.BoolVar(&c.Config.Verbose, FlagVerbose, false, UsageVerbose)
 	fs.BoolVar(&c.Config.Quiet, FlagQuiet, false, UsageQuiet)
+	c.Config.Routing.Register(fs)
 }
 
 // Execute resolves the selector against the emit graph and prints
@@ -68,9 +73,21 @@ func (c *ExplainCommand) Execute(ctx context.Context, env *Env) (exit int) {
 	if cfg == nil {
 		cfg = DefaultConfig()
 	}
+	// Per spec: explain ignores -target so users can inspect any
+	// entity regardless of an outer scope filter; the routing
+	// flags still validate and the rest of the resolved policy
+	// (output / package / layout / output-dir) threads through.
+	routingForResolve := c.Config.Routing
+	routingForResolve.Target = ""
+	resolved, err := routingForResolve.Resolve(env, cfg, c.Config.Verbose)
+	if err != nil {
+		writeErr(env, "%v", err)
+		return ExitUserError
+	}
 	p, err := buildPipeline(env, cfg, c.Config.Plugins, pipelineOverride{
 		Verbose:      c.Config.Verbose,
 		SinkOverride: sink.NewMemory(),
+		Routing:      resolved,
 	})
 	if err != nil {
 		writeErr(env, "%v", err)

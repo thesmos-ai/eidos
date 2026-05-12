@@ -5,6 +5,7 @@ package cli_test
 
 import (
 	"errors"
+	"flag"
 	"strings"
 	"testing"
 
@@ -237,3 +238,18 @@ func TestExplainCommand_ConfigError(t *testing.T) {
 // errSentinelImport keeps the errors import referenced in case
 // further test helpers grow.
 var _ = errors.New
+
+// TestExplainCommand_RegisterFlags_Routing pins the routing-flag
+// wiring on ExplainCommand — parsed values land on
+// [cli.ExplainConfig.Routing].
+func TestExplainCommand_RegisterFlags_Routing(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Routing flags parse onto ExplainCommand.Config.Routing", func(t *testing.T) {
+		t.Parallel()
+		var cmd cli.ExplainCommand
+		fs := flag.NewFlagSet("explain", flag.ContinueOnError)
+		cmd.RegisterFlags(fs)
+		assertRoutingFlagsParse(t, fs, &cmd.Config.Routing)
+	})
+}

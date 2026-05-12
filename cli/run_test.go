@@ -6,6 +6,7 @@ package cli_test
 import (
 	"bytes"
 	"errors"
+	"flag"
 	"os"
 	"path/filepath"
 	"strings"
@@ -147,6 +148,42 @@ func TestRunCommand_NoCacheOverride(t *testing.T) {
 		}}
 		if code := cmd.Execute(t.Context(), env); code != cli.ExitOK {
 			t.Fatalf("Execute = %d, want ExitOK", code)
+		}
+	})
+}
+
+// TestRunCommand_RegisterFlags_Routing pins the routing-flag
+// wiring: every routing flag binds onto the supplied FlagSet
+// under the documented name and parses into the command's
+// [cli.RunConfig.Routing] field.
+func TestRunCommand_RegisterFlags_Routing(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Routing flags parse onto RunCommand.Config.Routing", func(t *testing.T) {
+		t.Parallel()
+		var cmd cli.RunCommand
+		fs := flag.NewFlagSet("run", flag.ContinueOnError)
+		cmd.RegisterFlags(fs)
+		assertRoutingFlagsParse(t, fs, &cmd.Config.Routing)
+	})
+}
+
+// TestRunCommand_RoutingValidation_Rejected pins the validation
+// gate: a routing-flag combination that fails [RoutingFlags.Validate]
+// exits ExitUserError before any pipeline construction work
+// happens.
+func TestRunCommand_RoutingValidation_Rejected(t *testing.T) {
+	t.Parallel()
+
+	t.Run("-o without -target exits ExitUserError", func(t *testing.T) {
+		t.Parallel()
+		env, _, _ := freshEnv(t, "eidos")
+		cmd := &cli.RunCommand{Config: cli.RunConfig{
+			Plugins: []plugin.Plugin{stubFrontend{name: "fe"}, stubBackend{name: "be", lang: "stub"}},
+			Routing: cli.RoutingFlags{Output: "x.go"},
+		}}
+		if code := cmd.Execute(t.Context(), env); code != cli.ExitUserError {
+			t.Fatalf("Execute = %d, want ExitUserError", code)
 		}
 	})
 }

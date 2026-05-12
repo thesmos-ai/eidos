@@ -4,6 +4,7 @@
 package cli_test
 
 import (
+	"flag"
 	"os"
 	"path/filepath"
 	"strings"
@@ -153,5 +154,20 @@ func TestCheckCommand_EmptyPipelineNoDrift(t *testing.T) {
 		if !strings.Contains(stdout.String(), "0 output") {
 			t.Fatalf("expected zero-output summary; got %q", stdout.String())
 		}
+	})
+}
+
+// TestCheckCommand_RegisterFlags_Routing pins the routing-flag
+// wiring on CheckCommand — parsed values land on
+// [cli.CheckConfig.Routing].
+func TestCheckCommand_RegisterFlags_Routing(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Routing flags parse onto CheckCommand.Config.Routing", func(t *testing.T) {
+		t.Parallel()
+		var cmd cli.CheckCommand
+		fs := flag.NewFlagSet("check", flag.ContinueOnError)
+		cmd.RegisterFlags(fs)
+		assertRoutingFlagsParse(t, fs, &cmd.Config.Routing)
 	})
 }

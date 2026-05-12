@@ -7,6 +7,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 
 	"go.thesmos.sh/eidos/pipeline"
 	"go.thesmos.sh/eidos/plugin"
@@ -27,6 +28,11 @@ type PlanConfig struct {
 
 	// Format selects text (default) or JSON output.
 	Format DiagFormat
+
+	// Routing carries the run's routing-layer flag overrides;
+	// the plan output's resolved-policy section reflects the
+	// merged-flag-and-config policy each plugin would see.
+	Routing RoutingFlags
 }
 
 // PlanCommand prints the resolved plugin order without running
@@ -37,6 +43,7 @@ type PlanCommand struct{ Config PlanConfig }
 // RegisterFlags binds [PlanCommand]'s flags into fs.
 func (c *PlanCommand) RegisterFlags(fs *flag.FlagSet) {
 	fs.Var(&c.Config.Format, FlagDiagFormat, UsageDiagFormat)
+	c.Config.Routing.Register(fs)
 }
 
 // Execute resolves the plan and prints it. Returns [ExitUserError]
@@ -46,7 +53,12 @@ func (c *PlanCommand) Execute(_ context.Context, env *Env) int {
 	if cfg == nil {
 		cfg = DefaultConfig()
 	}
-	p, err := buildPipeline(env, cfg, c.Config.Plugins, pipelineOverride{})
+	routing, err := c.Config.Routing.Resolve(env, cfg, false)
+	if err != nil {
+		writeErr(env, "%v", err)
+		return ExitUserError
+	}
+	p, err := buildPipeline(env, cfg, c.Config.Plugins, pipelineOverride{Routing: routing})
 	if err != nil {
 		writeErr(env, "%v", err)
 		return ExitUserError
@@ -54,16 +66,19 @@ func (c *PlanCommand) Execute(_ context.Context, env *Env) int {
 	plan := p.Plan()
 	switch c.Config.Format {
 	case DiagFormatJSON:
-		return c.writeJSON(env, plan)
+		return c.writeJSON(env, p, plan)
 	default:
-		return c.writeText(env, plan)
+		return c.writeText(env, p, plan)
 	}
 }
 
 // writeText renders the plan as a human-readable block grouped by
 // phase. Bucket boundaries surface so callers can see priority
-// groupings at a glance.
-func (*PlanCommand) writeText(env *Env, plan *pipeline.Plan) int {
+// groupings at a glance. The resolved-policy section lists every
+// registered plugin with its merged routing policy so users can
+// answer "where would this plugin's output land?" without running
+// the pipeline.
+func (*PlanCommand) writeText(env *Env, p *pipeline.Pipeline, plan *pipeline.Plan) int {
 	w := env.Stdout
 	fmt.Fprintln(w, "frontends:")
 	for _, fe := range plan.Frontends {
@@ -88,7 +103,35 @@ func (*PlanCommand) writeText(env *Env, plan *pipeline.Plan) int {
 	} else {
 		fmt.Fprintln(w, "backend: (none)")
 	}
+	writeResolvedPolicy(w, p, plan)
 	return ExitOK
+}
+
+// writeResolvedPolicy renders the per-plugin resolved routing
+// policy. Plugins are listed in plan-execution order (frontends,
+// annotators, generators, backend) so two runs over the same
+// inputs produce byte-identical output.
+func writeResolvedPolicy(w io.Writer, p *pipeline.Pipeline, plan *pipeline.Plan) {
+	fmt.Fprintln(w, "resolved policy:")
+	emit := func(name string) {
+		pol := p.LayoutPolicyFor(name)
+		fmt.Fprintf(w, "  %s:\n", name)
+		fmt.Fprintf(w, "    layout=%s (from %s)\n", pol.Layout, pol.LayoutFrom)
+		fmt.Fprintf(w, "    package=%s (from %s)\n", pol.Package, pol.PackageFrom)
+		fmt.Fprintf(w, "    dir=%s (from %s)\n", pol.Dir, pol.DirFrom)
+	}
+	for _, fe := range plan.Frontends {
+		emit(fe.Name())
+	}
+	for _, ann := range plan.Annotators {
+		emit(ann.Name())
+	}
+	for _, gen := range plan.Generators {
+		emit(gen.Name())
+	}
+	if plan.Backend != nil {
+		emit(plan.Backend.Name())
+	}
 }
 
 // planBucketEntry is one bucket's JSON projection — its integer
@@ -99,18 +142,53 @@ type planBucketEntry struct {
 }
 
 // writeJSON renders the plan as a single JSON object suitable for
-// machine consumption.
-func (*PlanCommand) writeJSON(env *Env, plan *pipeline.Plan) int {
+// machine consumption. The `resolved_policy` block lists every
+// registered plugin's merged routing policy keyed by plugin name.
+func (*PlanCommand) writeJSON(env *Env, p *pipeline.Pipeline, plan *pipeline.Plan) int {
+	type policyJSON struct {
+		Layout      string `json:"layout"`
+		LayoutFrom  string `json:"layout_from"`
+		Package     string `json:"package,omitempty"`
+		PackageFrom string `json:"package_from"`
+		Dir         string `json:"dir,omitempty"`
+		DirFrom     string `json:"dir_from"`
+	}
 	type planJSON struct {
-		Frontends  []string          `json:"frontends"`
-		Annotators []planBucketEntry `json:"annotators"`
-		Generators []planBucketEntry `json:"generators"`
-		Backend    string            `json:"backend,omitempty"`
+		Frontends      []string              `json:"frontends"`
+		Annotators     []planBucketEntry     `json:"annotators"`
+		Generators     []planBucketEntry     `json:"generators"`
+		Backend        string                `json:"backend,omitempty"`
+		ResolvedPolicy map[string]policyJSON `json:"resolved_policy"`
+	}
+	resolved := map[string]policyJSON{}
+	collect := func(name string) {
+		pol := p.LayoutPolicyFor(name)
+		resolved[name] = policyJSON{
+			Layout:      pol.Layout,
+			LayoutFrom:  string(pol.LayoutFrom),
+			Package:     pol.Package,
+			PackageFrom: string(pol.PackageFrom),
+			Dir:         pol.Dir,
+			DirFrom:     string(pol.DirFrom),
+		}
+	}
+	for _, fe := range plan.Frontends {
+		collect(fe.Name())
+	}
+	for _, ann := range plan.Annotators {
+		collect(ann.Name())
+	}
+	for _, gen := range plan.Generators {
+		collect(gen.Name())
+	}
+	if plan.Backend != nil {
+		collect(plan.Backend.Name())
 	}
 	out := planJSON{
-		Frontends:  pluginNames(plan.Frontends),
-		Annotators: annotatorBucketsJSON(plan.AnnotatorBuckets),
-		Generators: generatorBucketsJSON(plan.GeneratorBuckets),
+		Frontends:      pluginNames(plan.Frontends),
+		Annotators:     annotatorBucketsJSON(plan.AnnotatorBuckets),
+		Generators:     generatorBucketsJSON(plan.GeneratorBuckets),
+		ResolvedPolicy: resolved,
 	}
 	if plan.Backend != nil {
 		out.Backend = plan.Backend.Name()

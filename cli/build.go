@@ -100,6 +100,7 @@ func buildPipeline(
 		b.WithSourceRoot(env.Workdir)
 	}
 	applyOutputConfig(b, cfg)
+	override.Routing.Apply(b)
 	p, err := b.Build()
 	if err != nil {
 		return nil, fmt.Errorf("cli: build pipeline: %w", err)
@@ -119,6 +120,11 @@ type pipelineOverride struct {
 	// SinkOverride, when non-nil, replaces the sink built from the
 	// config file. Used by `check` to swap for an in-memory sink.
 	SinkOverride sink.Sink
+	// Routing carries the resolved routing-layer flag overrides
+	// (post-Infer, post-Validate) that the Command's Execute path
+	// applies onto the Builder before [pipeline.Builder.Build]
+	// runs.
+	Routing RoutingFlags
 }
 
 // filterEnabledPlugins returns the subset of plugins enabled per the

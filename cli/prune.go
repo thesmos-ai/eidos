@@ -43,6 +43,10 @@ type PruneConfig struct {
 	// Verbose / Quiet propagate to the diagnostic filter.
 	Verbose bool
 	Quiet   bool
+
+	// Routing carries the run's routing-layer flag overrides;
+	// see [RoutingFlags] for the per-field semantics.
+	Routing RoutingFlags
 }
 
 // PruneCommand implements the `prune` semantic per the CLI spec.
@@ -61,6 +65,7 @@ func (c *PruneCommand) RegisterFlags(fs *flag.FlagSet) {
 	fs.BoolVar(&c.Config.Verbose, FlagVerbose, false, UsageVerbose)
 	fs.BoolVar(&c.Config.Quiet, FlagQuiet, false, UsageQuiet)
 	fs.BoolVar(&c.Config.DryRun, FlagDryRun, false, UsageDryRun)
+	c.Config.Routing.Register(fs)
 }
 
 // Execute reads the previous manifest, runs the pipeline (which
@@ -77,7 +82,15 @@ func (c *PruneCommand) Execute(ctx context.Context, env *Env) (exit int) {
 	prevPath := manifestPath(env, cfg)
 	prev := readManifestSilent(prevPath)
 
-	p, err := buildPipeline(env, cfg, c.Config.Plugins, pipelineOverride{Verbose: c.Config.Verbose})
+	routing, err := c.Config.Routing.Resolve(env, cfg, c.Config.Verbose)
+	if err != nil {
+		writeErr(env, "%v", err)
+		return ExitUserError
+	}
+	p, err := buildPipeline(env, cfg, c.Config.Plugins, pipelineOverride{
+		Verbose: c.Config.Verbose,
+		Routing: routing,
+	})
 	if err != nil {
 		writeErr(env, "%v", err)
 		return ExitUserError

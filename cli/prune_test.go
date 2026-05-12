@@ -6,6 +6,7 @@ package cli_test
 import (
 	"encoding/json"
 	"errors"
+	"flag"
 	"os"
 	"path/filepath"
 	"strings"
@@ -233,5 +234,20 @@ func TestPruneCommand_PreservesManifestJSON(t *testing.T) {
 		if err := json.Unmarshal(raw, &v); err != nil {
 			t.Fatalf("manifest not valid JSON after prune: %v\n%s", err, raw)
 		}
+	})
+}
+
+// TestPruneCommand_RegisterFlags_Routing pins the routing-flag
+// wiring on PruneCommand — parsed values land on
+// [cli.PruneConfig.Routing].
+func TestPruneCommand_RegisterFlags_Routing(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Routing flags parse onto PruneCommand.Config.Routing", func(t *testing.T) {
+		t.Parallel()
+		var cmd cli.PruneCommand
+		fs := flag.NewFlagSet("prune", flag.ContinueOnError)
+		cmd.RegisterFlags(fs)
+		assertRoutingFlagsParse(t, fs, &cmd.Config.Routing)
 	})
 }
