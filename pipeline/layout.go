@@ -13,6 +13,7 @@ import (
 	"go.thesmos.sh/eidos/core/diag"
 	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/manifest"
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/store"
@@ -97,14 +98,16 @@ func routeDecls(
 }
 
 // composeOrZero is the per-kind dispatch's stamp helper: it routes
-// a single decl through the precedence pipeline and returns the
-// composed Target or the zero Target when the decl cannot be
-// routed. Routing failures (synthetic Origin, missing
-// [plugin.FilenameProvider], unknown SetBy attribution) surface an
-// Error diagnostic via ps before the helper returns the zero
-// Target. The zero return value drops the decl from the byTarget
-// rebuild and from the manifest; the per-kind bucket still
-// retains it so debugging tools can still resolve it.
+// a single decl through the precedence pipeline, records the
+// resolved [manifest.ResolvedLayout] on the pipeline for manifest
+// composition, and returns the composed Target — or the zero
+// Target when the decl cannot be routed. Routing failures
+// (synthetic Origin, missing [plugin.FilenameProvider], unknown
+// SetBy attribution) surface an Error diagnostic via ps before the
+// helper returns the zero Target. The zero return value drops the
+// decl from the byTarget rebuild and from the manifest; the
+// per-kind bucket still retains it so debugging tools can still
+// resolve it.
 func composeOrZero(
 	s *store.Store,
 	p *Pipeline,
@@ -126,7 +129,12 @@ func composeOrZero(
 			ErrMissingFilenameProvider.Error(), kind, qname, setBy)
 		return emit.Target{}
 	}
-	return composeTarget(s, p, setBy, suffix, origin)
+	t, rl, ok := composeTarget(s, p, setBy, suffix, origin)
+	if !ok {
+		return emit.Target{}
+	}
+	p.recordResolvedLayout(t, rl)
+	return t
 }
 
 // composeTarget runs the precedence pipeline for one (plugin,
@@ -145,61 +153,94 @@ func composeOrZero(
 //     unconditionally when set.
 //
 // composeTarget is the single helper both decl routing and pending
-// slot-tuple routing call so the two paths cannot drift.
+// slot-tuple routing call so the two paths cannot drift. The
+// returned [manifest.ResolvedLayout] records the per-field
+// precedence-layer attribution for the manifest's observability
+// block.
 func composeTarget(
 	s *store.Store,
 	p *Pipeline,
 	pluginName, suffix string,
 	origin node.Node,
-) emit.Target {
+) (emit.Target, manifest.ResolvedLayout, bool) {
 	policy := p.LayoutPolicyFor(pluginName)
 	srcPkg := originSourcePackage(s, origin)
 	srcDir, basename := originSourceDirBasename(origin)
 
 	var t emit.Target
+	rl := manifest.ResolvedLayout{
+		Layout:       policy.Layout,
+		ResolvedFrom: map[string]manifest.Layer{},
+	}
 
-	// Step 4: filename from basename + suffix.
+	// Filename: framework basename + plugin-declared suffix. The
+	// suffix is guaranteed non-empty here because composeOrZero /
+	// materialiseOriginSlots filter empty entries out of the
+	// FilenameProvider lookup table; reaching this point with an
+	// empty suffix is a framework bug.
 	t.Filename = basename + suffix
+	rl.ResolvedFrom["filename"] = manifest.LayerPluginSuffix
+	rl.ResolvedFrom["layout"] = policy.LayoutFrom
 
-	// Step 3: dir + package + import path.
+	// Dir + Package + ImportPath per resolved policy. The switch
+	// is exhaustive: an unrecognised Layout value is a framework
+	// bug — Builder.resolveLayoutPolicy is the only producer and
+	// normalises to one of the two valid values.
 	switch policy.Layout {
 	case LayoutCentralised:
 		t.Dir = policy.Dir
+		rl.ResolvedFrom["dir"] = policy.DirFrom
 		if t.Dir == "" {
+			// Dir defaults from Package when unset. The
+			// attribution follows the Package source since that
+			// is what supplied the directory's final value.
 			t.Dir = policy.Package
+			rl.ResolvedFrom["dir"] = policy.PackageFrom
 		}
 		t.Package = policy.Package
+		rl.ResolvedFrom["package"] = policy.PackageFrom
 		// Centralised ImportPath is not derivable without a module
 		// root; left empty so the renderer's same-package elision
 		// stays inert under centralised layout until config carries
 		// the value forward.
-	default:
+	case LayoutAlongsideSource:
 		t.Dir = srcDir
+		rl.ResolvedFrom["dir"] = manifest.LayerFramework
 		if srcPkg != nil {
 			t.Package = srcPkg.Name
 			t.ImportPath = srcPkg.Path
 		}
-		// Under alongside-source, a non-empty policy.Package is a
-		// CLI -p (or per-plugin / project config) override that
-		// pins the package for every routed decl. Layout selector
-		// stays alongside-source; the directory is still derived
-		// from origin.
+		rl.ResolvedFrom["package"] = manifest.LayerFramework
+		// A non-empty policy.Package under alongside-source pins
+		// the package without changing the directory. Attribution
+		// follows the layer that supplied the Package value.
 		if policy.Package != "" {
 			t.Package = policy.Package
+			rl.ResolvedFrom["package"] = policy.PackageFrom
 		}
+	default:
+		p.diag.Internalf(position.Pos{},
+			"pipeline.layout: unknown layout %q for plugin %q; cannot route",
+			policy.Layout, pluginName)
+		return emit.Target{}, manifest.ResolvedLayout{}, false
 	}
 
-	// Step 5: +gen:out directive on origin overrides Filename.
+	// +gen:out directive on origin overrides Filename.
 	if fn, ok := outDirectiveFilename(origin); ok {
 		t.Filename = fn
+		rl.ResolvedFrom["filename"] = manifest.LayerDirective
 	}
 
-	// Step 6: CLI -o overrides Filename for every decl in scope.
+	// CLI -o overrides Filename for every decl in scope.
 	if p.OutputFilename() != "" {
 		t.Filename = p.OutputFilename()
+		rl.ResolvedFrom["filename"] = manifest.LayerCLI
 	}
 
-	return t
+	rl.Package = t.Package
+	rl.Dir = t.Dir
+	rl.Filename = t.Filename
+	return t, rl, true
 }
 
 // materialiseOriginSlots drains the pending origin-anchored slot
@@ -232,7 +273,11 @@ func materialiseOriginSlots(
 				tup.SlotName, setBy)
 			continue
 		}
-		target := composeTarget(s, p, setBy, suffix, tup.Origin)
+		target, rl, ok := composeTarget(s, p, setBy, suffix, tup.Origin)
+		if !ok {
+			continue
+		}
+		p.recordResolvedLayout(target, rl)
 		// FileFor only errors when the view is frozen; Layout runs
 		// pre-freeze so the lookup-or-create cannot fail here.
 		file, _ := v.FileFor(target)
@@ -364,12 +409,20 @@ func clearConflictedTargets(v *store.EmitView, key string) {
 // collectFilenameSuffixes builds the plugin-name → filename-suffix
 // lookup the Layout phase consults to compose Target.Filename. The
 // map contains one entry per registered generator that implements
-// [plugin.FilenameProvider]; non-implementing plugins are absent so
-// Layout can surface [ErrMissingFilenameProvider] precisely when a
-// routable decl is attributed to one of them. Generators that
-// return the empty suffix appear in the map with an empty value;
-// Layout treats that as a deliberate "use the source basename
-// verbatim" declaration.
+// [plugin.FilenameProvider] AND returns a non-empty suffix —
+// generators that don't implement the capability OR that return
+// the empty string are both absent from the map. The two cases
+// are equivalent at the routing layer: both signal "I don't
+// declare a routable suffix", and either kind of attribution
+// failure surfaces [ErrMissingFilenameProvider] when a decl
+// emitted by such a plugin reaches the Layout phase.
+//
+// Closing the empty-suffix case at the collection boundary
+// (rather than tolerating it downstream) prevents the
+// source-overwrite footgun the spec calls out: a routable decl
+// composed with an empty suffix would produce Target.Filename =
+// <source-basename>, which on a fresh write would clobber the
+// originating source file on disk.
 func (p *Pipeline) collectFilenameSuffixes() map[string]string {
 	out := map[string]string{}
 	for _, gen := range p.generators {
@@ -377,7 +430,11 @@ func (p *Pipeline) collectFilenameSuffixes() map[string]string {
 		if !ok {
 			continue
 		}
-		out[gen.Name()] = fp.FilenameSuffix()
+		suffix := fp.FilenameSuffix()
+		if suffix == "" {
+			continue
+		}
+		out[gen.Name()] = suffix
 	}
 	return out
 }

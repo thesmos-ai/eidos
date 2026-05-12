@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"go.thesmos.sh/eidos/cache"
+	"go.thesmos.sh/eidos/manifest"
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/pipeline"
 	"go.thesmos.sh/eidos/plugin"
@@ -311,12 +312,35 @@ func TestPipeline_LayoutPolicyFor(t *testing.T) {
 		assertNoError(t, err)
 		got := p.LayoutPolicyFor("repogen")
 		want := pipeline.LayoutPolicy{
-			Layout:  pipeline.LayoutCentralised,
-			Package: "gen",
-			Dir:     "internal/gen",
+			Layout:      pipeline.LayoutCentralised,
+			LayoutFrom:  manifest.LayerCLI,
+			Package:     "gen",
+			PackageFrom: manifest.LayerCLI,
+			Dir:         "internal/gen",
+			DirFrom:     manifest.LayerCLI,
 		}
 		if got != want {
 			t.Fatalf("LayoutPolicyFor = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("default policy stamps every From field as framework", func(t *testing.T) {
+		t.Parallel()
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		got := p.LayoutPolicyFor("repogen")
+		want := pipeline.LayoutPolicy{
+			Layout:      pipeline.LayoutAlongsideSource,
+			LayoutFrom:  manifest.LayerFramework,
+			PackageFrom: manifest.LayerFramework,
+			DirFrom:     manifest.LayerFramework,
+		}
+		if got != want {
+			t.Fatalf("LayoutPolicyFor = %+v, want %+v (default)", got, want)
 		}
 	})
 

@@ -4,11 +4,14 @@
 package pipeline_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"go.thesmos.sh/eidos/core/diag"
+	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/emit/builder"
@@ -33,21 +36,48 @@ func TestManifest_RecordsBackendWrites(t *testing.T) {
 		root := t.TempDir()
 		manifestPath := filepath.Join(root, ".eidos", "manifest.json")
 		mem := sink.NewMemory()
+		// Two source structs in distinct source files so Layout
+		// composes distinct Targets the backend can write to —
+		// the recording sink keys captures by Target so two writes
+		// against the routed Targets produce two manifest entries.
+		srcX := &node.Struct{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "a/x.go"}},
+			Name:     "X", Package: "example.com/a",
+		}
+		srcY := &node.Struct{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "a/y.go"}},
+			Name:     "Y", Package: "example.com/a",
+		}
+		fe := &nodePackageFE{name: "fe", pkg: &node.Package{
+			Name: "a", Path: "example.com/a",
+			Structs: []*node.Struct{srcX, srcY},
+		}}
+		gen := &recGen{name: "gen", suffix: "_gen.go", generate: func(ctx *plugin.GeneratorContext) {
+			_ = ctx.Store.Emit().AddPackage(&emit.Package{
+				Name: "a", Path: "example.com/a",
+				Structs: []*emit.Struct{
+					{BaseEmit: emit.BaseEmit{OriginNode: srcX, SetByName: "gen"}, Name: "X", Package: "a"},
+					{BaseEmit: emit.BaseEmit{OriginNode: srcY, SetByName: "gen"}, Name: "Y", Package: "a"},
+				},
+			})
+		}}
 		be := &recBE{
 			name: "be", lang: "stub",
 			render: func(ctx *plugin.BackendContext) {
-				_ = ctx.Sink.Write(emit.Target{Dir: "a", Filename: "x.go", Package: "x"}, []byte("hello-x"))
-				_ = ctx.Sink.Write(emit.Target{Dir: "a", Filename: "y.go", Package: "x"}, []byte("hello-y"))
+				ctx.Reader.EmitStructs().Each(func(s *emit.Struct) {
+					_ = ctx.Sink.Write(s.Target, []byte("hello-"+s.Name))
+				})
 			},
 		}
 		p, err := pipeline.New().
-			WithFrontend(&stubFE{name: "fe"}).
+			WithFrontend(fe).
+			WithGenerator(gen).
 			WithBackend(be).
 			WithSink(mem).
 			WithManifestPath(manifestPath).
 			Build()
 		assertNoError(t, err)
-		assertNoError(t, p.Run(t.Context()))
+		assertNoError(t, p.Run(t.Context(), "a"))
 
 		// Manifest exists and parses.
 		body, err := os.ReadFile(manifestPath)
@@ -64,10 +94,14 @@ func TestManifest_RecordsBackendWrites(t *testing.T) {
 		for _, o := range m.Outputs {
 			seen[o.Target] = o.Hash
 		}
-		x := seen[emit.Target{Dir: "a", Filename: "x.go", Package: "x"}]
-		y := seen[emit.Target{Dir: "a", Filename: "y.go", Package: "x"}]
+		x := seen[emit.Target{
+			Dir: "a", Filename: "x_gen.go", Package: "a", ImportPath: "example.com/a",
+		}]
+		y := seen[emit.Target{
+			Dir: "a", Filename: "y_gen.go", Package: "a", ImportPath: "example.com/a",
+		}]
 		if x == "" || y == "" {
-			t.Fatalf("manifest should hash both targets; got %+v", seen)
+			t.Fatalf("manifest should hash both routed targets; got %+v", seen)
 		}
 	})
 
@@ -293,6 +327,265 @@ func TestManifest_RecordsBackendWrites(t *testing.T) {
 		}
 		if len(want) != 0 {
 			t.Fatalf("Plugins missing contributors %v; got %v", want, m.Outputs[0].Plugins)
+		}
+	})
+
+	t.Run("ResolvedLayout records per-field precedence-layer attribution", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		manifestPath := filepath.Join(root, "manifest.json")
+		nodePkg := &node.Package{Name: "x", Path: "example.com/x"}
+		// The struct's +gen:out directive pins Filename to a
+		// directive-resolved value; the CLI -p override pins
+		// Package; the source position pins Dir under the
+		// alongside-source default. The manifest's ResolvedFrom
+		// block names the precedence layer that supplied each
+		// field.
+		src := &node.Struct{
+			BaseNode: node.BaseNode{
+				SourcePos: position.Pos{File: "a/x.go"},
+				DirectiveList: []*directive.Directive{
+					{Name: pipeline.OutDirective, Args: []string{"pinned.go"}},
+				},
+			},
+			Name: "X", Package: "example.com/x",
+		}
+		nodePkg.Structs = []*node.Struct{src}
+		gen := &recGen{name: "rg", generate: func(ctx *plugin.GeneratorContext) {
+			c := builder.For("rg", emit.Target{})
+			pkg := c.Package("x", "example.com/x")
+			pkg.Struct("X", func(b *builder.StructBuilder) {
+				b.Origin(src)
+			})
+			out, err := pkg.Build()
+			if err != nil {
+				t.Fatalf("pkg.Build: %v", err)
+			}
+			if err := ctx.Store.Emit().AddPackage(out); err != nil {
+				t.Fatalf("AddPackage: %v", err)
+			}
+		}}
+		be := &recBE{
+			name: "be", lang: "stub",
+			render: func(ctx *plugin.BackendContext) {
+				ctx.Reader.EmitStructs().Each(func(s *emit.Struct) {
+					_ = ctx.Sink.Write(s.Target, []byte("body"))
+				})
+			},
+		}
+		p, err := pipeline.New().
+			WithFrontend(&nodePackageFE{name: "fe", pkg: nodePkg}).
+			WithGenerator(gen).
+			WithBackend(be).
+			WithSink(sink.NewMemory()).
+			WithManifestPath(manifestPath).
+			WithOutputPackage("generated").
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "x"))
+		m, err := manifest.Read(manifestPath)
+		assertNoError(t, err)
+		if len(m.Outputs) != 1 {
+			t.Fatalf("expected 1 output; got %d", len(m.Outputs))
+		}
+		rl := m.Outputs[0].ResolvedLayout
+		if rl == nil {
+			t.Fatalf("ResolvedLayout missing on the manifest output")
+		}
+		if got, want := rl.Layout, pipeline.LayoutAlongsideSource; got != want {
+			t.Errorf("Layout = %q, want %q", got, want)
+		}
+		if got, want := rl.Dir, "a"; got != want {
+			t.Errorf("Dir = %q, want %q", got, want)
+		}
+		if got, want := rl.Filename, "pinned.go"; got != want {
+			t.Errorf("Filename = %q, want %q", got, want)
+		}
+		if got, want := rl.Package, "generated"; got != want {
+			t.Errorf("Package = %q, want %q", got, want)
+		}
+		wantFrom := map[string]manifest.Layer{
+			"layout":   manifest.LayerFramework,
+			"dir":      manifest.LayerFramework,
+			"filename": manifest.LayerDirective,
+			"package":  manifest.LayerCLI,
+		}
+		for field, want := range wantFrom {
+			if got := rl.ResolvedFrom[field]; got != want {
+				t.Errorf("ResolvedFrom[%q] = %q, want %q", field, got, want)
+			}
+		}
+	})
+
+	t.Run("centralised layout stamps cli on every policy-driven field", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		manifestPath := filepath.Join(root, "manifest.json")
+		src := &node.Struct{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "a/x.go"}},
+			Name:     "X", Package: "example.com/x",
+		}
+		fe := &nodePackageFE{name: "fe", pkg: &node.Package{
+			Name: "x", Path: "example.com/x",
+			Structs: []*node.Struct{src},
+		}}
+		gen := &recGen{name: "rg", suffix: "_gen.go", generate: func(ctx *plugin.GeneratorContext) {
+			c := builder.For("rg", emit.Target{})
+			pkg := c.Package("x", "example.com/x")
+			pkg.Struct("X", func(b *builder.StructBuilder) {
+				b.Origin(src)
+			})
+			out, err := pkg.Build()
+			if err != nil {
+				t.Fatalf("pkg.Build: %v", err)
+			}
+			if err := ctx.Store.Emit().AddPackage(out); err != nil {
+				t.Fatalf("AddPackage: %v", err)
+			}
+		}}
+		be := &recBE{name: "be", lang: "stub", render: func(ctx *plugin.BackendContext) {
+			ctx.Reader.EmitStructs().Each(func(s *emit.Struct) {
+				_ = ctx.Sink.Write(s.Target, []byte("body"))
+			})
+		}}
+		p, err := pipeline.New().
+			WithFrontend(fe).
+			WithGenerator(gen).
+			WithBackend(be).
+			WithSink(sink.NewMemory()).
+			WithManifestPath(manifestPath).
+			WithOutputLayout(pipeline.LayoutCentralised).
+			WithOutputPackage("gen").
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "x"))
+		m, err := manifest.Read(manifestPath)
+		assertNoError(t, err)
+		if len(m.Outputs) != 1 {
+			t.Fatalf("expected 1 output; got %d", len(m.Outputs))
+		}
+		rl := m.Outputs[0].ResolvedLayout
+		if rl == nil {
+			t.Fatalf("ResolvedLayout missing")
+		}
+		if rl.Layout != pipeline.LayoutCentralised {
+			t.Errorf("Layout = %q, want centralised", rl.Layout)
+		}
+		wantFrom := map[string]manifest.Layer{
+			"layout":   manifest.LayerCLI,
+			"dir":      manifest.LayerCLI,
+			"package":  manifest.LayerCLI,
+			"filename": manifest.LayerPluginSuffix,
+		}
+		for field, want := range wantFrom {
+			if got := rl.ResolvedFrom[field]; got != want {
+				t.Errorf("ResolvedFrom[%q] = %q, want %q", field, got, want)
+			}
+		}
+	})
+
+	t.Run("ResolvedLayout round-trips through manifest IO", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		manifestPath := filepath.Join(root, "manifest.json")
+		assertNoError(t, manifest.Write(manifestPath, &manifest.Manifest{
+			Version: manifest.Version,
+			RunID:   "test-run",
+			Outputs: []manifest.Output{{
+				Target: emit.Target{Dir: "a", Filename: "x.go", Package: "p"},
+				Hash:   "sha256:abc",
+				ResolvedLayout: &manifest.ResolvedLayout{
+					Layout: pipeline.LayoutCentralised,
+					Dir:    "a", Filename: "x.go", Package: "p",
+					ResolvedFrom: map[string]manifest.Layer{
+						"layout":   manifest.LayerCLI,
+						"dir":      manifest.LayerCLI,
+						"filename": manifest.LayerPluginSuffix,
+						"package":  manifest.LayerCLI,
+					},
+				},
+			}},
+		}))
+		m, err := manifest.Read(manifestPath)
+		assertNoError(t, err)
+		rl := m.Outputs[0].ResolvedLayout
+		if rl == nil {
+			t.Fatalf("ResolvedLayout lost on round-trip")
+		}
+		if rl.Layout != pipeline.LayoutCentralised {
+			t.Errorf("Layout round-trip = %q", rl.Layout)
+		}
+		if got, want := rl.ResolvedFrom["filename"], manifest.LayerPluginSuffix; got != want {
+			t.Errorf("ResolvedFrom[filename] = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("backend writing an unrouted Target during a routed run emits Internal", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		manifestPath := filepath.Join(root, "manifest.json")
+		// A normal routed Target via the generator, plus a
+		// synthetic write directly through ctx.Sink to a Target
+		// the Layout phase never composed — the framework-bug
+		// pattern asManifest catches with an Internal diagnostic.
+		src := &node.Struct{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "a/x.go"}},
+			Name:     "X", Package: "example.com/x",
+		}
+		fe := &nodePackageFE{name: "fe", pkg: &node.Package{
+			Name: "x", Path: "example.com/x",
+			Structs: []*node.Struct{src},
+		}}
+		gen := &recGen{name: "rg", suffix: "_gen.go", generate: func(ctx *plugin.GeneratorContext) {
+			c := builder.For("rg", emit.Target{})
+			pkg := c.Package("x", "example.com/x")
+			pkg.Struct("X", func(b *builder.StructBuilder) { b.Origin(src) })
+			out, err := pkg.Build()
+			if err != nil {
+				t.Fatalf("pkg.Build: %v", err)
+			}
+			if err := ctx.Store.Emit().AddPackage(out); err != nil {
+				t.Fatalf("AddPackage: %v", err)
+			}
+		}}
+		be := &recBE{name: "be", lang: "stub", render: func(ctx *plugin.BackendContext) {
+			// One routed write (matches the composed Target) ...
+			ctx.Reader.EmitStructs().Each(func(s *emit.Struct) {
+				_ = ctx.Sink.Write(s.Target, []byte("ok"))
+			})
+			// ... plus one synthetic write to a Target Layout
+			// never composed. The recording sink captures both;
+			// asManifest surfaces the second as an Internal diag.
+			_ = ctx.Sink.Write(
+				emit.Target{Dir: "rogue", Filename: "z.go", Package: "z"},
+				[]byte("rogue"),
+			)
+		}}
+		d := diag.New()
+		p, err := pipeline.New().
+			WithFrontend(fe).
+			WithGenerator(gen).
+			WithBackend(be).
+			WithSink(sink.NewMemory()).
+			WithManifestPath(manifestPath).
+			WithDiag(d).
+			Build()
+		assertNoError(t, err)
+		runErr := p.Run(t.Context(), "x")
+		if !errors.Is(runErr, pipeline.ErrRunHadErrors) {
+			t.Fatalf("Run = %v, want ErrRunHadErrors", runErr)
+		}
+		var sawInternal bool
+		for _, dg := range d.Diagnostics() {
+			match := dg.Severity == diag.Internal &&
+				strings.Contains(dg.Message, "without Layout-composed attribution")
+			if match {
+				sawInternal = true
+				break
+			}
+		}
+		if !sawInternal {
+			t.Fatalf("expected Internal diagnostic; got %+v", d.Diagnostics())
 		}
 	})
 

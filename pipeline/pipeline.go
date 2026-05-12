@@ -4,11 +4,15 @@
 package pipeline
 
 import (
+	"sync"
 	"sync/atomic"
 
 	"go.thesmos.sh/eidos/cache"
 	"go.thesmos.sh/eidos/core/diag"
 	"go.thesmos.sh/eidos/core/directive"
+	"go.thesmos.sh/eidos/core/position"
+	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/manifest"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/sink"
 	"go.thesmos.sh/eidos/store"
@@ -36,10 +40,19 @@ const LayoutCentralised = "centralised"
 // Package and Dir are meaningful only under centralised layout;
 // alongside-source layout derives them from origin and ignores
 // these fields at routing time.
+//
+// Each value-bearing field carries a sibling [manifest.Layer]
+// recording which precedence layer supplied the field — the
+// pipeline reads the From fields when stamping the manifest's
+// observability block so attribution stays accurate as more
+// layers (project / per-plugin config) feed into the merge.
 type LayoutPolicy struct {
-	Layout  string
-	Package string
-	Dir     string
+	Layout      string
+	LayoutFrom  manifest.Layer
+	Package     string
+	PackageFrom manifest.Layer
+	Dir         string
+	DirFrom     manifest.Layer
 }
 
 // Pipeline is the validated, ready-to-run artifact returned by
@@ -79,6 +92,17 @@ type Pipeline struct {
 	// runs against the same Pipeline — observe a coherent value
 	// without locking the run path.
 	lastStore atomic.Pointer[store.Store]
+
+	// resolvedLayouts records the per-Target routing decision the
+	// Layout phase composed in the most recent run, keyed by the
+	// resolved [emit.Target]. The recording sink reads from this
+	// map at manifest-assembly time so each [manifest.Output]
+	// carries its observability block. Layout writes the map
+	// from a single goroutine; the manifest reader runs after
+	// Layout completes; the mutex protects post-Run reads from
+	// parallel test invocations that share a Pipeline.
+	resolvedLayoutsMu sync.Mutex
+	resolvedLayouts   map[emit.Target]manifest.ResolvedLayout
 }
 
 // Store returns the [store.Store] used by the most recent
@@ -177,3 +201,76 @@ func (p *Pipeline) Scope() store.ScopePredicate { return p.scope }
 // validate every directive against its schema; tooling can also
 // enumerate registered directives for documentation.
 func (p *Pipeline) DirectiveRegistry() *directive.Registry { return p.registry }
+
+// recordResolvedLayout stores the routing decision the Layout phase
+// composed for one Target. The Layout phase is single-threaded; the
+// mutex serialises post-Run reads from concurrent test invocations
+// that share a Pipeline.
+//
+// Composition is deterministic per (plugin, origin), so two
+// decls routing to the same Target must produce equal
+// [manifest.ResolvedLayout] values. The invariant is enforced
+// at record time: a second call with a different ResolvedLayout
+// for an existing Target emits an Internal diagnostic and keeps
+// the first entry — surfacing the regression at the
+// composition site instead of letting the manifest's
+// observability block flip-flop across runs.
+func (p *Pipeline) recordResolvedLayout(target emit.Target, rl manifest.ResolvedLayout) {
+	p.resolvedLayoutsMu.Lock()
+	defer p.resolvedLayoutsMu.Unlock()
+	if p.resolvedLayouts == nil {
+		p.resolvedLayouts = map[emit.Target]manifest.ResolvedLayout{}
+	}
+	if existing, ok := p.resolvedLayouts[target]; ok {
+		if !sameResolvedLayout(existing, rl) {
+			p.diag.Internalf(position.Pos{},
+				"pipeline.layout: divergent ResolvedLayout for target %+v: existing=%+v new=%+v",
+				target, existing, rl)
+		}
+		return
+	}
+	p.resolvedLayouts[target] = rl
+}
+
+// sameResolvedLayout reports whether two [manifest.ResolvedLayout]
+// values are equal, including their ResolvedFrom maps.
+func sameResolvedLayout(a, b manifest.ResolvedLayout) bool {
+	switch {
+	case a.Layout != b.Layout,
+		a.Package != b.Package,
+		a.Dir != b.Dir,
+		a.Filename != b.Filename:
+		return false
+	case len(a.ResolvedFrom) != len(b.ResolvedFrom):
+		return false
+	}
+	for k, v := range a.ResolvedFrom {
+		if b.ResolvedFrom[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
+// resolvedLayoutFor returns the routing decision the Layout phase
+// composed for target, or the zero value when no entry was
+// recorded. The manifest sink consults this map at run-end to
+// attach the observability block to each output.
+func (p *Pipeline) resolvedLayoutFor(target emit.Target) (manifest.ResolvedLayout, bool) {
+	p.resolvedLayoutsMu.Lock()
+	defer p.resolvedLayoutsMu.Unlock()
+	rl, ok := p.resolvedLayouts[target]
+	return rl, ok
+}
+
+// hasLayoutActivity reports whether the Layout phase composed at
+// least one Target during the most recent run. The manifest sink
+// uses it to distinguish "routing engaged, backend mismatched" (a
+// framework bug worth an Internal diagnostic) from "routing never
+// engaged, backend wrote synthetic targets" (a test pattern with
+// no observability metadata available).
+func (p *Pipeline) hasLayoutActivity() bool {
+	p.resolvedLayoutsMu.Lock()
+	defer p.resolvedLayoutsMu.Unlock()
+	return len(p.resolvedLayouts) > 0
+}

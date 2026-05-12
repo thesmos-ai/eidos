@@ -13,7 +13,8 @@ const Version = 1
 
 // Output is one entry in a [Manifest] — the [emit.Target] the
 // pipeline routed the file to, the plugins that contributed to it,
-// and the SHA-256 hex digest of the final file content.
+// the SHA-256 hex digest of the final file content, and the
+// observability block describing how routing resolved.
 type Output struct {
 	// Target identifies the destination the pipeline routed this
 	// file to.
@@ -30,6 +31,87 @@ type Output struct {
 	// contribution flips the hash and so flips this Output's
 	// fingerprint for the next run's prune diff.
 	Hash string `json:"hash"`
+
+	// ResolvedLayout records the routing decision that produced
+	// this output — the resolved layout, package, directory, and
+	// filename plus a per-field breakdown of which precedence
+	// layer supplied each value. The block is observability only
+	// and is not consumed by drift detection; it answers "why did
+	// this file land here?" for the `explain` command and
+	// post-mortem diagnosis. Optional — older manifests written
+	// before the routing layer landed omit the field.
+	ResolvedLayout *ResolvedLayout `json:"resolved_layout,omitempty"`
+}
+
+// Layer names the precedence layer that supplied a composed
+// field's final value in a [ResolvedLayout.ResolvedFrom] entry.
+// The set is stable: consumers compare against the constants
+// rather than the underlying strings so a typo at the producer
+// side surfaces at compile time.
+type Layer string
+
+// Precedence layers, ordered from lowest to highest priority.
+// The Layout phase composes Target fields by walking the layers
+// and stamping the field's [Layer] each time a layer takes
+// effect; the final stamp is the value recorded in the manifest.
+const (
+	// LayerFramework is the framework default — alongside-source
+	// layout, Package + ImportPath derived from the origin's
+	// source package, Filename derived from the source basename
+	// when no plugin suffix is declared.
+	LayerFramework Layer = "framework"
+
+	// LayerPluginSuffix is a generator's declared filename suffix
+	// supplied through the FilenameProvider capability.
+	LayerPluginSuffix Layer = "plugin-suffix"
+
+	// LayerProject is the project-level `output.*` block in
+	// `.eidos.yaml`. Reserved for the config consumer; the
+	// Layout phase does not stamp this layer until the consumer
+	// is wired.
+	LayerProject Layer = "project"
+
+	// LayerPerPlugin is a per-plugin `plugins[*].output.*`
+	// override block. Reserved for the config consumer like
+	// [LayerProject].
+	LayerPerPlugin Layer = "per-plugin"
+
+	// LayerDirective is a `+gen:out` directive on the
+	// originating source node. Overrides Filename only.
+	LayerDirective Layer = "directive"
+
+	// LayerCLI is a command-line override (`-o` / `-p` /
+	// `-layout` / `-output-dir` / `-target`). Pinned at the
+	// highest priority among the field-composing layers.
+	LayerCLI Layer = "cli"
+)
+
+// ResolvedLayout summarises the routing decision for one
+// rendered output. Layout, Package, Dir, and Filename mirror
+// the values stamped into [Output.Target]; ResolvedFrom names
+// the highest-priority precedence layer that supplied each
+// field.
+type ResolvedLayout struct {
+	// Layout is the resolved layout selector — either
+	// `alongside-source` or `centralised`.
+	Layout string `json:"layout"`
+
+	// Package is the resolved Go package name (matches
+	// [emit.Target.Package]).
+	Package string `json:"package,omitempty"`
+
+	// Dir is the resolved output directory (matches
+	// [emit.Target.Dir]).
+	Dir string `json:"dir,omitempty"`
+
+	// Filename is the resolved rendered filename (matches
+	// [emit.Target.Filename]).
+	Filename string `json:"filename"`
+
+	// ResolvedFrom maps each composed field (`layout`, `package`,
+	// `dir`, `filename`) to the precedence [Layer] that supplied
+	// its final value.
+	ResolvedFrom map[string]Layer `json:"resolved_from"`
 }
 
 // Manifest is the per-run record of every [Output] the pipeline

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/manifest"
 	"go.thesmos.sh/eidos/sink"
@@ -57,22 +58,51 @@ func (r *recordingSink) Write(target emit.Target, body []byte) error {
 // from each entity's [emit.Node.SetBy] via s.Emit().ByTarget(),
 // ordered by `order` (the pipeline's registration order) so two
 // runs over the same input produce byte-identical manifests.
+// ResolvedLayout is the per-output observability block the Layout
+// phase published for each routed target.
+//
+// A *Pipeline is required (the recording sink only exists as part
+// of a Pipeline.Run). When Layout composed at least one Target
+// during the run, every captured Target must match a composed
+// entry — a mismatch means the backend wrote to a Target Layout
+// didn't see, which is a framework bug and surfaces as an
+// Internal diagnostic. When Layout composed nothing (a synthetic
+// run with no routable decls), the strict-attribution check
+// stands down: nothing is being violated, just no observability
+// metadata is available to attach. The backend write still
+// records into the manifest with the hash and plugin attribution
+// it has.
 //
 // The same per-target attribution flows into the rendered file's
 // `Plugins:` header (see backend/golang.pluginsFor), so manifest
 // and on-disk provenance agree on which plugins contributed to
 // each output.
-func (r *recordingSink) asManifest(runID string, s *store.Store, order []string) *manifest.Manifest {
+func (r *recordingSink) asManifest(
+	runID string,
+	s *store.Store,
+	order []string,
+	p *Pipeline,
+) *manifest.Manifest {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	m := manifest.New(runID)
+	layoutRouted := p.hasLayoutActivity()
 	for target, body := range r.files {
 		sum := sha256.Sum256(body)
-		m.Add(manifest.Output{
+		out := manifest.Output{
 			Target:  target,
 			Plugins: pluginsForTarget(s, target, order),
 			Hash:    "sha256:" + hex.EncodeToString(sum[:]),
-		})
+		}
+		if rl, ok := p.resolvedLayoutFor(target); ok {
+			rl := rl // local for pointer
+			out.ResolvedLayout = &rl
+		} else if layoutRouted {
+			p.diag.Internalf(position.Pos{},
+				"manifest: backend wrote to %+v without Layout-composed attribution",
+				target)
+		}
+		m.Add(out)
 	}
 	return m
 }

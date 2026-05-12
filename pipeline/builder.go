@@ -16,6 +16,7 @@ import (
 	"go.thesmos.sh/eidos/core/opt"
 	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/manifest"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/sink"
 	"go.thesmos.sh/eidos/store"
@@ -372,23 +373,53 @@ func (b *Builder) resolveSourceRoot() string {
 }
 
 // resolveLayoutPolicy returns the [LayoutPolicy] the Pipeline
-// stamps onto every layout decision. The merge composes the
-// framework default with builder-supplied CLI overrides today;
-// project and per-plugin config layers slot in below the CLI
-// override when their consumer is ready.
+// stamps onto every layout decision. It walks every precedence
+// layer in order — framework default, then (when their consumer
+// is wired) project config, then per-plugin overrides, then the
+// builder-supplied CLI inputs — and re-stamps each field's
+// [manifest.Layer] sibling whenever a layer takes effect.
 //
-// An empty outputLayout falls back to [LayoutAlongsideSource] so
-// the framework default is observable rather than an empty string.
+// The walk is the canonical merge: every consumer of resolved
+// attribution reads the sibling From fields rather than inferring
+// the source from the value, so adding a layer here doesn't
+// require touching the Layout phase or the manifest sink. The
+// existing layers in the walk:
+//
+//   - Framework default: Layout = alongside-source. Package and
+//     Dir empty (alongside-source derives them from origin).
+//   - CLI overrides: outputLayout / outputPackage / outputDir
+//     pin their respective fields when non-empty.
+//
+// Project and per-plugin layers slot in between framework and
+// CLI when [cli.OutputConfig] consumers feed them through —
+// each layer touches the fields it sets and leaves the others.
 func (b *Builder) resolveLayoutPolicy() LayoutPolicy {
-	layout := b.outputLayout
-	if layout == "" {
-		layout = LayoutAlongsideSource
+	// Layer 1: framework default. Every field gets the framework
+	// stamp; subsequent layers overwrite as they take effect.
+	policy := LayoutPolicy{
+		Layout:      LayoutAlongsideSource,
+		LayoutFrom:  manifest.LayerFramework,
+		PackageFrom: manifest.LayerFramework,
+		DirFrom:     manifest.LayerFramework,
 	}
-	return LayoutPolicy{
-		Layout:  layout,
-		Package: b.outputPackage,
-		Dir:     b.outputDir,
+
+	// Layer 6: CLI overrides. Each non-empty raw input upgrades
+	// the field's source to LayerCLI. Layers 3 (project) and 4
+	// (per-plugin) slot in between framework and CLI once their
+	// consumer is wired.
+	if b.outputLayout != "" {
+		policy.Layout = b.outputLayout
+		policy.LayoutFrom = manifest.LayerCLI
 	}
+	if b.outputPackage != "" {
+		policy.Package = b.outputPackage
+		policy.PackageFrom = manifest.LayerCLI
+	}
+	if b.outputDir != "" {
+		policy.Dir = b.outputDir
+		policy.DirFrom = manifest.LayerCLI
+	}
+	return policy
 }
 
 // resolveScope returns the [store.ScopePredicate] the Pipeline

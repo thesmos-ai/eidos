@@ -88,7 +88,7 @@ func (p *Pipeline) writeManifest(rec *recordingSink, s *store.Store) {
 	if p.manifestPath == "" {
 		return
 	}
-	m := rec.asManifest(time.Now().UTC().Format(time.RFC3339), s, p.pluginNames())
+	m := rec.asManifest(time.Now().UTC().Format(time.RFC3339), s, p.pluginNames(), p)
 	if err := manifest.Write(p.manifestPath, m); err != nil {
 		p.diag.For("pipeline").Warnf(position.Pos{}, "manifest write failed: %v", err)
 	}
