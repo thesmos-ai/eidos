@@ -262,7 +262,12 @@ func (v *EmitView) addEnum(e *emit.Enum, pkgPath string) error {
 		if err := v.enumVariants.Add(qname+"."+vt.Name, vt); err != nil {
 			return err
 		}
-		v.indexCommon(vt, pkgPath, e.Target)
+		// Enum variants are rendered inline inside their owning
+		// enum's `const ( ... )` block — they index into the
+		// variants bucket for query access but bypass [byTarget]
+		// so the backend doesn't double-render them. Same pattern
+		// interface methods follow.
+		v.indexCommon(vt, pkgPath, emit.Target{})
 	}
 	return nil
 }

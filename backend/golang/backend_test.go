@@ -413,6 +413,360 @@ func TestBackend_Golden(t *testing.T) {
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
 		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "struct_alias_collision.go.golden"))
 	})
+
+	t.Run("interface_simple — methods + embeds", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "iox", Filename: "iox.go", Package: "iox"}
+		addEmitPackage(t, ctx, &emit.Package{
+			Name: "iox", Path: "iox",
+			Interfaces: []*emit.Interface{{
+				BaseEmit: emit.BaseEmit{DocLines: []string{"Reader is a minimal byte reader."}},
+				Name:     "Reader", Package: "iox", Target: target,
+				Embeds: []*emit.Embed{{Type: emit.External("io", "Closer")}},
+				Methods: []*emit.Method{
+					{
+						Name:    "Read",
+						Params:  []*emit.Param{{Name: "p", Type: emit.Builtin("byte")}},
+						Returns: []emit.Ref{emit.Builtin("int"), emit.Builtin("error")},
+					},
+					{Name: "Reset"},
+				},
+			}},
+		})
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "interface_simple.go.golden"))
+	})
+
+	t.Run("alias_definition — type X int", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "users", Filename: "id.go", Package: "users"}
+		addEmitPackage(t, ctx, &emit.Package{
+			Name: "users", Path: "users",
+			Aliases: []*emit.Alias{{
+				BaseEmit: emit.BaseEmit{DocLines: []string{"UserID is the canonical primary key."}},
+				Name:     "UserID", Package: "users", File: target,
+				Target: emit.Builtin("int"),
+			}},
+		})
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "alias_definition.go.golden"))
+	})
+
+	t.Run("alias_alias — type X = Y", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		addEmitPackage(t, ctx, &emit.Package{
+			Name: "x", Path: "x",
+			Aliases: []*emit.Alias{{
+				Name: "Bytes", Package: "x", File: target,
+				Target:  emit.Builtin("byte"),
+				IsAlias: true,
+			}},
+		})
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "alias_alias.go.golden"))
+	})
+
+	t.Run("variable_combinations — typed/inferred/no-init", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "cfg", Filename: "cfg.go", Package: "cfg"}
+		addEmitPackage(t, ctx, &emit.Package{
+			Name: "cfg", Path: "cfg",
+			Variables: []*emit.Variable{
+				{
+					BaseEmit: emit.BaseEmit{DocLines: []string{"Counter tracks invocations."}},
+					Name:     "Counter", Package: "cfg", Target: target,
+					Type: emit.Builtin("int"),
+				},
+				{
+					Name: "Greeting", Package: "cfg", Target: target,
+					Type: emit.Builtin("string"),
+					Init: &emit.Expr{ExprKind: emit.ExprLiteral, LitKind: emit.LitString, RawText: "hello"},
+				},
+				{
+					Name: "MaxRetries", Package: "cfg", Target: target,
+					Init: &emit.Expr{ExprKind: emit.ExprLiteral, LitKind: emit.LitInt, RawText: "3"},
+				},
+			},
+		})
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "variable_combinations.go.golden"))
+	})
+
+	t.Run("constant_combinations — untyped/typed/iota", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "cfg", Filename: "cfg.go", Package: "cfg"}
+		addEmitPackage(t, ctx, &emit.Package{
+			Name: "cfg", Path: "cfg",
+			Constants: []*emit.Constant{
+				{
+					BaseEmit: emit.BaseEmit{DocLines: []string{"Pi is a mathematical constant."}},
+					Name:     "Pi", Package: "cfg", Target: target,
+					Value: &emit.Expr{ExprKind: emit.ExprLiteral, LitKind: emit.LitFloat, RawText: "3.14"},
+				},
+				{
+					Name: "Limit", Package: "cfg", Target: target,
+					Type:  emit.Builtin("int"),
+					Value: &emit.Expr{ExprKind: emit.ExprLiteral, LitKind: emit.LitInt, RawText: "100"},
+				},
+				{
+					Name: "Enabled", Package: "cfg", Target: target,
+					Value: &emit.Expr{ExprKind: emit.ExprLiteral, LitKind: emit.LitBool, RawText: "true"},
+				},
+			},
+		})
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "constant_combinations.go.golden"))
+	})
+
+	t.Run("struct_embeds — adjacent embeds + fields", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "iox", Filename: "wrapper.go", Package: "iox"}
+		addEmitPackage(t, ctx, &emit.Package{
+			Name: "iox", Path: "iox",
+			Structs: []*emit.Struct{{
+				BaseEmit: emit.BaseEmit{DocLines: []string{"Wrapper composes Reader and Closer."}},
+				Name:     "Wrapper", Package: "iox", Target: target,
+				Embeds: []*emit.Embed{
+					{Type: emit.External("io", "Reader")},
+					{Type: emit.External("io", "Closer")},
+				},
+				Fields: []*emit.Field{{Name: "Closed", Type: emit.Builtin("bool")}},
+			}},
+		})
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "struct_embeds.go.golden"))
+	})
+
+	t.Run("generic_struct — single-term constraint", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "containers", Filename: "box.go", Package: "containers"}
+		addEmitPackage(t, ctx, &emit.Package{
+			Name: "containers", Path: "containers",
+			Structs: []*emit.Struct{{
+				BaseEmit: emit.BaseEmit{DocLines: []string{"Box holds a single comparable value."}},
+				Name:     "Box", Package: "containers", Target: target,
+				TypeParams: []*emit.TypeParam{{
+					Name:       "T",
+					Constraint: &emit.Constraint{Embedded: []emit.Ref{emit.Builtin("comparable")}},
+				}},
+				Fields: []*emit.Field{{Name: "V", Type: emit.Builtin("int")}},
+			}},
+		})
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "generic_struct.go.golden"))
+	})
+
+	t.Run("generic_union — type-set constraint with approx terms", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "math", Filename: "ord.go", Package: "math"}
+		addEmitPackage(t, ctx, &emit.Package{
+			Name: "math", Path: "math",
+			Structs: []*emit.Struct{{
+				Name: "Ordered", Package: "math", Target: target,
+				TypeParams: []*emit.TypeParam{{
+					Name: "T",
+					Constraint: &emit.Constraint{
+						Embedded: []emit.Ref{
+							emit.Union(
+								emit.UnionTerm{Type: emit.Builtin("int"), Approx: true},
+								emit.UnionTerm{Type: emit.Builtin("float64"), Approx: true},
+								emit.UnionTerm{Type: emit.Builtin("string")},
+							),
+						},
+					},
+				}},
+				Fields: []*emit.Field{{Name: "V", Type: emit.Builtin("int")}},
+			}},
+		})
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "generic_union.go.golden"))
+	})
+
+	t.Run("field_tag_aggregation — base + slot contributors", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "users", Filename: "user.go", Package: "users"}
+		idField := &emit.Field{Name: "ID", Type: emit.Builtin("int"), Tag: `json:"id"`}
+		if err := idField.Tags().Append(&emit.Tag{Key: "db", Value: "user_id"}, emit.Provenance{}); err != nil {
+			t.Fatalf("Append db tag: %v", err)
+		}
+		if err := idField.Tags().Append(&emit.Tag{Key: "yaml", Value: "id"}, emit.Provenance{}); err != nil {
+			t.Fatalf("Append yaml tag: %v", err)
+		}
+		nameField := &emit.Field{Name: "Name", Type: emit.Builtin("string")}
+		validateTag := &emit.Tag{Key: "validate", Value: "required,max=64"}
+		if err := nameField.Tags().Append(validateTag, emit.Provenance{}); err != nil {
+			t.Fatalf("Append validate tag: %v", err)
+		}
+		addEmitPackage(t, ctx, &emit.Package{
+			Name: "users", Path: "users",
+			Structs: []*emit.Struct{{
+				BaseEmit: emit.BaseEmit{DocLines: []string{"User carries the canonical user record."}},
+				Name:     "User", Package: "users", Target: target,
+				Fields: []*emit.Field{idField, nameField},
+			}},
+		})
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "field_tag_aggregation.go.golden"))
+	})
+
+	t.Run("var_with_funclit_init — Stmt + Expr through ExprFuncLit", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "handlers", Filename: "h.go", Package: "handlers"}
+		addEmitPackage(t, ctx, &emit.Package{
+			Name: "handlers", Path: "handlers",
+			Variables: []*emit.Variable{{
+				BaseEmit: emit.BaseEmit{
+					DocLines: []string{"Handler bumps the counter and returns the new value."},
+				},
+				Name: "Handler", Package: "handlers", Target: target,
+				Init: &emit.Expr{
+					ExprKind:    emit.ExprFuncLit,
+					FuncParams:  []*emit.Param{{Name: "n", Type: emit.Builtin("int")}},
+					FuncReturns: []emit.Ref{emit.Builtin("int")},
+					FuncBody: []*emit.Stmt{
+						emit.NewIf(
+							&emit.Expr{
+								ExprKind: emit.ExprBinary, Op: "<",
+								Left:  &emit.Expr{ExprKind: emit.ExprIdent, Name: "n"},
+								Right: &emit.Expr{ExprKind: emit.ExprLiteral, LitKind: emit.LitInt, RawText: "0"},
+							},
+							[]*emit.Stmt{emit.NewReturn(&emit.Expr{
+								ExprKind: emit.ExprLiteral, LitKind: emit.LitInt, RawText: "0",
+							})},
+						),
+						emit.NewReturn(&emit.Expr{
+							ExprKind: emit.ExprBinary, Op: "+",
+							Left:  &emit.Expr{ExprKind: emit.ExprIdent, Name: "n"},
+							Right: &emit.Expr{ExprKind: emit.ExprLiteral, LitKind: emit.LitInt, RawText: "1"},
+						}),
+					},
+				},
+			}},
+		})
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "var_with_funclit_init.go.golden"))
+	})
+
+	t.Run("function_simple — params, returns, body", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "mathx", Filename: "math.go", Package: "mathx"}
+		addEmitPackage(t, ctx, &emit.Package{
+			Name: "mathx", Path: "mathx",
+			Functions: []*emit.Function{{
+				BaseEmit: emit.BaseEmit{DocLines: []string{"Add returns the sum of a and b."}},
+				Name:     "Add", Package: "mathx", Target: target,
+				Params: []*emit.Param{
+					{Name: "a", Type: emit.Builtin("int")},
+					{Name: "b", Type: emit.Builtin("int")},
+				},
+				Returns: []emit.Ref{emit.Builtin("int")},
+				Body: []*emit.Stmt{emit.NewReturn(&emit.Expr{
+					ExprKind: emit.ExprBinary, Op: "+",
+					Left:  &emit.Expr{ExprKind: emit.ExprIdent, Name: "a"},
+					Right: &emit.Expr{ExprKind: emit.ExprIdent, Name: "b"},
+				})},
+			}},
+		})
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "function_simple.go.golden"))
+	})
+
+	t.Run("method_on_struct — struct + pointer-receiver method", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "counter", Filename: "counter.go", Package: "counter"}
+		host := &emit.Struct{
+			BaseEmit: emit.BaseEmit{DocLines: []string{"Counter accumulates a monotonic count."}},
+			Name:     "Counter", Package: "counter", Target: target,
+			Fields: []*emit.Field{{Name: "n", Type: emit.Builtin("int")}},
+		}
+		host.Methods = []*emit.Method{{
+			BaseEmit:     emit.BaseEmit{DocLines: []string{"Inc bumps the counter by one."}},
+			Name:         "Inc",
+			Receiver:     emit.Ptr(emit.Internal(host)),
+			ReceiverName: "c",
+			Body: []*emit.Stmt{emit.NewAssign(
+				[]*emit.Expr{
+					{ExprKind: emit.ExprField, Receiver: &emit.Expr{ExprKind: emit.ExprIdent, Name: "c"}, Name: "n"},
+				},
+				"+=",
+				[]*emit.Expr{{ExprKind: emit.ExprLiteral, LitKind: emit.LitInt, RawText: "1"}},
+			)},
+		}}
+		addEmitPackage(t, ctx, emitPackage("counter", host))
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "method_on_struct.go.golden"))
+	})
+
+	t.Run("enum_typed_iota — typed iota promotion with docs", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "status", Filename: "status.go", Package: "status"}
+		addEmitPackage(t, ctx, &emit.Package{
+			Name: "status", Path: "status",
+			Enums: []*emit.Enum{{
+				BaseEmit: emit.BaseEmit{
+					DocLines: []string{"Phase is the position of a job in its lifecycle."},
+				},
+				Name: "Phase", Package: "status", Target: target,
+				Underlying: emit.Builtin("int"),
+				Variants: []*emit.EnumVariant{
+					{
+						BaseEmit: emit.BaseEmit{
+							DocLines: []string{"Pending is the initial state before any work begins."},
+						},
+						Name:  "Pending",
+						Value: &emit.Expr{ExprKind: emit.ExprIdent, Name: "iota"},
+					},
+					{Name: "Active"},
+					{
+						BaseEmit: emit.BaseEmit{
+							DocLines: []string{"Closed is the terminal state after work completes."},
+						},
+						Name: "Closed",
+					},
+				},
+			}},
+		})
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "enum_typed_iota.go.golden"))
+	})
+
+	t.Run("struct_composite_fields — pointer/slice/array/map/func", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		addEmitPackage(t, ctx, &emit.Package{
+			Name: "x", Path: "x",
+			Structs: []*emit.Struct{{
+				Name: "Composite", Package: "x", Target: target,
+				Fields: []*emit.Field{
+					{Name: "Ptr", Type: emit.Ptr(emit.Builtin("int"))},
+					{Name: "Slice", Type: emit.SliceOf(emit.Builtin("byte"))},
+					{Name: "Array", Type: emit.ArrayOf(emit.Builtin("byte"), 32)},
+					{Name: "Map", Type: emit.MapOf(emit.Builtin("string"), emit.Builtin("int"))},
+					{Name: "Fn", Type: emit.FuncOf(
+						[]emit.Ref{emit.Builtin("int")},
+						[]emit.Ref{emit.Builtin("int"), emit.Builtin("error")},
+					)},
+				},
+			}},
+		})
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "struct_composite_fields.go.golden"))
+	})
 }
 
 // assertRenderSucceeds drives the backend over ctx, asserting no

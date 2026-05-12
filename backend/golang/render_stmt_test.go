@@ -1,0 +1,232 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
+package golang_test
+
+import (
+	"errors"
+	"strings"
+	"testing"
+
+	"go.thesmos.sh/eidos/backend/golang"
+	"go.thesmos.sh/eidos/emit"
+)
+
+// TestErrUnsupportedStmt covers the sentinel surfaced when
+// renderStmt encounters an out-of-range StmtKind value. Every
+// documented variant is wired, so the only path to this sentinel
+// today is an invented discriminator value or a future variant
+// not yet handled.
+func TestErrUnsupportedStmt(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ErrUnsupportedStmt is exported and satisfies errors.Is", func(t *testing.T) {
+		t.Parallel()
+		if golang.ErrUnsupportedStmt == nil {
+			t.Fatalf("ErrUnsupportedStmt must be exported and non-nil")
+		}
+		if !errors.Is(golang.ErrUnsupportedStmt, golang.ErrUnsupportedStmt) {
+			t.Fatalf("ErrUnsupportedStmt must satisfy errors.Is reflexivity")
+		}
+	})
+}
+
+// TestRenderStmt_Variants covers every documented [emit.StmtKind]
+// variant via the public render path. Each variant is exercised
+// through a Variable whose Init is an [emit.ExprFuncLit] containing
+// the statement; the func literal goes through renderExpr →
+// renderFuncLit → renderStmtBlock → renderStmt, and the entire
+// path is gofmt-validated by the file-level finalise step.
+//
+// The fixtures are minimal — one statement per case — so the
+// rendered body keeps a stable, scannable shape.
+func TestRenderStmt_Variants(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		body []*emit.Stmt
+		want string // substring that must appear in the rendered file
+	}{
+		{
+			name: "expression statement (bare call)",
+			body: []*emit.Stmt{emit.NewExprStmt(&emit.Expr{
+				ExprKind: emit.ExprCall,
+				Callee:   &emit.Expr{ExprKind: emit.ExprIdent, Name: "f"},
+			})},
+			want: "f()",
+		},
+		{
+			name: "assignment with `=`",
+			body: []*emit.Stmt{emit.NewAssign(
+				[]*emit.Expr{{ExprKind: emit.ExprIdent, Name: "x"}},
+				"=",
+				[]*emit.Expr{{ExprKind: emit.ExprLiteral, LitKind: emit.LitInt, RawText: "1"}},
+			)},
+			want: "x = 1",
+		},
+		{
+			name: "short variable declaration `:=`",
+			body: []*emit.Stmt{emit.NewAssign(
+				[]*emit.Expr{{ExprKind: emit.ExprIdent, Name: "x"}},
+				":=",
+				[]*emit.Expr{{ExprKind: emit.ExprLiteral, LitKind: emit.LitInt, RawText: "1"}},
+			)},
+			want: "x := 1",
+		},
+		{
+			name: "return with no values",
+			body: []*emit.Stmt{emit.NewReturn()},
+			want: "return",
+		},
+		{
+			name: "return with one value",
+			body: []*emit.Stmt{emit.NewReturn(&emit.Expr{
+				ExprKind: emit.ExprLiteral, LitKind: emit.LitInt, RawText: "42",
+			})},
+			want: "return 42",
+		},
+		{
+			name: "if/else",
+			body: []*emit.Stmt{ifElseFixture()},
+			want: "if ok {",
+		},
+		{
+			name: "for with condition only",
+			body: []*emit.Stmt{emit.NewFor(
+				&emit.Expr{ExprKind: emit.ExprIdent, Name: "cond"},
+				[]*emit.Stmt{emit.NewBreak("")},
+			)},
+			want: "for cond {",
+		},
+		{
+			name: "for infinite",
+			body: []*emit.Stmt{emit.NewFor(nil, []*emit.Stmt{emit.NewBreak("")})},
+			want: "for {",
+		},
+		{
+			name: "for range with key + value",
+			body: []*emit.Stmt{emit.NewForRange(
+				"k", "v",
+				&emit.Expr{ExprKind: emit.ExprIdent, Name: "items"},
+				nil,
+			)},
+			want: "for k, v := range items {",
+		},
+		{
+			name: "switch with case + default",
+			body: []*emit.Stmt{emit.NewSwitch(
+				&emit.Expr{ExprKind: emit.ExprIdent, Name: "x"},
+				[]*emit.Stmt{
+					emit.NewCase(
+						[]*emit.Expr{{ExprKind: emit.ExprLiteral, LitKind: emit.LitInt, RawText: "1"}},
+						[]*emit.Stmt{emit.NewBreak("")},
+					),
+					emit.NewDefault([]*emit.Stmt{emit.NewReturn()}),
+				},
+			)},
+			want: "switch x {",
+		},
+		{
+			name: "defer call",
+			body: []*emit.Stmt{emit.NewDefer(&emit.Expr{
+				ExprKind: emit.ExprCall,
+				Callee:   &emit.Expr{ExprKind: emit.ExprIdent, Name: "cleanup"},
+			})},
+			want: "defer cleanup()",
+		},
+		{
+			name: "go call",
+			body: []*emit.Stmt{emit.NewGo(&emit.Expr{
+				ExprKind: emit.ExprCall,
+				Callee:   &emit.Expr{ExprKind: emit.ExprIdent, Name: "worker"},
+			})},
+			want: "go worker()",
+		},
+		{
+			name: "break with label",
+			body: []*emit.Stmt{emit.NewLabel("loop", emit.NewFor(nil, []*emit.Stmt{
+				emit.NewBreak("loop"),
+			}))},
+			want: "break loop",
+		},
+		{
+			name: "continue with label",
+			body: []*emit.Stmt{emit.NewLabel("loop", emit.NewFor(nil, []*emit.Stmt{
+				emit.NewContinue("loop"),
+			}))},
+			want: "continue loop",
+		},
+		{
+			name: "local var",
+			body: []*emit.Stmt{emit.NewVarStmt(
+				"x",
+				emit.Builtin("int"),
+				&emit.Expr{ExprKind: emit.ExprLiteral, LitKind: emit.LitInt, RawText: "5"},
+			)},
+			want: "var x int = 5",
+		},
+		{
+			name: "local const",
+			body: []*emit.Stmt{emit.NewConstStmt(
+				"Pi",
+				nil,
+				&emit.Expr{ExprKind: emit.ExprLiteral, LitKind: emit.LitFloat, RawText: "3.14"},
+			)},
+			want: "const Pi = 3.14",
+		},
+		{
+			name: "raw verbatim text",
+			body: []*emit.Stmt{emit.NewRawStmt(`println("hello")`)},
+			want: `println("hello")`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			body := renderFuncLitBody(t, tc.body)
+			if !strings.Contains(body, tc.want) {
+				t.Fatalf("rendered body should contain %q; got:\n%s", tc.want, body)
+			}
+		})
+	}
+}
+
+// ifElseFixture builds an if/else statement returning a bool
+// literal in each branch. Extracted from the per-variant table
+// because its line is otherwise too long for the formatter.
+func ifElseFixture() *emit.Stmt {
+	return emit.NewIfElse(
+		&emit.Expr{ExprKind: emit.ExprIdent, Name: "ok"},
+		[]*emit.Stmt{emit.NewReturn(&emit.Expr{
+			ExprKind: emit.ExprLiteral, LitKind: emit.LitBool, RawText: "true",
+		})},
+		[]*emit.Stmt{emit.NewReturn(&emit.Expr{
+			ExprKind: emit.ExprLiteral, LitKind: emit.LitBool, RawText: "false",
+		})},
+	)
+}
+
+// renderFuncLitBody builds a Variable whose Init is a func-literal
+// expression carrying the supplied statements as its body. The
+// returned string is the rendered file body. Used by
+// [TestRenderStmt_Variants] to exercise every StmtKind through the
+// public render path.
+func renderFuncLitBody(t *testing.T, stmts []*emit.Stmt) string {
+	t.Helper()
+	ctx, mem, d := newBackendContext(t)
+	target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+	addEmitPackage(t, ctx, &emit.Package{
+		Name: "x", Path: "x",
+		Variables: []*emit.Variable{{
+			Name: "Handler", Package: "x", Target: target,
+			Init: &emit.Expr{
+				ExprKind: emit.ExprFuncLit,
+				FuncBody: stmts,
+			},
+		}},
+	})
+	body := assertRenderSucceeds(t, ctx, mem, d, target)
+	return string(body)
+}

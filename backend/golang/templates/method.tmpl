@@ -1,0 +1,6 @@
+{{- define "emit.method" -}}
+{{ renderDocs .DocLines -}}
+func{{ with renderReceiver . }} {{ . }}{{ end }} {{ .Name }}{{ renderTypeParams .TypeParams }}{{ renderParams .Params }}{{ if .Returns }} {{ renderReturns .Returns }}{{ end }} {
+{{ renderStmts .Body -}}
+}
+{{- end -}}

@@ -1,0 +1,9 @@
+{{- define "emit.enum" -}}
+{{ renderDocs .DocLines -}}
+{{ if .Underlying }}type {{ .Name }} {{ renderType .Underlying }}
+{{ end -}}
+{{ if .Variants }}const (
+{{ renderVariants . -}}
+)
+{{ end -}}
+{{- end -}}
