@@ -4,8 +4,10 @@
 package pipeline
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
+	"slices"
 	"strings"
 	"sync"
 
@@ -85,9 +87,32 @@ func (r *recordingSink) asManifest(
 ) *manifest.Manifest {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	m := manifest.New(runID)
+
+	// Sort captured Targets so the manifest's Outputs slice is
+	// stable across runs. Map iteration order would otherwise
+	// reshuffle every entry on each run, churning the manifest's
+	// on-disk bytes even when no output content changed.
+	targets := make([]emit.Target, 0, len(r.files))
+	for target := range r.files {
+		targets = append(targets, target)
+	}
+	slices.SortFunc(targets, func(a, b emit.Target) int {
+		if c := cmp.Compare(a.Dir, b.Dir); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(a.Filename, b.Filename); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(a.Package, b.Package); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.ImportPath, b.ImportPath)
+	})
+
 	layoutRouted := p.hasLayoutActivity()
-	for target, body := range r.files {
+	m := manifest.New(runID)
+	for _, target := range targets {
+		body := r.files[target]
 		sum := sha256.Sum256(body)
 		out := manifest.Output{
 			Target:  target,

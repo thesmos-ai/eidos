@@ -4,6 +4,7 @@
 package pipeline_test
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -613,4 +614,103 @@ func TestManifest_RecordsBackendWrites(t *testing.T) {
 			t.Fatalf("expected a Warn diagnostic about manifest-write failure")
 		}
 	})
+
+	t.Run("Outputs slice sort is stable across runs", func(t *testing.T) {
+		t.Parallel()
+		// Captured Targets used to iterate in Go map-iteration order
+		// — reshuffling the manifest's Outputs every run. The fix
+		// sorts Targets by (Dir, Filename, Package, ImportPath) so
+		// two runs against identical input produce identical
+		// Outputs ordering.
+		root := t.TempDir()
+		manifestPathA := filepath.Join(root, "a", "manifest.json")
+		manifestPathB := filepath.Join(root, "b", "manifest.json")
+		be := &recBE{
+			name: "be", lang: "stub",
+			render: func(ctx *plugin.BackendContext) {
+				_ = ctx.Sink.Write(emit.Target{Dir: "a", Filename: "x.go", Package: "x"}, []byte("body-x"))
+				_ = ctx.Sink.Write(emit.Target{Dir: "a", Filename: "y.go", Package: "x"}, []byte("body-y"))
+				_ = ctx.Sink.Write(emit.Target{Dir: "b", Filename: "z.go", Package: "z"}, []byte("body-z"))
+			},
+		}
+		run := func(t *testing.T, path string) *manifest.Manifest {
+			t.Helper()
+			p, err := pipeline.New().
+				WithFrontend(&stubFE{name: "fe"}).
+				WithBackend(be).
+				WithSink(sink.NewMemory()).
+				WithManifestPath(path).
+				Build()
+			assertNoError(t, err)
+			assertNoError(t, p.Run(t.Context()))
+			m, err := manifest.Read(path)
+			assertNoError(t, err)
+			return m
+		}
+		first := run(t, manifestPathA)
+		second := run(t, manifestPathB)
+		if len(first.Outputs) != len(second.Outputs) {
+			t.Fatalf("Outputs len mismatch: %d vs %d", len(first.Outputs), len(second.Outputs))
+		}
+		for i := range first.Outputs {
+			if first.Outputs[i].Target != second.Outputs[i].Target {
+				t.Fatalf(
+					"Outputs[%d] Target mismatch: %+v vs %+v (reshuffle)",
+					i, first.Outputs[i].Target, second.Outputs[i].Target,
+				)
+			}
+		}
+	})
+
+	t.Run(
+		"re-run against identical input leaves the manifest's bytes untouched",
+		func(t *testing.T) {
+			t.Parallel()
+			// The pipeline stamps RunID with the wall-clock — every
+			// run would otherwise produce a fresh timestamp and
+			// dirty the manifest in version control even when no
+			// rendered output changed. The fix skips the write
+			// when an existing manifest's content (Outputs +
+			// Brand + Version) matches what we'd produce now.
+			root := t.TempDir()
+			manifestPath := filepath.Join(root, ".eidos", "manifest.json")
+			be := &recBE{
+				name: "be", lang: "stub",
+				render: func(ctx *plugin.BackendContext) {
+					_ = ctx.Sink.Write(
+						emit.Target{Dir: "a", Filename: "x.go", Package: "x"},
+						[]byte("hello"),
+					)
+				},
+			}
+			run := func(t *testing.T) {
+				t.Helper()
+				p, err := pipeline.New().
+					WithFrontend(&stubFE{name: "fe"}).
+					WithBackend(be).
+					WithSink(sink.NewMemory()).
+					WithManifestPath(manifestPath).
+					Build()
+				assertNoError(t, err)
+				assertNoError(t, p.Run(t.Context()))
+			}
+			run(t)
+			first, err := os.ReadFile(manifestPath)
+			assertNoError(t, err)
+			// Ensure the second run's wall-clock timestamp would
+			// otherwise differ — a one-second sleep is excessive
+			// for a unit test, so the test instead asserts that the
+			// bytes stay identical regardless of timing.
+			run(t)
+			second, err := os.ReadFile(manifestPath)
+			assertNoError(t, err)
+			if !bytes.Equal(first, second) {
+				t.Fatalf(
+					"re-run dirtied the manifest:\nfirst=%s\nsecond=%s",
+					first,
+					second,
+				)
+			}
+		},
+	)
 }

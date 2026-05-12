@@ -86,14 +86,89 @@ func (p *Pipeline) Run(ctx context.Context, patterns ...string) error {
 // surface as Warn diagnostics (the manifest is observability, not
 // correctness) so a manifest-write failure does not turn the run
 // into a failed one.
+//
+// The write is skipped when an existing manifest at the same path
+// differs only by RunID: the timestamp would otherwise refresh
+// mtime and dirty the file in version control even when nothing
+// the manifest describes changed. The RunID stays in the wire
+// format (drift / prune tooling reads it to attribute outputs back
+// to a run); it just doesn't rewrite for free.
 func (p *Pipeline) writeManifest(rec *recordingSink, s *store.Store) {
 	if p.manifestPath == "" {
 		return
 	}
-	m := rec.asManifest(time.Now().UTC().Format(time.RFC3339), s, p.pluginNames(), p)
-	if err := manifest.Write(p.manifestPath, m); err != nil {
+	current := rec.asManifest(time.Now().UTC().Format(time.RFC3339), s, p.pluginNames(), p)
+	if prev, err := manifest.Read(p.manifestPath); err == nil && manifestContentEqual(prev, current) {
+		return
+	}
+	if err := manifest.Write(p.manifestPath, current); err != nil {
 		p.diag.For("pipeline").Warnf(position.Pos{}, "manifest write failed: %v", err)
 	}
+}
+
+// manifestContentEqual reports whether prev and current describe the
+// same on-disk consequence — same Version, Brand, and Outputs set.
+// RunID is excluded because it is a per-run timestamp; including it
+// would force a rewrite on every run, defeating the
+// stable-bytes-across-runs property the manifest is supposed to
+// preserve for git-committed projects.
+func manifestContentEqual(prev, current *manifest.Manifest) bool {
+	if prev == nil || current == nil {
+		return false
+	}
+	if prev.Version != current.Version || prev.Brand != current.Brand {
+		return false
+	}
+	if len(prev.Outputs) != len(current.Outputs) {
+		return false
+	}
+	for i := range prev.Outputs {
+		if !manifestOutputEqual(prev.Outputs[i], current.Outputs[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// manifestOutputEqual reports whether two [manifest.Output] values
+// describe the same emit decl — Target identity, contributing
+// plugins, body hash, and resolved-layout block. The slice / map
+// fields compare element-by-element so the equality stays robust
+// against `reflect.DeepEqual`'s quirks under future Output
+// additions.
+func manifestOutputEqual(a, b manifest.Output) bool {
+	if a.Target != b.Target || a.Hash != b.Hash {
+		return false
+	}
+	if len(a.Plugins) != len(b.Plugins) {
+		return false
+	}
+	for i := range a.Plugins {
+		if a.Plugins[i] != b.Plugins[i] {
+			return false
+		}
+	}
+	switch {
+	case a.ResolvedLayout == nil && b.ResolvedLayout == nil:
+		return true
+	case a.ResolvedLayout == nil || b.ResolvedLayout == nil:
+		return false
+	}
+	rla, rlb := *a.ResolvedLayout, *b.ResolvedLayout
+	switch {
+	case rla.Layout != rlb.Layout,
+		rla.Package != rlb.Package,
+		rla.Dir != rlb.Dir,
+		rla.Filename != rlb.Filename,
+		len(rla.ResolvedFrom) != len(rlb.ResolvedFrom):
+		return false
+	}
+	for k, v := range rla.ResolvedFrom {
+		if rlb.ResolvedFrom[k] != v {
+			return false
+		}
+	}
+	return true
 }
 
 // pluginNames returns the registered plugins' [plugin.Plugin.Name]
