@@ -56,6 +56,7 @@ func loadPattern(ctx *plugin.FrontendContext, opts Options) error {
 	cfg := &packages.Config{
 		Mode:  loadMode,
 		Tests: opts.IncludeTests,
+		Dir:   opts.Dir,
 	}
 	if tags := strings.TrimSpace(opts.BuildTags); tags != "" {
 		cfg.BuildFlags = []string{"-tags=" + tags}

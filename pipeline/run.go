@@ -61,6 +61,7 @@ func (p *Pipeline) Run(ctx context.Context, patterns ...string) error {
 	recorder := newRecordingSink(p.sink)
 
 	s := store.New()
+	p.lastStore.Store(s)
 	p.runFrontends(s, patterns)
 	s.Nodes().Freeze() // post-frontend: node structure is frozen
 	p.runAnnotators(s)

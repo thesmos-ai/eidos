@@ -215,3 +215,57 @@ func TestPipeline_DirectiveRegistry(t *testing.T) {
 		}
 	})
 }
+
+// TestPipeline_Store covers the post-run store accessor. Before Run
+// fires, Store returns nil — the cache is populated on Run entry, so
+// tests inspecting plan/registry/backend state pre-run see the nil
+// signal that no store yet exists. After Run, Store returns the same
+// instance the phases populated, so post-run inspection of node /
+// emit content goes through one canonical accessor.
+func TestPipeline_Store(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns nil before Run is invoked", func(t *testing.T) {
+		t.Parallel()
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		if p.Store() != nil {
+			t.Fatalf("Store should be nil before Run; got %v", p.Store())
+		}
+	})
+
+	t.Run("returns the populated store after Run completes", func(t *testing.T) {
+		t.Parallel()
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context()))
+		if p.Store() == nil {
+			t.Fatalf("Store should be non-nil after Run")
+		}
+	})
+
+	t.Run("re-running replaces the previously cached store", func(t *testing.T) {
+		t.Parallel()
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context()))
+		first := p.Store()
+		assertNoError(t, p.Run(t.Context()))
+		second := p.Store()
+		if first == second {
+			t.Fatalf("re-running should replace the cached store; got identical pointers")
+		}
+	})
+}

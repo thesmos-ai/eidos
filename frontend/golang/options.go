@@ -32,6 +32,14 @@ type Options struct {
 	// store free of noise. Set to false when a generator legitimately
 	// needs visibility into cgo types.
 	SkipCgoFiles bool `json:"skip_cgo_files" eidos:"skip_cgo_files,default=true"`
+
+	// Dir is the working directory passed to `golang.org/x/tools/go/packages`
+	// during Load. Empty (the default) lets `go/packages` inherit the
+	// process working directory — the typical setup for CLI runs. Test
+	// fixtures and embedded callers targeting a separate Go module
+	// supply an absolute path so the loader resolves patterns against
+	// that module's build graph rather than the parent process's.
+	Dir string `json:"dir" eidos:"dir,default="`
 }
 
 // optionsSchema is the reflected option schema cached at package

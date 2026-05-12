@@ -4,11 +4,14 @@
 package pipeline
 
 import (
+	"sync/atomic"
+
 	"go.thesmos.sh/eidos/cache"
 	"go.thesmos.sh/eidos/core/diag"
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/sink"
+	"go.thesmos.sh/eidos/store"
 )
 
 // Pipeline is the validated, ready-to-run artifact returned by
@@ -34,7 +37,23 @@ type Pipeline struct {
 	plan         *Plan
 	registry     *directive.Registry
 	parser       *directive.Parser
+
+	// lastStore caches the store from the most recent Run for
+	// post-run inspection (test harnesses, "eidos explain"
+	// tooling). Stored under an atomic.Pointer so concurrent
+	// readers — typically tests dispatching multiple parallel
+	// runs against the same Pipeline — observe a coherent value
+	// without locking the run path.
+	lastStore atomic.Pointer[store.Store]
 }
+
+// Store returns the [store.Store] used by the most recent
+// [Pipeline.Run] invocation, or nil when Run has not been called.
+// The returned store is read-only from the caller's perspective:
+// the pipeline freezes the node + emit views as it transitions
+// between phases, and reusing the Pipeline for another Run replaces
+// the cached store with the next run's instance.
+func (p *Pipeline) Store() *store.Store { return p.lastStore.Load() }
 
 // Frontends returns the registered frontends in registration order.
 func (p *Pipeline) Frontends() []plugin.Frontend {
