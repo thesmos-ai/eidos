@@ -83,6 +83,7 @@ func TestRead(t *testing.T) {
 		root := t.TempDir()
 		path := filepath.Join(root, "manifest.json")
 		original := manifest.New("run-1")
+		original.Brand = "acmegen"
 		original.Add(manifest.Output{Target: targetAt("a", "b.go"), Plugins: []string{"p"}, Hash: "sha256:x"})
 		assertNoError(t, manifest.Write(path, original))
 
@@ -90,6 +91,9 @@ func TestRead(t *testing.T) {
 		assertNoError(t, err)
 		if got.RunID != "run-1" {
 			t.Fatalf("RunID = %q, want run-1", got.RunID)
+		}
+		if got.Brand != "acmegen" {
+			t.Fatalf("Brand round-trip mismatch: got %q, want acmegen", got.Brand)
 		}
 		if len(got.Outputs) != 1 || got.Outputs[0].Target.Filename != "b.go" {
 			t.Fatalf("Outputs round-trip mismatch: %+v", got.Outputs)

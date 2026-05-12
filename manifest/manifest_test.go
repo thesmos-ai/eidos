@@ -25,6 +25,18 @@ func TestNew(t *testing.T) {
 		if len(m.Outputs) != 0 {
 			t.Fatalf("new Manifest should have no outputs; got %d", len(m.Outputs))
 		}
+		if m.Brand != "" {
+			t.Fatalf("Brand should default to empty for the caller to stamp; got %q", m.Brand)
+		}
+	})
+
+	t.Run("Brand is a stamped field callers populate after construction", func(t *testing.T) {
+		t.Parallel()
+		m := manifest.New("run-2")
+		m.Brand = "acmegen"
+		if m.Brand != "acmegen" {
+			t.Fatalf("Brand mutation didn't stick; got %q", m.Brand)
+		}
 	})
 }
 
