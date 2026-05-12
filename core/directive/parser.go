@@ -73,26 +73,70 @@ func newParser(prefix string) *Parser {
 // colon). Useful for diagnostics.
 func (p *Parser) Prefix() string { return p.prefix }
 
-// Parse parses a single directive body. The input is the comment
-// content with leading comment markers (`//`, `/* */`) already
-// stripped — typically what [Parser.ParseComment] passes in. pos
-// identifies the start of the directive in source for downstream
-// diagnostics.
+// Parse parses one or more directives from a directive body. The
+// input is the comment content with leading comment markers (`//`,
+// `/* */`) already stripped — typically what [Parser.ParseComment]
+// passes in. pos identifies the start of the body in source; every
+// returned directive carries it (the parser does not currently
+// model intra-line per-directive positions).
+//
+// Multiple directives on one line are parsed greedily: the
+// argument list for each directive runs until the next prefix
+// token (`+gen:`, `-gen:`, or `gen:` for a parser configured with
+// "gen") appears at a whitespace boundary. The shorthand line
+//
+//	gen:meta +gen:out users.go +gen:repo +gen:builder
+//
+// therefore parses as four directives: `meta`, `out` (with
+// positional arg `users.go`), `repo`, and `builder`.
 //
 // Returns [ErrMalformedDirective] wrapped with the specific failure
 // when the body is not a directive or contains syntactic errors.
-func (p *Parser) Parse(text string, pos position.Pos) (*Directive, error) {
+// An input with no directive prefix at all also returns
+// [ErrMalformedDirective] — use [Parser.ParseComment] for the
+// non-directive comment case.
+func (p *Parser) Parse(text string, pos position.Pos) ([]*Directive, error) {
 	trimmed := strings.TrimLeft(text, " \t")
-	negated, body, ok := p.stripPrefix(trimmed)
+	l := &lexer{src: trimmed}
+	var out []*Directive
+	for {
+		l.skipWS()
+		if l.eof() {
+			break
+		}
+		d, err := p.parseOne(l, pos)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf(
+			"%w: missing %q, %q, or %q prefix",
+			ErrMalformedDirective, p.neutral, p.setForm, p.negateFor,
+		)
+	}
+	return out, nil
+}
+
+// parseOne consumes one directive from l. The lexer is left
+// positioned at the next non-whitespace boundary — either EOF or
+// the start of the next directive's prefix. The caller's loop
+// re-enters parseOne until eof.
+//
+// Argument parsing terminates when the next whitespace-delimited
+// token starts with one of the configured prefix forms; that token
+// is left in the lexer for the next iteration to consume.
+func (p *Parser) parseOne(l *lexer, pos position.Pos) (*Directive, error) {
+	start := l.pos
+	negated, ok := p.consumePrefix(l)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: missing %q, %q, or %q prefix",
 			ErrMalformedDirective, p.neutral, p.setForm, p.negateFor,
 		)
 	}
-	raw := body
-
-	l := &lexer{src: body}
+	bodyStart := l.pos
 	name := l.readBareTo(" \t=")
 	if name == "" {
 		return nil, fmt.Errorf("%w: empty directive name", ErrMalformedDirective)
@@ -104,7 +148,6 @@ func (p *Parser) Parse(text string, pos position.Pos) (*Directive, error) {
 	d := &Directive{
 		Name:    Name(name),
 		Negated: negated,
-		Raw:     raw,
 		Pos:     pos,
 		KV:      map[string]string{},
 	}
@@ -112,6 +155,9 @@ func (p *Parser) Parse(text string, pos position.Pos) (*Directive, error) {
 	for {
 		l.skipWS()
 		if l.eof() {
+			break
+		}
+		if p.looksLikePrefix(l) {
 			break
 		}
 		key, value, isKV, err := l.readArg()
@@ -124,28 +170,37 @@ func (p *Parser) Parse(text string, pos position.Pos) (*Directive, error) {
 			d.Args = append(d.Args, key)
 		}
 	}
+	// Raw spans from the directive's body (post-prefix) up to the
+	// last consumed character; trailing whitespace between this
+	// directive's args and the next prefix is trimmed so the Raw
+	// reads as just the directive's own content.
+	raw := strings.TrimRight(l.src[bodyStart:l.pos], " \t")
+	d.Raw = raw
+	_ = start // reserved for future per-directive Pos refinement.
 	return d, nil
 }
 
-// ParseComment is a convenience over [Parser.Parse] that strips
-// leading `//` and surrounding `/* */` Go-style comment markers and
-// returns (nil, nil) for comments that don't carry a directive of
-// this Parser's prefix.
+// ParseComment strips leading `//` and surrounding `/* */` Go-style
+// comment markers from comment and returns the directives it
+// carries. Returns (nil, nil) for comments that don't carry any
+// directive of this Parser's prefix.
 //
 // Whitespace inside the comment is trimmed before the prefix check,
 // so "// gen:foo", "//gen:foo", and "/* +gen:foo */" all parse when
-// the Parser is configured for prefix "gen".
-func (p *Parser) ParseComment(comment string, pos position.Pos) (*Directive, error) {
+// the Parser is configured for prefix "gen". Multiple directives on
+// the same comment line resolve to multiple returned entries; see
+// [Parser.Parse] for the greedy split discipline.
+func (p *Parser) ParseComment(comment string, pos position.Pos) ([]*Directive, error) {
 	body := strings.TrimSpace(comment)
 	body = strings.TrimPrefix(body, "//")
 	body = strings.TrimPrefix(body, "/*")
 	body = strings.TrimSuffix(body, "*/")
 	body = strings.TrimSpace(body)
 	if body == "" {
-		return nil, nil //nolint:nilnil // empty comment is intentionally a no-directive
+		return nil, nil
 	}
 	if _, _, ok := p.stripPrefix(body); !ok {
-		return nil, nil //nolint:nilnil // non-directive comments are not errors
+		return nil, nil
 	}
 	return p.Parse(body, pos)
 }
@@ -163,6 +218,37 @@ func (p *Parser) stripPrefix(body string) (negated bool, remainder string, ok bo
 		return false, body[len(p.neutral):], true
 	}
 	return false, body, false
+}
+
+// consumePrefix advances l past one of the three recognised prefix
+// forms and reports whether one matched. Mirrors [Parser.stripPrefix]
+// but operates on the lexer's mutable position so the caller's loop
+// can continue without recomputing a substring.
+func (p *Parser) consumePrefix(l *lexer) (negated, ok bool) {
+	switch {
+	case strings.HasPrefix(l.src[l.pos:], p.negateFor):
+		l.pos += len(p.negateFor)
+		return true, true
+	case strings.HasPrefix(l.src[l.pos:], p.setForm):
+		l.pos += len(p.setForm)
+		return false, true
+	case strings.HasPrefix(l.src[l.pos:], p.neutral):
+		l.pos += len(p.neutral)
+		return false, true
+	}
+	return false, false
+}
+
+// looksLikePrefix peeks at the lexer's current position and reports
+// whether the next token starts a new directive (one of the three
+// prefix forms). The lexer is not advanced — the per-directive arg
+// loop calls this at every whitespace boundary to detect the
+// boundary between directives on a multi-directive line.
+func (p *Parser) looksLikePrefix(l *lexer) bool {
+	rest := l.src[l.pos:]
+	return strings.HasPrefix(rest, p.negateFor) ||
+		strings.HasPrefix(rest, p.setForm) ||
+		strings.HasPrefix(rest, p.neutral)
 }
 
 // isValidPrefix reports whether s is a syntactically valid Parser

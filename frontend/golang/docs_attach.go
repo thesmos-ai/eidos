@@ -54,16 +54,14 @@ func (c *converter) parseDirectives(g *ast.CommentGroup) []*directive.Directive 
 	var out []*directive.Directive
 	for _, comment := range g.List {
 		pos := posOf(c.fset, comment.Pos())
-		d, err := parser.ParseComment(comment.Text, pos)
+		ds, err := parser.ParseComment(comment.Text, pos)
 		if err != nil {
 			if errors.Is(err, directive.ErrMalformedDirective) {
 				ps.Errorf(pos, "directive parse: %v", err)
 			}
 			continue
 		}
-		if d != nil {
-			out = append(out, d)
-		}
+		out = append(out, ds...)
 	}
 	return out
 }
