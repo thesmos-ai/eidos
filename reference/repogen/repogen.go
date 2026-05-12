@@ -38,6 +38,7 @@ import (
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/priority"
+	"go.thesmos.sh/eidos/reference/internal/srcfile"
 )
 
 // Name is the plugin's stable identifier surfaced through
@@ -53,10 +54,13 @@ const Capability = "repository"
 // `-gen:` prefix) the plugin reads from each source struct.
 const DirectiveName directive.Name = "repo"
 
-// FilenameSuffix is appended to the lower-cased source struct name
-// to form the alongside-source output filename: `<src>_repo.go`.
-// Distinct from the source file so the second run doesn't conflate
-// generated output with hand-written code.
+// FilenameSuffix is appended to the source-file basename (without
+// the `.go` extension) to form the alongside-source output
+// filename: `<src-file>_repo.go`. The stringer-style convention
+// means every `+gen:repo` struct declared in `article.go` composes
+// into a single `article_repo.go`. The suffix is distinct from
+// the source's own basename so re-runs don't conflate generated
+// output with hand-authored code.
 const FilenameSuffix = "_repo.go"
 
 // NamingPascal selects the canonical PascalCase identifier shape
@@ -205,7 +209,7 @@ func (p *Plugin) generateAlongsideSource(ctx *plugin.GeneratorContext) error {
 		pkg := c.Package(srcPkg.Name, Name+":"+srcPkg.Path)
 		for _, s := range matches {
 			target := emit.Target{
-				Filename:   strings.ToLower(s.Name) + FilenameSuffix,
+				Filename:   srcfile.WithSuffix(s.Pos(), s.Name, FilenameSuffix),
 				Package:    srcPkg.Name,
 				ImportPath: srcPkg.Path,
 			}

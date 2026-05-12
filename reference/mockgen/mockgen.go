@@ -40,12 +40,14 @@ import (
 
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/opt"
+	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/emit/builder"
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/priority"
 	"go.thesmos.sh/eidos/reference/internal/refconv"
+	"go.thesmos.sh/eidos/reference/internal/srcfile"
 )
 
 // Name is the plugin's stable identifier surfaced through
@@ -66,14 +68,18 @@ const RequiresRepository = "repository"
 // source and the emit side.
 const DirectiveName directive.Name = "mock"
 
-// FilenameSuffix is appended to the lower-cased target interface
-// name to form the alongside-source output filename: `<src>_mock.go`.
+// FilenameSuffix is appended to the source-file basename (without
+// the `.go` extension) to form the alongside-source output
+// filename: `<src-file>_mock.go`. Every `+gen:mock` interface
+// declared in `searcher.go` therefore composes into one
+// `searcher_mock.go`.
 const FilenameSuffix = "_mock.go"
 
-// TestFilenameSuffix is appended to the lower-cased target interface
-// name when [Options.Test] is set: `<src>_test.go`. The Go test
-// toolchain compiles `_test.go` files only at test time, so the
-// generated mock stays out of production builds.
+// TestFilenameSuffix is appended to the source-file basename
+// (without the `.go` extension) when [Options.Test] is set:
+// `<src-file>_test.go`. The Go test toolchain compiles `_test.go`
+// files only at test time, so the generated mock stays out of
+// production builds.
 const TestFilenameSuffix = "_test.go"
 
 // TestPackageSuffix is appended to the source package's short name
@@ -214,7 +220,7 @@ func (p *Plugin) generateTestPackage(ctx *plugin.GeneratorContext) error {
 		pkg := c.Package(testPkgName, Name+":test:"+srcPkg.Path)
 		for _, si := range matches {
 			target := emit.Target{
-				Filename:   strings.ToLower(si.Name) + TestFilenameSuffix,
+				Filename:   srcfile.WithSuffix(si.Pos(), si.Name, TestFilenameSuffix),
 				Package:    testPkgName,
 				ImportPath: testImportPath,
 			}
@@ -304,7 +310,7 @@ func (p *Plugin) emitSourceMocksPerPackage(ctx *plugin.GeneratorContext) error {
 		pkg := c.Package(srcPkg.Name, Name+":src:"+srcPkg.Path)
 		for _, si := range matches {
 			target := emit.Target{
-				Filename:   strings.ToLower(si.Name) + FilenameSuffix,
+				Filename:   srcfile.WithSuffix(si.Pos(), si.Name, FilenameSuffix),
 				Package:    srcPkg.Name,
 				ImportPath: srcPkg.Path,
 			}
@@ -350,9 +356,15 @@ func (p *Plugin) emitInterfaceMocks(ctx *plugin.GeneratorContext) error {
 		c := builder.For(Name, emit.Target{})
 		pkg := c.Package(pkgName, Name+":emit:"+key)
 		for _, ei := range ifaces {
+			// Source-file basename comes from the upstream
+			// interface's Origin — the source struct (or interface)
+			// repogen / a peer generator built the interface from.
+			// Falling back to ei.Name keeps emission stable for
+			// synthetic interfaces that lack a source attribution.
+			pos := emitInterfaceOriginPos(ei)
 			target := emit.Target{
 				Dir:        ei.Target.Dir,
-				Filename:   strings.ToLower(ei.Name) + FilenameSuffix,
+				Filename:   srcfile.WithSuffix(pos, ei.Name, FilenameSuffix),
 				Package:    ei.Target.Package,
 				ImportPath: ei.Target.ImportPath,
 			}
@@ -372,6 +384,18 @@ func (p *Plugin) emitInterfaceMocks(ctx *plugin.GeneratorContext) error {
 		}
 	}
 	return firstErr
+}
+
+// emitInterfaceOriginPos returns the source position of the upstream
+// emit interface's originating node — typically the source struct
+// (or interface) the upstream generator built it from. Returns the
+// zero position when no origin is wired; callers fall back to a
+// name-derived filename in that case.
+func emitInterfaceOriginPos(i *emit.Interface) position.Pos {
+	if origin := i.Origin(); origin != nil {
+		return origin.Pos()
+	}
+	return position.Pos{}
 }
 
 // emitInterfaceGroupKey returns the bucketing key for an upstream
