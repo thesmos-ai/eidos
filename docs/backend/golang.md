@@ -73,7 +73,7 @@ on every `Render` call. Reserved entries cannot be overridden.
 | `renderParams` | `func([]*emit.Param) (string, error)` | Parenthesised param list. Rejects mixed-named with `ErrMixedNamedParams`. |
 | `renderReturns` | `func([]*emit.Return) (string, error)` | Return clause: empty / bare-type / parenthesised list per the three-case rule. |
 | `renderReceiver` | `func(*emit.Method) (string, error)` | Receiver clause: empty / `(name Type)` / `(Type)` per the three shapes. |
-| `renderDocs` | `func([]string) string` | Doc-comment block with `// ` prefix, passing directive lines (`//go:build`, `//nolint:`, …) through verbatim. |
+| `renderDocs` | `func([]string) string` | Doc-comment block with `//` prefix, passing directive lines (`//go:build`, `//nolint:`, …) through verbatim. |
 | `renderTypeParams` | `func([]*emit.TypeParam) (string, error)` | Generic bracket clause `[T any, U comparable]`. Empty input → empty string. |
 | `renderEnumVariants` | `func(*emit.Enum) (string, error)` | Enum variant block (typed-iota or explicit values). |
 

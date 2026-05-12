@@ -1,3 +1,6 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
 package blog
 
 // Numeric is the type-set constraint accepted by the Score generic.

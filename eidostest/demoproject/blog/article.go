@@ -1,3 +1,6 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
 // Package blog is the primary fixture package consumed by every
 // demonstration plugin. Its declarations carry the canonical
 // `+gen:` directives the plugins target and cover the rendering

@@ -1,3 +1,6 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
 package blog
 
 // Box is a generic envelope used by Comment to demonstrate that the

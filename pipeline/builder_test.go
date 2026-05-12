@@ -235,7 +235,50 @@ func TestBuilder_WithDirective(t *testing.T) {
 			t.Fatalf("Build should return ErrDuplicateDirective; got %v", err)
 		}
 	})
+
+	t.Run("auto-collects schemas from plugins implementing DirectiveProvider", func(t *testing.T) {
+		t.Parallel()
+		provider := &stubFEWithDirectives{
+			stubFE:  stubFE{name: "fe"},
+			schemas: []directive.Schema{directive.NewSchema("auto").Build()},
+		}
+		p, err := pipeline.New().
+			WithFrontend(provider).
+			WithBackend(&stubBE{name: "be"}).
+			Build()
+		assertNoError(t, err)
+		if _, ok := p.DirectiveRegistry().Lookup("auto"); !ok {
+			t.Fatalf("registry should contain auto-collected 'auto' directive")
+		}
+	})
+
+	t.Run("DirectiveProvider auto-collected duplicate fails Build", func(t *testing.T) {
+		t.Parallel()
+		schema := directive.NewSchema("collide").Build()
+		provider := &stubFEWithDirectives{
+			stubFE:  stubFE{name: "fe"},
+			schemas: []directive.Schema{schema},
+		}
+		_, err := pipeline.New().
+			WithFrontend(provider).
+			WithBackend(&stubBE{name: "be"}).
+			WithDirective(schema).
+			Build()
+		if !errors.Is(err, pipeline.ErrDuplicateDirective) {
+			t.Fatalf("Build should return ErrDuplicateDirective for plugin/manual collision; got %v", err)
+		}
+	})
 }
+
+// stubFEWithDirectives extends stubFE with the DirectiveProvider
+// surface so the auto-collection path can be exercised through
+// the public Build flow.
+type stubFEWithDirectives struct {
+	stubFE
+	schemas []directive.Schema
+}
+
+func (s *stubFEWithDirectives) Directives() []directive.Schema { return s.schemas }
 
 func TestBuilder_Build_EmitVersionCompatibility(t *testing.T) {
 	t.Parallel()

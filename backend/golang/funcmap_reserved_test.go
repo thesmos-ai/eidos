@@ -44,7 +44,8 @@ func TestSlotFuncmap(t *testing.T) {
 type {{ .Name }} struct {
 }
 // fields-slot-count: {{ (slot . "fields").Len }}
-{{- end -}}`)},
+{{- end -}}`,
+				)},
 			},
 		}
 		ctx.Plugins = []plugin.Plugin{provider}
@@ -68,7 +69,8 @@ type {{ .Name }} struct {
 				"templates/golang/override.tmpl": &fstest.MapFile{Data: []byte(
 					`{{ define "emit.constant" -}}
 {{ slot . "audit" }}
-{{- end -}}`)},
+{{- end -}}`,
+				)},
 			},
 		}
 		ctx.Plugins = []plugin.Plugin{provider}

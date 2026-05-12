@@ -272,7 +272,8 @@ func TestFileCompose_DirectFileImports(t *testing.T) {
 		ctx, mem, d := newBackendContext(t)
 		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
 		f := bindFile(t, ctx, target)
-		f.Imports = append(f.Imports,
+		f.Imports = append(
+			f.Imports,
 			&emit.Import{Path: "embed", Alias: "_"},
 		)
 		addEmitPackage(t, ctx, emitPackage("x", emitStructWithFields(

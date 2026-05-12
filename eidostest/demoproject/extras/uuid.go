@@ -1,3 +1,6 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
 // Package extras supplies cross-package types referenced from the
 // blog package. Its purpose in the fixture is to force the frontend
 // to resolve an external import path and the backend's import

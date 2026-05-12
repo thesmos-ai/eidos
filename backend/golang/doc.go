@@ -170,5 +170,4 @@
 // per-Target funcmap closures, and accumulates per-Target ImportSet state in
 // isolation. Plugin templates merge into the per-Render clone, not the
 // parent, so concurrent Render calls remain race-free.
-//
 package golang

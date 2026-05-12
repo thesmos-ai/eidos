@@ -18,7 +18,7 @@ labels: bug
 ```
 
 ```bash
-$ eidos run ...
+eidos run ...
 ```
 
 ## Expected behaviour
