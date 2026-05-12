@@ -33,6 +33,17 @@ type Options struct {
 	// needs visibility into cgo types.
 	SkipCgoFiles bool `json:"skip_cgo_files" eidos:"skip_cgo_files,default=true"`
 
+	// SkipGeneratedFiles drops files carrying the canonical
+	// `// Code generated ... DO NOT EDIT.` marker (Go's
+	// `go/build.IsGenerated` shape) before they reach the converter.
+	// The framework's own outputs always carry this header, so the
+	// default — true — keeps a subsequent run from re-parsing
+	// previously-emitted code as fresh source. Set to false when a
+	// pipeline legitimately needs to consume generated files (for
+	// instance, an annotator that walks third-party generated
+	// output to attach metadata).
+	SkipGeneratedFiles bool `json:"skip_generated_files" eidos:"skip_generated_files,default=true"`
+
 	// Dir is the working directory passed to `golang.org/x/tools/go/packages`
 	// during Load. Empty (the default) lets `go/packages` inherit the
 	// process working directory — the typical setup for CLI runs. Test

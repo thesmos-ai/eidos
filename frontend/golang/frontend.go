@@ -31,10 +31,27 @@ type Frontend struct {
 }
 
 // New returns a Go frontend ready for registration on a
-// [pipeline.Builder]. The default [Options] apply until the
-// pipeline calls [Frontend.SetOptions].
+// [pipeline.Builder]. The default [Options] (returned by
+// [defaultOptions]) apply until the pipeline calls
+// [Frontend.SetOptions] — the documented "default true" booleans
+// (SkipCgoFiles, SkipGeneratedFiles) therefore hold even when no
+// option overrides reach the frontend.
 func New() *Frontend {
-	return &Frontend{}
+	return &Frontend{opts: defaultOptions()}
+}
+
+// defaultOptions returns the [Options] value the frontend uses when
+// no overrides are configured. Mirrors the `default=…` tags on the
+// [Options] struct one-for-one; the small amount of duplication is
+// the trade-off for keeping [New] panic-free and side-effect-free.
+func defaultOptions() Options {
+	return Options{
+		IncludeTests:       false,
+		BuildTags:          "",
+		SkipCgoFiles:       true,
+		SkipGeneratedFiles: true,
+		Dir:                "",
+	}
 }
 
 // Name returns [FrontendName].

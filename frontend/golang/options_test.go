@@ -18,10 +18,11 @@ func TestFrontend_OptionsSchema(t *testing.T) {
 		t.Parallel()
 		schema := golang.New().OptionsSchema()
 		want := map[string]bool{
-			"include_tests":  true,
-			"build_tags":     true,
-			"skip_cgo_files": true,
-			"dir":            true,
+			"include_tests":        true,
+			"build_tags":           true,
+			"skip_cgo_files":       true,
+			"skip_generated_files": true,
+			"dir":                  true,
 		}
 		for _, f := range schema.Fields {
 			if !want[f.Name] {
@@ -38,10 +39,11 @@ func TestFrontend_OptionsSchema(t *testing.T) {
 		t.Parallel()
 		schema := golang.New().OptionsSchema()
 		defaults := map[string]string{
-			"include_tests":  "false",
-			"build_tags":     "",
-			"skip_cgo_files": "true",
-			"dir":            "",
+			"include_tests":        "false",
+			"build_tags":           "",
+			"skip_cgo_files":       "true",
+			"skip_generated_files": "true",
+			"dir":                  "",
 		}
 		for _, f := range schema.Fields {
 			want, ok := defaults[f.Name]

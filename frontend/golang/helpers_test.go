@@ -79,6 +79,24 @@ func requirePackage(t *testing.T, src map[string]string) *node.Package {
 	return pkg
 }
 
+// requirePackageOpts is [requirePackage] with frontend options.
+// Used by tests that need to flip option defaults (skipping
+// generated files, including tests, …) before observing the loaded
+// package.
+func requirePackageOpts(t *testing.T, src, opts map[string]string) *node.Package {
+	t.Helper()
+	dir := materialiseGoSource(t, src)
+	s, d := loadDirWithOptions(t, dir, nil, opts)
+	if d.HasErrors() {
+		t.Fatalf("unexpected frontend errors: %+v", d.Diagnostics())
+	}
+	pkg := firstPackageIn(s, "")
+	if pkg == nil {
+		t.Fatalf("no package loaded from source map %v", src)
+	}
+	return pkg
+}
+
 // materialiseGoSource writes the supplied source map into a fresh
 // [testing.T.TempDir] and returns the directory path. A `go.mod`
 // is synthesised when the map does not supply one so the directory
