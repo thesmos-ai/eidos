@@ -4,6 +4,9 @@
 package protobuf
 
 import (
+	"encoding/json"
+	"fmt"
+
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"go.thesmos.sh/eidos/core/meta"
@@ -47,7 +50,162 @@ var (
 		"frontend",
 		meta.StringParser,
 	) //nolint:gochecknoglobals // cross-frontend registry-singleton key
+
+	// MetaFieldNumber stamps the proto tag number on every
+	// [node.Field] derived from a proto field.
+	MetaFieldNumber = meta.NewKey(
+		"proto.field.number",
+		meta.IntParser,
+	) //nolint:gochecknoglobals // typed registry-singleton key
+
+	// MetaFieldJSONName stamps the field's resolved JSON name.
+	// Defaults to the lowerCamelCase form derived from the source
+	// name; overridden by an explicit `[json_name = "..."]`
+	// option on the field.
+	MetaFieldJSONName = meta.NewKey(
+		"proto.field.json_name",
+		meta.StringParser,
+	) //nolint:gochecknoglobals // typed registry-singleton key
+
+	// MetaFieldDeprecated stamps true on fields declared with
+	// `[deprecated = true]`. Absent on every other field — the
+	// convenience-alias contract is presence-only.
+	MetaFieldDeprecated = meta.NewKey(
+		"proto.field.deprecated",
+		meta.BoolParser,
+	) //nolint:gochecknoglobals // typed registry-singleton key
+
+	// MetaFieldPacked stamps true or false on repeated scalar
+	// fields that carry an explicit `[packed = ...]` override.
+	// Absent on every field that uses the proto3 default packing.
+	MetaFieldPacked = meta.NewKey(
+		"proto.field.packed",
+		meta.BoolParser,
+	) //nolint:gochecknoglobals // typed registry-singleton key
+
+	// MetaFieldOptional stamps true on fields that use proto3
+	// explicit-presence (the `optional` keyword on a scalar field
+	// in proto3.15+). Absent on non-optional fields.
+	MetaFieldOptional = meta.NewKey(
+		"proto.field.optional",
+		meta.BoolParser,
+	) //nolint:gochecknoglobals // typed registry-singleton key
+
+	// MetaFieldOneof stamps the name of the oneof group on each
+	// member field. Absent on fields that don't belong to a oneof.
+	MetaFieldOneof = meta.NewKey(
+		"proto.field.oneof",
+		meta.StringParser,
+	) //nolint:gochecknoglobals // typed registry-singleton key
+
+	// MetaFieldTrailingDoc stamps the source-form text of a
+	// trailing same-line comment attached to a field. Multi-line
+	// trailing comments join with `\n`. Absent on fields without a
+	// trailing comment.
+	MetaFieldTrailingDoc = meta.NewKey(
+		"proto.field.trailing_doc",
+		meta.StringParser,
+	) //nolint:gochecknoglobals // typed registry-singleton key
+
+	// MetaMessageTrailingDoc stamps the trailing comment that
+	// follows a `message` declaration's opening brace on the same
+	// line. Absent on messages without such a comment.
+	MetaMessageTrailingDoc = meta.NewKey(
+		"proto.message.trailing_doc",
+		meta.StringParser,
+	) //nolint:gochecknoglobals // typed registry-singleton key
+
+	// MetaMessageReservedNumbers stamps the expanded list of
+	// reserved tag numbers on a message — single numbers and
+	// range endpoints both contribute. Absent on messages without
+	// any reservations.
+	MetaMessageReservedNumbers = meta.NewKey(
+		"proto.message.reserved.numbers",
+		int32SliceParser,
+	) //nolint:gochecknoglobals // typed registry-singleton key
+
+	// MetaMessageReservedNames stamps reserved field names on a
+	// message. Absent on messages without any reserved names.
+	MetaMessageReservedNames = meta.NewKey(
+		"proto.message.reserved.names",
+		stringSliceParser,
+	) //nolint:gochecknoglobals // typed registry-singleton key
+
+	// MetaEnumAllowAlias stamps true on enums that declare
+	// `option allow_alias = true;`. Absent on every other enum.
+	MetaEnumAllowAlias = meta.NewKey(
+		"proto.enum.allow_alias",
+		meta.BoolParser,
+	) //nolint:gochecknoglobals // typed registry-singleton key
+
+	// MetaEnumReservedNumbers stamps the expanded list of reserved
+	// tag numbers on an enum.
+	MetaEnumReservedNumbers = meta.NewKey(
+		"proto.enum.reserved.numbers",
+		int32SliceParser,
+	) //nolint:gochecknoglobals // typed registry-singleton key
+
+	// MetaEnumReservedNames stamps reserved variant names on an
+	// enum.
+	MetaEnumReservedNames = meta.NewKey(
+		"proto.enum.reserved.names",
+		stringSliceParser,
+	) //nolint:gochecknoglobals // typed registry-singleton key
+
+	// MetaEnumTrailingDoc stamps the trailing same-line comment
+	// attached to an enum declaration. Absent on enums without
+	// such a comment.
+	MetaEnumTrailingDoc = meta.NewKey(
+		"proto.enum.trailing_doc",
+		meta.StringParser,
+	) //nolint:gochecknoglobals // typed registry-singleton key
+
+	// MetaEnumVariantNumber stamps the variant's proto tag number
+	// as the natural typed value. Consumers reading the typed
+	// numeric form go through this key; the source-form integer
+	// string lives on [node.EnumVariant.Value].
+	MetaEnumVariantNumber = meta.NewKey(
+		"proto.enum_variant.number",
+		meta.IntParser,
+	) //nolint:gochecknoglobals // typed registry-singleton key
+
+	// MetaEnumVariantTrailingDoc stamps the trailing same-line
+	// comment attached to an enum variant declaration. Absent on
+	// variants without such a comment.
+	MetaEnumVariantTrailingDoc = meta.NewKey(
+		"proto.enum_variant.trailing_doc",
+		meta.StringParser,
+	) //nolint:gochecknoglobals // typed registry-singleton key
 )
+
+// int32SliceParser decodes a JSON-encoded int32 slice from raw.
+// Used as the [meta.Parser] for the reserved-numbers keys whose
+// stored payload is a typed slice; the parser is only invoked on
+// the cache-roundtrip path, where the bag was JSON-marshalled and
+// is lazy-decoded back into the typed form.
+func int32SliceParser(raw string) ([]int32, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	var out []int32
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil, fmt.Errorf("protobuf: decode int32 slice: %w", err)
+	}
+	return out, nil
+}
+
+// stringSliceParser decodes a JSON-encoded string slice from raw.
+// Mirrors [int32SliceParser] for the reserved-names keys.
+func stringSliceParser(raw string) ([]string, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	var out []string
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil, fmt.Errorf("protobuf: decode string slice: %w", err)
+	}
+	return out, nil
+}
 
 // MetaOptionPrefix is the namespace under which proto custom-option
 // entries are stamped on host meta bags. For a custom option named

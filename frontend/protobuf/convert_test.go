@@ -131,6 +131,7 @@ func TestConvert_Deterministic(t *testing.T) {
 		"imports",
 		"fileoptions",
 		"fileoptions-collision",
+		"messages",
 	}
 	for _, name := range cases {
 		t.Run(name+" fixture serializes identically across two consecutive loads", func(t *testing.T) {

@@ -268,7 +268,11 @@ func newCompiler(ps *diag.PluginSink, opts Options, root string) *protocompile.C
 			ps.Warnf(posFromReporter(warn), "protobuf: %s", warn.Unwrap())
 		},
 	)
-	return &protocompile.Compiler{Resolver: resolver, Reporter: rep}
+	return &protocompile.Compiler{
+		Resolver:       resolver,
+		Reporter:       rep,
+		SourceInfoMode: protocompile.SourceInfoStandard,
+	}
 }
 
 // posFromReporter translates protocompile's per-error source

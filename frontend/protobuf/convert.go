@@ -40,13 +40,18 @@ func convertFiles(
 		qualifier := string(fd.Package())
 		pkg, exists := pkgs[qualifier]
 		if !exists {
-			pkg = newPackage(qualifier)
-			stampFrontendMarker(pkg)
+			pkg = newProtoPackage(qualifier)
 			pkgs[qualifier] = pkg
 			order = append(order, qualifier)
 		}
 		appendFile(pkg, fd)
 		stampFileOptions(ps, pkg, fd)
+		// File-level enums precede nested enums so the produced
+		// Enums slice mirrors the proto source order: top-level
+		// declarations first, then the enums each message
+		// contributes from inside its braces.
+		convertEnums(ctx, pkg, fd)
+		convertMessages(ctx, pkg, fd)
 	}
 	for _, qualifier := range order {
 		pkg := pkgs[qualifier]
@@ -71,18 +76,22 @@ func sortDescriptors(descriptors []protoreflect.FileDescriptor) []protoreflect.F
 	return out
 }
 
-// newPackage allocates a new [node.Package] for the supplied proto
-// package qualifier. Name is the last dotted segment of qualifier
-// (`simple` for `eidos.protobuf.testdata.simple`); Path is the full
-// qualifier verbatim. A qualifier without a dot uses the whole
-// string as Name; the empty qualifier produces a package with empty
-// Name and Path (callers reject such inputs upstream).
-func newPackage(qualifier string) *node.Package {
+// newProtoPackage allocates a fresh [node.Package] for the
+// supplied proto package qualifier and stamps the cross-frontend
+// provenance marker on it. Name is the last dotted segment of
+// qualifier (`simple` for `eidos.protobuf.testdata.simple`); Path
+// is the full qualifier verbatim. A qualifier without a dot uses
+// the whole string as Name; the empty qualifier produces a
+// package with empty Name and Path (callers reject such inputs
+// upstream).
+func newProtoPackage(qualifier string) *node.Package {
 	name := qualifier
 	if dot := strings.LastIndex(qualifier, "."); dot >= 0 {
 		name = qualifier[dot+1:]
 	}
-	return &node.Package{Name: name, Path: qualifier}
+	pkg := &node.Package{Name: name, Path: qualifier}
+	stampFrontendMarker(pkg)
+	return pkg
 }
 
 // appendFile records one [node.File] on pkg derived from fd. Name

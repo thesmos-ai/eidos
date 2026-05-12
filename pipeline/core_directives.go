@@ -59,7 +59,8 @@ func coreDirectives() []directive.Schema {
 				"Pins the rendered filename for emit entities anchored to this source node. " +
 					"Positional `filename` is required; optional `plugin=<name>` scopes the override " +
 					"to one plugin's output, and optional `pkg=<name>` pins the rendered package " +
-					"clause. CLI -o overrides this directive in turn.").
+					"clause. CLI -o overrides this directive in turn.",
+			).
 			Positional("filename").
 			DenyNegation().
 			Build(),

@@ -1,0 +1,73 @@
+// messages.proto is the comprehensive fixture exercising the
+// message + enum + scalar-field conversion surface. The file
+// covers nested messages, per-field meta (tag, json_name,
+// deprecated, optional, oneof, trailing-doc), message-level
+// reserved ranges and trailing-doc, enums with variants +
+// allow-alias + reserved + variant trailing-doc, and message-
+// and enum-typed field references.
+syntax = "proto3";
+
+package eidos.protobuf.testdata.messages;
+
+// Status is the user's account state. Variants carry per-variant
+// number meta; the trailing comments on variants land in
+// proto.enum_variant.trailing_doc.
+enum Status {
+  STATUS_UNKNOWN = 0;
+  STATUS_ACTIVE = 1; // user is logged in
+  STATUS_BANNED = 2;
+  reserved 3, 4;
+  reserved "OLD_BANNED";
+}
+
+// AliasedStatus exercises the allow_alias enum option — two
+// variants share the zero tag number.
+enum AliasedStatus {
+  option allow_alias = true;
+  ALIASED_OK = 0;
+  ALIASED_RUNNING = 0;
+}
+
+// User is the canonical account record. The message-level
+// trailing comment lands in proto.message.trailing_doc.
+// +gen:builder
+message User { // primary account
+  // id is the account's stable unique identifier.
+  string id = 1; // primary key
+  // legacy_field is no longer populated.
+  int32 legacy_field = 2 [deprecated = true];
+  // display_name overrides the default JSON name.
+  string display_name = 3 [json_name = "displayName"];
+  // optional_note exercises proto3-explicit-presence.
+  optional string optional_note = 4;
+  // status references the file-level enum.
+  Status status = 5;
+  // profile references the nested Profile message.
+  Profile profile = 6;
+
+  reserved 7, 9 to 11;
+  reserved "obsolete_email";
+
+  // Profile is nested under User; the converter emits it as a
+  // Struct named "User.Profile" in the same package.
+  message Profile {
+    string nickname = 1;
+  }
+}
+
+// Container exercises the oneof channel — fields inside the
+// oneof block carry proto.field.oneof meta naming the group.
+// The synthesized interface for the oneof group is composed by
+// the composite-type translation surface and is not surfaced by
+// the per-message converter.
+message Container {
+  oneof choice {
+    string text = 1;
+    int32 number = 2;
+  }
+  string tag = 3;
+  // tags exercises the proto.field.packed presence-only stamp:
+  // an explicit [packed = false] override is the only way a
+  // proto3-scalar repeated field surfaces the meta key.
+  repeated int32 tags = 4 [packed = false];
+}

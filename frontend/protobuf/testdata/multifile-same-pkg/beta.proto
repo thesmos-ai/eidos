@@ -1,7 +1,7 @@
 // beta.proto contributes the second message to the same proto
 // package as alpha.proto. The frontend collapses both files into
-// one node.Package; later phases populate the Structs slice from
-// each contributing file.
+// one node.Package; each contributing file's declarations
+// populate the merged Structs slice in alphabetical file order.
 syntax = "proto3";
 
 package eidos.protobuf.testdata.multipkg;
