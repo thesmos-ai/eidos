@@ -37,6 +37,12 @@ type File struct {
 	// root. Matches [Target.Dir] on the declarations routed here.
 	Dir string `json:"dir,omitempty"`
 
+	// ImportPath is the canonical import path of the package this
+	// file declares. Matches [Target.ImportPath] on the
+	// declarations routed here; the backend forwards it to the
+	// per-file [writer.ImportSet] for same-package import elision.
+	ImportPath string `json:"import_path,omitempty"`
+
 	// Imports is the file's import block. Backends commonly derive
 	// imports from [ExternalRef] usage at render time via the `imp`
 	// template func; explicit Imports let generators force-include
@@ -57,10 +63,15 @@ type File struct {
 func (*File) Kind() directive.Kind { return KindFile }
 
 // Target returns the [Target] value that declarations route through
-// to land in this file. Composed from [File.Dir], [File.Name], and
-// [File.Package].
+// to land in this file. Composed from [File.Dir], [File.Name],
+// [File.Package], and [File.ImportPath].
 func (f *File) Target() Target {
-	return Target{Dir: f.Dir, Filename: f.Name, Package: f.Package}
+	return Target{
+		Dir:        f.Dir,
+		Filename:   f.Name,
+		Package:    f.Package,
+		ImportPath: f.ImportPath,
+	}
 }
 
 // Path returns the file path under the project root —

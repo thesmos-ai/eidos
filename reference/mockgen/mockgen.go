@@ -202,9 +202,10 @@ func (p *Plugin) generateAlongsideSource(ctx *plugin.GeneratorContext) error {
 // emitSourceMocksPerPackage walks the node store grouped by source
 // package and emits one mock per `+gen:mock` interface, keyed by the
 // source package so the rendered file's package clause matches. The
-// reference into the mocked interface is a bare-identifier
-// [emit.Builtin] — the mock lives in the same Go package, so no
-// import is needed.
+// emitted target carries the source package's import path so the
+// renderer elides same-package qualifiers — the plugin can use
+// [emit.External] uniformly for the mocked interface reference and
+// the renderer drops the self-import.
 func (p *Plugin) emitSourceMocksPerPackage(ctx *plugin.GeneratorContext) error {
 	var firstErr error
 	ctx.Reader.Packages().Each(func(srcPkg *node.Package) {
@@ -216,10 +217,11 @@ func (p *Plugin) emitSourceMocksPerPackage(ctx *plugin.GeneratorContext) error {
 		pkg := c.Package(srcPkg.Name, Name+":src:"+srcPkg.Path)
 		for _, si := range matches {
 			target := emit.Target{
-				Filename: strings.ToLower(si.Name) + FilenameSuffix,
-				Package:  srcPkg.Name,
+				Filename:   strings.ToLower(si.Name) + FilenameSuffix,
+				Package:    srcPkg.Name,
+				ImportPath: srcPkg.Path,
 			}
-			p.emitForSourceInterface(pkg, si, target, emit.Builtin(si.Name))
+			p.emitForSourceInterface(pkg, si, target, emit.External(si.Package, si.Name))
 		}
 		out, err := pkg.Build()
 		if err != nil {
@@ -262,9 +264,10 @@ func (p *Plugin) emitInterfaceMocks(ctx *plugin.GeneratorContext) error {
 		pkg := c.Package(pkgName, Name+":emit:"+key)
 		for _, ei := range ifaces {
 			target := emit.Target{
-				Dir:      ei.Target.Dir,
-				Filename: strings.ToLower(ei.Name) + FilenameSuffix,
-				Package:  ei.Target.Package,
+				Dir:        ei.Target.Dir,
+				Filename:   strings.ToLower(ei.Name) + FilenameSuffix,
+				Package:    ei.Target.Package,
+				ImportPath: ei.Target.ImportPath,
 			}
 			p.emitForEmitInterface(pkg, ei, target)
 		}

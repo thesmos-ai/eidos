@@ -188,7 +188,12 @@ func (p *Plugin) generateCentralised(ctx *plugin.GeneratorContext) error {
 // generateAlongsideSource emits one emit.Package per source package,
 // containing one decl per `+gen:repo` target. Each emitted decl's
 // Target is filename-only — the router fills Target.Dir from the
-// source's directory at the routing phase.
+// source's directory at the routing phase — and carries the source
+// package's import path so the renderer elides same-package
+// qualifiers via the [emit.Target.ImportPath] mechanism. The plugin
+// therefore emits every type reference (including the source
+// struct's own type) as [emit.External]; the backend renders
+// cross-package refs qualified and same-package refs bare.
 func (p *Plugin) generateAlongsideSource(ctx *plugin.GeneratorContext) error {
 	var firstErr error
 	ctx.Reader.Packages().Each(func(srcPkg *node.Package) {
@@ -200,13 +205,11 @@ func (p *Plugin) generateAlongsideSource(ctx *plugin.GeneratorContext) error {
 		pkg := c.Package(srcPkg.Name, Name+":"+srcPkg.Path)
 		for _, s := range matches {
 			target := emit.Target{
-				Filename: strings.ToLower(s.Name) + FilenameSuffix,
-				Package:  srcPkg.Name,
+				Filename:   strings.ToLower(s.Name) + FilenameSuffix,
+				Package:    srcPkg.Name,
+				ImportPath: srcPkg.Path,
 			}
-			// Source lives in the same Go package as the output —
-			// emit a bare-identifier reference so the renderer
-			// doesn't insert a self-import.
-			p.emitOne(pkg, s, target, emit.Builtin(s.Name))
+			p.emitOne(pkg, s, target, emit.External(s.Package, s.Name))
 		}
 		out, err := pkg.Build()
 		if err != nil {

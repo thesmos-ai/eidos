@@ -451,9 +451,10 @@ func (v *EmitView) FileFor(target emit.Target) (*emit.File, error) {
 		return nil, fmt.Errorf("%w: cannot create emit.File for %+v", ErrFrozen, target)
 	}
 	f := &emit.File{
-		Name:    target.Filename,
-		Package: target.Package,
-		Dir:     target.Dir,
+		Name:       target.Filename,
+		Package:    target.Package,
+		Dir:        target.Dir,
+		ImportPath: target.ImportPath,
 	}
 	// Add cannot fail: we hold fileForMu and the ByQName above
 	// guarantees no concurrent caller inserted under key.

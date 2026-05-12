@@ -45,7 +45,17 @@ func (s *renderState) renderType(r emit.Ref) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("backend/golang: renderType: %w", err)
 		}
-		return alias + "." + typed.Name, nil
+		args, err := s.renderTypeArgs(typed.TypeArgs)
+		if err != nil {
+			return "", err
+		}
+		if alias == "" {
+			// Same-package elision: Imp returned the empty alias
+			// because typed.Package equals the rendered file's own
+			// import path. Drop the qualifier and emit the bare name.
+			return typed.Name + args, nil
+		}
+		return alias + "." + typed.Name + args, nil
 	case *emit.TypeRef:
 		return internalTargetName(typed.Target)
 	case *emit.CompositeRef:

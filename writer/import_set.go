@@ -54,6 +54,7 @@ type ImportSet struct {
 	aliases  map[string]string // path -> assigned alias
 	explicit map[string]string // path -> caller-supplied override
 	used     map[string]string // alias -> path it resolved to
+	self     string            // import path of the rendered file's own package
 }
 
 // NewImportSet returns an empty ImportSet. Pass nil for derive to
@@ -67,6 +68,44 @@ func NewImportSet(derive AliasFunc) *ImportSet {
 		aliases:  map[string]string{},
 		explicit: map[string]string{},
 		used:     map[string]string{},
+	}
+}
+
+// SetSelf records the import path of the package the rendered file
+// itself declares, plus its short name. Two effects:
+//
+//   - Subsequent [ImportSet.Imp] calls with the same path return
+//     the empty alias without recording an import — the same-package
+//     elision rule callers (renderType, renderExpr) treat as "emit
+//     the bare symbol name, no qualifier".
+//   - The short name is reserved upfront in the alias collision
+//     table so a cross-package import whose derived alias would
+//     match (e.g. `example.com/bar/blog` rendered into a file
+//     declaring `package blog`) falls back to a numeric-suffixed
+//     alias rather than shadowing the file's own package
+//     identifier.
+//
+// Empty path disables elision; empty name disables the reservation.
+// Either can be called with the empty string for the unaffected
+// half.
+func (i *ImportSet) SetSelf(path, name string) {
+	if path == "" && name == "" {
+		return
+	}
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if path != "" {
+		i.self = path
+	}
+	if name != "" {
+		// Reserve the short name in `used` keyed against the self
+		// path so [ImportSet.Imp] sees it as "taken by self" and
+		// picks a suffixed alias for any other path that would
+		// derive to it. Storing the self path (vs. a synthetic
+		// sentinel) keeps the existing same-path-returns-existing
+		// branch coherent — Imp for self path elides before
+		// touching `used` at all.
+		i.used[name] = i.self
 	}
 }
 
@@ -84,6 +123,14 @@ func (i *ImportSet) Imp(path string) (string, error) {
 	}
 	i.mu.Lock()
 	defer i.mu.Unlock()
+
+	// Same-package elision: a path equal to the rendered file's
+	// own import path resolves to the empty alias without
+	// registering an import. Callers treat empty as "emit the
+	// bare symbol name with no qualifier".
+	if path == i.self {
+		return "", nil
+	}
 
 	if existing, ok := i.aliases[path]; ok {
 		return existing, nil

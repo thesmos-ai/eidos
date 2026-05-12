@@ -124,6 +124,12 @@ func (s *renderState) renderExpr(e *emit.Expr) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("backend/golang: renderExpr ExternalRef: %w", err)
 		}
+		if alias == "" {
+			// Same-package elision: Imp returned the empty alias
+			// because e.Pkg equals the rendered file's own import
+			// path. Drop the qualifier and emit the bare symbol.
+			return e.Name, nil
+		}
 		return alias + "." + e.Name, nil
 	default:
 		return "", fmt.Errorf("%w: ExprKind=%s", ErrUnsupportedExpr, e.ExprKind)

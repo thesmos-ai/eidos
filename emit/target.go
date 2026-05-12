@@ -28,6 +28,21 @@ type Target struct {
 	// (Go's `package repo`). Empty for languages without
 	// package declarations at the file level.
 	Package string `json:"package,omitempty"`
+
+	// ImportPath is the canonical import path of the package the
+	// rendered file lands in (e.g. "example.com/project/internal/repo").
+	// Plugins set this to the source's import path when emitting
+	// alongside-source, or to the consumer's centralised output
+	// import path when emitting centralised; the backend forwards
+	// it to the per-target [writer.ImportSet] so any [ExternalRef]
+	// / [ExprExternal] whose Package matches renders bare (no
+	// import, no qualifier) — the same-package elision rule.
+	//
+	// Empty ImportPath disables the elision; cross-package refs
+	// still resolve normally. Targets distinguished only by
+	// ImportPath compare unequal (Go struct equality), so plugins
+	// emitting to the same logical file must agree on the value.
+	ImportPath string `json:"import_path,omitempty"`
 }
 
 // IsZero reports whether t carries no routing information.

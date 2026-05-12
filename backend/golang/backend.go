@@ -77,6 +77,15 @@ func (b *Backend) Render(ctx *plugin.BackendContext) error {
 	for _, target := range ctx.Store.Emit().ByTarget().Keys() {
 		entities := ctx.Store.Emit().ByTarget().Get(target)
 		state := newRenderState(merged.tmpl, pluginOrder, merged.extensions, merged.overrides)
+		// Forward the target's own import path + short name to the
+		// per-file import set. The path enables same-package
+		// elision ([emit.ExternalRef] / [emit.ExprExternal]
+		// references back into the same package render bare); the
+		// short name is reserved in the alias collision table so a
+		// cross-package import whose derived alias would shadow the
+		// file's own `package <name>` clause falls back to a
+		// numeric-suffixed alias.
+		state.imports.SetSelf(target.ImportPath, target.Package)
 		body, tracked, err := renderFile(state, target, entities, packageDocsFor(ctx, target))
 		if err != nil {
 			if errors.Is(err, ErrEmptyTarget) {

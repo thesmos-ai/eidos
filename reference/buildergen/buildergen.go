@@ -182,13 +182,14 @@ func (p *Plugin) generateAlongsideSource(ctx *plugin.GeneratorContext) error {
 		pkg := c.Package(srcPkg.Name, Name+":"+srcPkg.Path)
 		for _, s := range matches {
 			target := emit.Target{
-				Filename: strings.ToLower(s.Name) + FilenameSuffix,
-				Package:  srcPkg.Name,
+				Filename:   strings.ToLower(s.Name) + FilenameSuffix,
+				Package:    srcPkg.Name,
+				ImportPath: srcPkg.Path,
 			}
-			// Source lives in the same Go package as the output —
-			// emit a bare-identifier reference so the renderer
-			// doesn't insert a self-import.
-			p.emitOne(pkg, s, target, emit.Builtin(s.Name))
+			// Same-package elision via [emit.Target.ImportPath]
+			// renders this reference bare — no self-import on the
+			// rendered file.
+			p.emitOne(pkg, s, target, emit.External(s.Package, s.Name))
 		}
 		out, err := pkg.Build()
 		if err != nil {
