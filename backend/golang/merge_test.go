@@ -12,6 +12,8 @@ import (
 
 	"go.thesmos.sh/eidos/backend/golang"
 	"go.thesmos.sh/eidos/core/diag"
+	"go.thesmos.sh/eidos/eidostest/pluginfixture"
+	"go.thesmos.sh/eidos/eidostest/testpipe"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/plugin"
 )
@@ -245,6 +247,62 @@ const {{ .Name }} = {{ renderExpr .Value }}
 		if !strings.Contains(body, "const K = 42") {
 			t.Fatalf("expected const decl from plugin template; got:\n%s", body)
 		}
+		// Plugin-overrides-core templates emit an Info diagnostic
+		// symmetric with the funcmap-override surface so the
+		// override trail is auditable end-to-end.
+		if !diagnosticsContain(d, diag.Info, "plugin constgen overrode template emit.constant (was: core)") {
+			t.Fatalf("expected template-override Info diagnostic; got %+v", d.Diagnostics())
+		}
+	})
+}
+
+// TestMerge_PluginDefinedKindRoundTrip covers the end-to-end plugin
+// extension story: a [pluginfixture.Plugin] ships a custom emit
+// kind ([pluginfixture.Banner]) plus the matching template, the
+// banner rides into a Target's [emit.File.Top] slot alongside a
+// core Struct, and the backend renders both into one file.
+//
+// The acceptance assertion has three parts: the banner content
+// appears in the body, the core Struct appears in the body, and a
+// golden fixture pins the canonical byte-level output.
+func TestMerge_PluginDefinedKindRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	t.Run("plugin-defined kind renders alongside a core kind", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		fx := pluginfixture.Plugin{}
+		ctx.Plugins = []plugin.Plugin{fx}
+		ctx.Ordered = []plugin.Plugin{fx}
+		target := emit.Target{Dir: "users", Filename: "user.go", Package: "users"}
+		f := bindFile(t, ctx, target)
+		banner := &pluginfixture.Banner{
+			Title:   "USERS",
+			Message: "User record + supporting types for the users package.",
+			Target:  target,
+		}
+		if err := f.Top().Append(banner, emit.Provenance{SetBy: pluginfixture.Name}); err != nil {
+			t.Fatalf("append banner to File.Top: %v", err)
+		}
+		addEmitPackage(t, ctx, emitPackage("users", &emit.Struct{
+			BaseEmit: emit.BaseEmit{DocLines: []string{"User is the canonical user record."}},
+			Name:     "User", Package: "users", Target: target,
+			Fields: []*emit.Field{
+				{Name: "ID", Type: emit.Builtin("int")},
+				{Name: "Name", Type: emit.Builtin("string")},
+			},
+		}))
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		if !strings.Contains(string(body), "// === USERS ===") {
+			t.Fatalf("expected plugin-rendered banner header in body; got:\n%s", body)
+		}
+		if !strings.Contains(string(body), "// User record + supporting types") {
+			t.Fatalf("expected plugin-rendered banner message in body; got:\n%s", body)
+		}
+		if !strings.Contains(string(body), "type User struct {") {
+			t.Fatalf("expected core Struct decl in body; got:\n%s", body)
+		}
+		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "plugin_kind_round_trip.go.golden"))
 	})
 }
 

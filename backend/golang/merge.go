@@ -102,7 +102,7 @@ func mergePluginContributions(
 	reserved map[string]struct{},
 	ps *diag.PluginSink,
 ) (*mergedTemplateSet, error) {
-	tmpl, err := parseTemplatesFromPlugins(ctx, parent)
+	tmpl, err := parseTemplatesFromPlugins(ctx, parent, ps)
 	if err != nil {
 		return nil, err
 	}
@@ -134,6 +134,7 @@ func mergePluginContributions(
 func parseTemplatesFromPlugins(
 	ctx *plugin.BackendContext,
 	parent *template.Template,
+	ps *diag.PluginSink,
 ) (*template.Template, error) {
 	merged, err := parent.Clone()
 	if err != nil {
@@ -154,7 +155,7 @@ func parseTemplatesFromPlugins(
 		if !has {
 			continue
 		}
-		if err := parseOnePluginFS(merged, fsys, p.Name(), contributors); err != nil {
+		if err := parseOnePluginFS(merged, fsys, p.Name(), contributors, ps); err != nil {
 			return nil, err
 		}
 	}
@@ -181,6 +182,7 @@ func parseOnePluginFS(
 	fsys fs.FS,
 	pluginName string,
 	contributors map[string]string,
+	ps *diag.PluginSink,
 ) error {
 	tmplFiles, err := collectTmplFiles(fsys)
 	if err != nil {
@@ -201,7 +203,8 @@ func parseOnePluginFS(
 		if name == pluginName {
 			continue
 		}
-		if prior, exists := contributors[name]; exists && prior != coreContributor && prior != pluginName {
+		prior, exists := contributors[name]
+		if exists && prior != coreContributor && prior != pluginName {
 			return fmt.Errorf(
 				"%w: %q defined by %s and %s",
 				ErrTemplateNameCollision, name, prior, pluginName,
@@ -212,6 +215,9 @@ func parseOnePluginFS(
 				"backend/golang: add plugin %q template %q: %w",
 				pluginName, name, addErr,
 			)
+		}
+		if exists && ps != nil {
+			ps.Infof(position.Pos{}, "plugin %s overrode template %s (was: %s)", pluginName, name, prior)
 		}
 		contributors[name] = pluginName
 	}

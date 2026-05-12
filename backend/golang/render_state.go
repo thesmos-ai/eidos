@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"sync"
 	"text/template"
 
 	"go.thesmos.sh/eidos/emit"
@@ -89,11 +90,13 @@ func newRenderState(
 	return s
 }
 
-// reservedNames returns the set of canonical funcmap entry names
-// the backend ships — the dispatch, slot-composition, and import-
-// collection helpers core templates depend on. Computed from
-// [renderState.funcMap] so the reserved set tracks the funcmap's
-// actual contents without a separate hardcoded list.
+// reservedFuncNames returns the set of canonical funcmap entry
+// names the backend ships — the dispatch, slot-composition, and
+// import-collection helpers core templates depend on. The set is
+// computed once (lazily) from a probe renderState's funcMap so the
+// reserved set tracks the funcmap's actual contents without a
+// separate hardcoded list. Repeat calls share the cached set —
+// safe for concurrent use.
 //
 // Plugin extensions ([plugin.TemplateProvider.TemplateFuncs]) may
 // not use any of these names; plugin overrides
@@ -101,14 +104,15 @@ func newRenderState(
 // target these names. Both rules surface as Build-time
 // diagnostics — [ErrTemplateFuncCollision] and
 // [ErrReservedFuncName] respectively.
-func (s *renderState) reservedNames() map[string]struct{} {
-	fm := s.funcMap()
+var reservedFuncNames = sync.OnceValue(func() map[string]struct{} {
+	probe := &renderState{imports: writer.NewImportSet(nil)}
+	fm := probe.funcMap()
 	out := make(map[string]struct{}, len(fm))
 	for name := range fm {
 		out[name] = struct{}{}
 	}
 	return out
-}
+})
 
 // funcMap returns the canonical core funcmap with every closure
 // bound to s. The reserved-name set surfaced here covers the

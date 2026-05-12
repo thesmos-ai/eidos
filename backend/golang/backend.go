@@ -68,9 +68,7 @@ func (*Backend) Language() string { return Language }
 // backend-side faults rather than content defects.
 func (b *Backend) Render(ctx *plugin.BackendContext) error {
 	ps := ctx.Diag.For(Name)
-	probe := newRenderState(b.tmpl, nil, nil, nil)
-	reserved := probe.reservedNames()
-	merged, err := mergePluginContributions(ctx, b.tmpl, reserved, ps)
+	merged, err := mergePluginContributions(ctx, b.tmpl, reservedFuncNames(), ps)
 	if err != nil {
 		ps.Errorf(position.Pos{}, "%v", err)
 		return nil
