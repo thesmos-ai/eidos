@@ -136,4 +136,3 @@ func enumVariantName(field protoreflect.FieldDescriptor, number protoreflect.Enu
 	}
 	return string(v.Name())
 }
-

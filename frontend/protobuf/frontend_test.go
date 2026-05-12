@@ -48,7 +48,9 @@ func TestPluginShape(t *testing.T) {
 	t.Run("Version is non-empty so it contributes to the cache key", func(t *testing.T) {
 		t.Parallel()
 		if protobuf.New().Version() == "" {
-			t.Fatalf("Version() = empty; the frontend must declare a non-empty version so it contributes to the cache key")
+			t.Fatalf(
+				"Version() returned empty; a non-empty version is required so it contributes to the cache key",
+			)
 		}
 	})
 }
