@@ -2,8 +2,8 @@
 {{ renderDocs .DocLines -}}
 {{ if .Underlying }}type {{ .Name }} {{ renderType .Underlying }}
 {{ end -}}
-{{ if .Variants }}const (
-{{ renderVariants . -}}
+{{ with renderEnumVariants . }}const (
+{{ . -}}
 )
 {{ end -}}
 {{- end -}}

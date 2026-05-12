@@ -191,7 +191,12 @@ func (v *EmitView) addStruct(s *emit.Struct, pkgPath string) error {
 		v.indexCommon(f, pkgPath, emit.Target{})
 	}
 	for _, m := range s.Methods {
-		if err := v.addMethod(m, qname, pkgPath, s.Target); err != nil {
+		// Struct methods are rendered inline through the struct
+		// template alongside any slot contributions — they index
+		// into the methods bucket for query access but bypass
+		// [byTarget] so the backend doesn't double-render them.
+		// Same pattern interface methods follow.
+		if err := v.addMethod(m, qname, pkgPath, emit.Target{}); err != nil {
 			return err
 		}
 	}

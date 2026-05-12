@@ -1,7 +1,11 @@
 {{- define "emit.struct" -}}
 {{ renderDocs .DocLines -}}
 type {{ .Name }}{{ renderTypeParams .TypeParams }} struct {
-{{ renderEmbeds .Embeds -}}
-{{ renderFields .Fields -}}
+{{ renderStructEmbeds . -}}
+{{ renderStructFields . -}}
 }
+{{- range renderStructMethods . }}
+
+{{ render . -}}
+{{- end -}}
 {{- end -}}

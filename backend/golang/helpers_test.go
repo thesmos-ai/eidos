@@ -201,6 +201,28 @@ func assertInternalRefRenders(t *testing.T, target emit.Node, wantName string) {
 	}
 }
 
+// mustOrderedSubstrings asserts each successive substring appears
+// in body, and that their positions are strictly increasing in
+// source order. Used by slot-ordering tests to verify
+// plugin-topo + append order without restating the comparison
+// chain (and tripping staticcheck's De Morgan suggestion).
+func mustOrderedSubstrings(t *testing.T, body string, substrings ...string) {
+	t.Helper()
+	positions := make([]int, len(substrings))
+	for i, s := range substrings {
+		positions[i] = strings.Index(body, s)
+		if positions[i] < 0 {
+			t.Fatalf("expected substring %q in body; got:\n%s", s, body)
+		}
+	}
+	for i := 1; i < len(positions); i++ {
+		if positions[i-1] >= positions[i] {
+			t.Fatalf("expected %q before %q; got positions %d, %d in body:\n%s",
+				substrings[i-1], substrings[i], positions[i-1], positions[i], body)
+		}
+	}
+}
+
 // renderSingleFieldStruct builds a one-field struct whose field
 // type is r, runs the full backend render path, and returns the
 // rendered file body. Fails the test on any error diagnostic or

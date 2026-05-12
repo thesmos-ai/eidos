@@ -1,8 +1,8 @@
 {{- define "emit.interface" -}}
 {{ renderDocs .DocLines -}}
 type {{ .Name }}{{ renderTypeParams .TypeParams }} interface {
-{{ renderEmbeds .Embeds -}}
-{{- range .Methods -}}
+{{ renderInterfaceEmbeds . -}}
+{{- range renderInterfaceMethods . -}}
 	{{ .Name }}{{ renderParams .Params }}{{ if .Returns }} {{ renderReturns .Returns }}{{ end }}
 {{ end -}}
 }

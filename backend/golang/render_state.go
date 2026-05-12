@@ -20,9 +20,10 @@ import (
 var ErrTemplateMissing = errors.New("backend/golang: no template registered for kind")
 
 // renderState carries the per-Target rendering context: a cloned
-// template tree with funcmap closures bound to this state, and a
-// fresh [writer.ImportSet] that accumulates every `imp` call the
-// templates make during render.
+// template tree with funcmap closures bound to this state, a fresh
+// [writer.ImportSet] that accumulates every `imp` call the
+// templates make during render, and the plugin topo order that
+// drives slot-contribution sequencing.
 //
 // The clone-per-Target pattern is the package's foundational
 // race-freedom property. Targets render independently — concurrent
@@ -46,16 +47,28 @@ var ErrTemplateMissing = errors.New("backend/golang: no template registered for 
 type renderState struct {
 	tmpl    *template.Template
 	imports *writer.ImportSet
+
+	// pluginOrder lists plugin names in capability-topo order — the
+	// resolved sequence the pipeline produces via
+	// [plugin.BackendContext.Ordered]. Slot contributions are
+	// rendered grouped by this order so the same input emits the
+	// same output across runs. Empty when no plugins participated
+	// (typical for direct backend tests); contributions then render
+	// in raw append order.
+	pluginOrder []string
 }
 
 // newRenderState clones root, attaches a fresh funcmap whose
 // closures bind the returned state, and returns the ready-to-execute
-// rendering context for one Target.
-func newRenderState(root *template.Template) *renderState {
+// rendering context for one Target. pluginOrder carries the
+// resolved capability-topo plugin sequence used to order slot
+// contributions.
+func newRenderState(root *template.Template, pluginOrder []string) *renderState {
 	clone := template.Must(root.Clone())
 	s := &renderState{
-		tmpl:    clone,
-		imports: writer.NewImportSet(nil),
+		tmpl:        clone,
+		imports:     writer.NewImportSet(nil),
+		pluginOrder: pluginOrder,
 	}
 	clone.Funcs(s.funcMap())
 	return s
@@ -67,20 +80,27 @@ func newRenderState(root *template.Template) *renderState {
 // for these names are rejected at Build time.
 func (s *renderState) funcMap() template.FuncMap {
 	return template.FuncMap{
-		"render":           s.render,
-		"renderType":       s.renderType,
-		"renderDocs":       renderDocs,
-		"renderFields":     s.renderFields,
-		"renderEmbeds":     s.renderEmbeds,
-		"renderTypeParams": s.renderTypeParams,
-		"renderParams":     s.renderParams,
-		"renderReceiver":   s.renderReceiver,
-		"renderReturns":    s.renderReturns,
-		"renderExpr":       s.renderExpr,
-		"renderStmt":       s.renderStmt,
-		"renderStmts":      s.renderStmts,
-		"renderVariants":   s.renderVariants,
-		"imp":              s.imports.Imp,
+		"render":                 s.render,
+		"renderType":             s.renderType,
+		"renderDocs":             renderDocs,
+		"renderTypeParams":       s.renderTypeParams,
+		"renderParams":           s.renderParams,
+		"renderReceiver":         s.renderReceiver,
+		"renderReturns":          s.renderReturns,
+		"renderExpr":             s.renderExpr,
+		"renderStmt":             s.renderStmt,
+		"renderStmts":            s.renderStmts,
+		"renderStructFields":     s.renderStructFields,
+		"renderStructEmbeds":     s.renderStructEmbeds,
+		"renderStructMethods":    s.renderStructMethods,
+		"renderInterfaceEmbeds":  s.renderInterfaceEmbeds,
+		"renderInterfaceMethods": s.renderInterfaceMethods,
+		"renderEnumVariants":     s.renderEnumVariants,
+		"renderFunctionBody":     s.renderFunctionBody,
+		"renderMethodBody":       s.renderMethodBody,
+		"renderFunctionParams":   s.renderFunctionParams,
+		"renderMethodParams":     s.renderMethodParams,
+		"imp":                    s.imports.Imp,
 	}
 }
 

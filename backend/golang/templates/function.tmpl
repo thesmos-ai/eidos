@@ -1,6 +1,6 @@
 {{- define "emit.function" -}}
 {{ renderDocs .DocLines -}}
-func {{ .Name }}{{ renderTypeParams .TypeParams }}{{ renderParams .Params }}{{ if .Returns }} {{ renderReturns .Returns }}{{ end }} {
-{{ renderStmts .Body -}}
+func {{ .Name }}{{ renderTypeParams .TypeParams }}{{ renderFunctionParams . }}{{ if .Returns }} {{ renderReturns .Returns }}{{ end }} {
+{{ renderFunctionBody . -}}
 }
 {{- end -}}

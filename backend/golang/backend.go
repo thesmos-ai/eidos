@@ -67,9 +67,10 @@ func (*Backend) Language() string { return Language }
 // backend-side faults rather than content defects.
 func (b *Backend) Render(ctx *plugin.BackendContext) error {
 	ps := ctx.Diag.For(Name)
+	pluginOrder := pluginOrderFrom(ctx)
 	for _, target := range ctx.Store.Emit().ByTarget().Keys() {
 		entities := ctx.Store.Emit().ByTarget().Get(target)
-		state := newRenderState(b.tmpl)
+		state := newRenderState(b.tmpl, pluginOrder)
 		body, tracked, err := renderFile(state, target, entities, packageDocsFor(ctx, target))
 		if err != nil {
 			ps.Errorf(position.Pos{}, "%s: %v", target.JoinPath(), err)
