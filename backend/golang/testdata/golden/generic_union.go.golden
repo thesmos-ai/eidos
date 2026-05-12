@@ -9,4 +9,4 @@ type Ordered[T ~int | ~float64 | string] struct {
 }
 
 // eidos: end of generated content.
-// provenance hash: 04e2f07a7fec62411a5b1b50c17c3761e30466fa66cdca90f8e9821e92eda10d
+// eidos:provenance 04e2f07a7fec62411a5b1b50c17c3761e30466fa66cdca90f8e9821e92eda10d

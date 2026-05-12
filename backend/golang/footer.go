@@ -15,10 +15,12 @@ import (
 // renderFooter produces the trailing comment block written at the
 // end of every generated file. The standard block carries two
 // lines: the end-of-generated-content marker on its own line, then
-// the provenance hash on its own line. Splitting them keeps each
-// statement scannable on its own and lets tools grep
-// `^// provenance hash:` to recover the hash without parsing a
-// composite line.
+// the provenance hash on its own line. Both lines carry the brand
+// prefix so embedders that re-brand their output produce a footer
+// whose every line is unambiguously theirs. Splitting the marker
+// from the hash keeps each statement scannable on its own and lets
+// tools grep `^// <brand>:provenance ` to recover the hash without
+// parsing a composite line.
 //
 // Library embedders extend the footer via
 // [plugin.BackendContext.FooterSuffix] — additional lines emitted
@@ -33,10 +35,11 @@ import (
 func renderFooter(ctx *plugin.BackendContext, body []byte) string {
 	sum := sha256.Sum256(body)
 	hash := hex.EncodeToString(sum[:])
+	brand := brandOf(ctx)
 	var b strings.Builder
 	b.WriteByte('\n')
-	fmt.Fprintf(&b, "// %s: end of generated content.\n", brandOf(ctx))
-	fmt.Fprintf(&b, "// provenance hash: %s\n", hash)
+	fmt.Fprintf(&b, "// %s: end of generated content.\n", brand)
+	fmt.Fprintf(&b, "// %s:provenance %s\n", brand, hash)
 	for _, line := range ctx.FooterSuffix {
 		b.WriteString(line)
 		b.WriteByte('\n')

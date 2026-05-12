@@ -15,16 +15,16 @@ import (
 )
 
 // TestFooter_TwoLineLayout pins the canonical two-line footer
-// shape — end-of-generated-content marker on one line, provenance
-// hash on the next. Splitting them lets tools grep each component
-// without parsing a composite line.
+// shape — brand-prefixed end-of-generated-content marker on one
+// line, brand-prefixed provenance hash on the next. Splitting them
+// lets tools grep each component without parsing a composite line.
 func TestFooter_TwoLineLayout(t *testing.T) {
 	t.Parallel()
 
 	t.Run("standard footer is two lines: EOGC marker, then hash", func(t *testing.T) {
 		t.Parallel()
 		body := renderSingleFieldStruct(t, "F", emit.Builtin("int"))
-		if !strings.Contains(body, "\n// eidos: end of generated content.\n// provenance hash: ") {
+		if !strings.Contains(body, "\n// eidos: end of generated content.\n// eidos:provenance ") {
 			t.Fatalf("footer should be a two-line block; got:\n%s", body)
 		}
 	})
@@ -49,7 +49,7 @@ func TestFooter_Suffix(t *testing.T) {
 		if !strings.HasSuffix(string(body), "// Signed-Off-By: release-bot\n") {
 			t.Fatalf("FooterSuffix should be last in the file; got:\n%s", body)
 		}
-		if !strings.Contains(string(body), "// provenance hash: ") {
+		if !strings.Contains(string(body), "// eidos:provenance ") {
 			t.Fatalf("standard hash line should still appear; got:\n%s", body)
 		}
 	})
@@ -151,10 +151,12 @@ func TestFooter_HashOverBodyOnly(t *testing.T) {
 }
 
 // extractFooterHash pulls the hex hash from the trailing footer
-// line. Fails the test if the footer marker is absent.
+// line. Fails the test if the footer marker is absent. Uses the
+// default-brand marker since callers in this file never override
+// [plugin.BackendContext.Brand].
 func extractFooterHash(t *testing.T, body string) string {
 	t.Helper()
-	const marker = "provenance hash: "
+	const marker = "eidos:provenance "
 	idx := strings.LastIndex(body, marker)
 	if idx < 0 {
 		t.Fatalf("footer marker %q absent; got:\n%s", marker, body)

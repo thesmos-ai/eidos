@@ -8,4 +8,4 @@ package users
 type UserID int
 
 // eidos: end of generated content.
-// provenance hash: 3c7db44d72478940ccdfd6a7e3d1932561294cda845c8f39b07d4a2ff3c53af4
+// eidos:provenance 3c7db44d72478940ccdfd6a7e3d1932561294cda845c8f39b07d4a2ff3c53af4

@@ -15,4 +15,4 @@ type User struct {
 }
 
 // eidos: end of generated content.
-// provenance hash: acd9f0e6db1413e8f924e8681bb2a65746555d3c2c3b654682fb838ac1688734
+// eidos:provenance acd9f0e6db1413e8f924e8681bb2a65746555d3c2c3b654682fb838ac1688734

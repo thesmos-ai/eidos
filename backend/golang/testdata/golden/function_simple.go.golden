@@ -10,4 +10,4 @@ func Add(a int, b int) int {
 }
 
 // eidos: end of generated content.
-// provenance hash: acdd199d625b7df99900c3c1ff08130e957bd3dc098d1e3a4267392079373748
+// eidos:provenance acdd199d625b7df99900c3c1ff08130e957bd3dc098d1e3a4267392079373748

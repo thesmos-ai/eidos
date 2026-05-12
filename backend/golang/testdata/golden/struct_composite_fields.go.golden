@@ -13,4 +13,4 @@ type Composite struct {
 }
 
 // eidos: end of generated content.
-// provenance hash: 717623e1acaef3b70ca30fbf095c62be2e37eec6e3d26e4cf79cefd942da2aaa
+// eidos:provenance 717623e1acaef3b70ca30fbf095c62be2e37eec6e3d26e4cf79cefd942da2aaa

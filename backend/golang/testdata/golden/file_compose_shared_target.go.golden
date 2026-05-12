@@ -15,4 +15,4 @@ type Event struct {
 }
 
 // eidos: end of generated content.
-// provenance hash: a42a1fae1571bb3b9bfe1bcf7d4051f97c51cc1b91e02d39ec965f872e15426f
+// eidos:provenance a42a1fae1571bb3b9bfe1bcf7d4051f97c51cc1b91e02d39ec965f872e15426f

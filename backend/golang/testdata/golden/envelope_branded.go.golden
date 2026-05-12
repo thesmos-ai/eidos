@@ -9,4 +9,4 @@ type X struct {
 }
 
 // acmegen: end of generated content.
-// provenance hash: cbb8f4dd459fed32add6760797b11f9c8f16464d58be6854ca26ba6fe5dd005c
+// acmegen:provenance cbb8f4dd459fed32add6760797b11f9c8f16464d58be6854ca26ba6fe5dd005c

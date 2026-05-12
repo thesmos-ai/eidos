@@ -18,4 +18,4 @@ type Request struct {
 }
 
 // eidos: end of generated content.
-// provenance hash: 7c656114f8f28fd9ef549a9fa55b5d84c397663189dd262b1a2914429d84f458
+// eidos:provenance 7c656114f8f28fd9ef549a9fa55b5d84c397663189dd262b1a2914429d84f458

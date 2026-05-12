@@ -12,4 +12,4 @@ type Legacy struct {
 }
 
 // eidos: end of generated content.
-// provenance hash: f27310cddf19f3df0ac3060012673f30e67cfbbf18075d3c434ebb80a1807717
+// eidos:provenance f27310cddf19f3df0ac3060012673f30e67cfbbf18075d3c434ebb80a1807717

@@ -7,4 +7,4 @@ package x
 type Bytes = byte
 
 // eidos: end of generated content.
-// provenance hash: ae8ee1f9a65ed1255862bfdb3081ceb29ff484d581deb5f82328f74edf02c7b5
+// eidos:provenance ae8ee1f9a65ed1255862bfdb3081ceb29ff484d581deb5f82328f74edf02c7b5

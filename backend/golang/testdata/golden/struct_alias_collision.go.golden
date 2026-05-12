@@ -15,4 +15,4 @@ type X struct {
 }
 
 // eidos: end of generated content.
-// provenance hash: 9ea5234a480ff4f7d4ac0808b399e4f1da5de7d4c87d0e77f09e6f6cd12480e0
+// eidos:provenance 9ea5234a480ff4f7d4ac0808b399e4f1da5de7d4c87d0e77f09e6f6cd12480e0

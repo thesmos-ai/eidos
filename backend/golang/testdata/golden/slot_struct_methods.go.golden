@@ -24,4 +24,4 @@ func (u User) TraceID() string {
 }
 
 // eidos: end of generated content.
-// provenance hash: 91119e557875bee8944af88f527b3d3bc978145a04c50a5ac8a80b260e948218
+// eidos:provenance 91119e557875bee8944af88f527b3d3bc978145a04c50a5ac8a80b260e948218

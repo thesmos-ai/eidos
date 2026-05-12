@@ -108,9 +108,10 @@
 // `Source:`, `Plugins:`, and `Command:` lines. Sources are aggregated from
 // emit-entity origins (union-then-sort); plugins that don't thread source
 // provenance produce a synthetic `unknown` marker. The footer carries a
-// two-line tail: an end-of-content marker followed by the SHA-256 provenance
-// hash of the body bytes. Splitting them keeps each statement scannable on
-// its own and lets tools grep `^// provenance hash:` to recover the hash
+// two-line tail: a brand-prefixed end-of-content marker followed by a
+// brand-prefixed `// <brand>:provenance <hash>` line carrying the SHA-256
+// of the body bytes. Splitting them keeps each statement scannable on its
+// own and lets tools grep `^// <brand>:provenance ` to recover the hash
 // without parsing a composite line.
 //
 // Library embedders extend the envelope via [plugin.BackendContext] fields:

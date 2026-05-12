@@ -16,4 +16,4 @@ type Reader interface {
 }
 
 // eidos: end of generated content.
-// provenance hash: 9423cfcec1c86f9a3d887befdb8c86d9c7b491128988ee66062f5d7c6cea053d
+// eidos:provenance 9423cfcec1c86f9a3d887befdb8c86d9c7b491128988ee66062f5d7c6cea053d

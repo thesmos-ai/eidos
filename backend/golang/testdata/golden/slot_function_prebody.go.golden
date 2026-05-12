@@ -13,4 +13,4 @@ func Handle() {
 }
 
 // eidos: end of generated content.
-// provenance hash: 8cd9a5836d3a49d94100919dd6590a3ccfc89293f27b2bf6b80837fcfecb0b69
+// eidos:provenance 8cd9a5836d3a49d94100919dd6590a3ccfc89293f27b2bf6b80837fcfecb0b69

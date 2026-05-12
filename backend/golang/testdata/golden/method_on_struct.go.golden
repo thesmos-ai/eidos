@@ -15,4 +15,4 @@ func (c *Counter) Inc() {
 }
 
 // eidos: end of generated content.
-// provenance hash: 4f2d3e066054deb82b6891a3bc50e4b70a476be1e9ff89ed4539f1b389966984
+// eidos:provenance 4f2d3e066054deb82b6891a3bc50e4b70a476be1e9ff89ed4539f1b389966984

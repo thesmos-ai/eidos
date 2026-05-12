@@ -16,4 +16,4 @@ type Wrapper struct {
 }
 
 // eidos: end of generated content.
-// provenance hash: 2b0cc5996ef8afdf38b1e55883d04ed8b8566d987c01369b77c03fe22414e0f1
+// eidos:provenance 2b0cc5996ef8afdf38b1e55883d04ed8b8566d987c01369b77c03fe22414e0f1

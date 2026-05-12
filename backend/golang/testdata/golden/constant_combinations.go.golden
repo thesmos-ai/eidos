@@ -12,4 +12,4 @@ const Limit int = 100
 const Enabled = true
 
 // eidos: end of generated content.
-// provenance hash: a17164c49ebc79a1bdf014512a66d93547092f9842f5a0c095fbe525c6729fac
+// eidos:provenance a17164c49ebc79a1bdf014512a66d93547092f9842f5a0c095fbe525c6729fac

@@ -10,4 +10,4 @@ type Box[T comparable] struct {
 }
 
 // eidos: end of generated content.
-// provenance hash: 35237c87d68011c301c0a492540a3846b615d3a1533e8bcd5b0741c52fd42303
+// eidos:provenance 35237c87d68011c301c0a492540a3846b615d3a1533e8bcd5b0741c52fd42303
