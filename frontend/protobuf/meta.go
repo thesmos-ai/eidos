@@ -3,7 +3,12 @@
 
 package protobuf
 
-import "go.thesmos.sh/eidos/core/meta"
+import (
+	"google.golang.org/protobuf/reflect/protoreflect"
+
+	"go.thesmos.sh/eidos/core/meta"
+	"go.thesmos.sh/eidos/node"
+)
 
 // The protobuf frontend stamps proto-specific facts under the
 // `proto.*` namespace. The frontend-provenance marker is the one
@@ -57,13 +62,32 @@ const MetaOptionPrefix = "proto.option."
 // OptionMetaKey returns the typed [meta.Key] for the proto custom
 // option whose full-name is name. The returned key lives under
 // [MetaOptionPrefix]; the supplied parser determines the typed Go
-// value the resolved option carries (per the spec's value-type
-// table — signed-int width scalars, unsigned-int width scalars,
-// floats, bool, string, bytes, enum-name strings, message-shaped
-// payloads, composite forms). Dynamic names go through
-// [meta.EnsureKey] so the registry retains exactly one canonical
-// key per option full-name even when the converter visits the same
-// option from multiple call sites.
+// value the resolved option carries — signed-int width scalars,
+// unsigned-int width scalars, floats, bool, string, bytes,
+// enum-name strings, message-shaped payloads, and their composite
+// forms. Dynamic names go through [meta.EnsureKey] so the registry
+// retains exactly one canonical key per option full-name even when
+// the converter visits the same option from multiple call sites.
 func OptionMetaKey[T any](name string, parser meta.Parser[T]) meta.Key[T] {
 	return meta.EnsureKey(MetaOptionPrefix+name, parser)
+}
+
+// optionKeyName returns the canonical option-channel key fragment
+// for field. Custom extensions stamp under their proto FQN;
+// standard options on google.protobuf.FileOptions and friends
+// stamp under the short well-known name (`go_package`,
+// `deprecated`, `allow_alias`, …).
+func optionKeyName(field protoreflect.FieldDescriptor) string {
+	if field.IsExtension() {
+		return string(field.FullName())
+	}
+	return string(field.Name())
+}
+
+// stampFrontendMarker records the cross-frontend provenance marker
+// on pkg's meta bag. Every produced package carries this stamp;
+// bridge annotators and the cross-namespace audit step pivot on it
+// to scope their walks to the correct frontend's sources.
+func stampFrontendMarker(pkg *node.Package) {
+	MetaFrontend.Set(pkg.Meta(), FrontendName, FrontendName)
 }

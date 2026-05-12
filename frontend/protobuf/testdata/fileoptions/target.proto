@@ -11,6 +11,7 @@ import "audience.proto";
 
 option go_package = "github.com/example/fileoptions";
 option deprecated = true;
+option optimize_for = SPEED;
 option (eidos.protobuf.testdata.fileoptions.audience) = "public";
 
 message Target {

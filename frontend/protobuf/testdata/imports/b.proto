@@ -1,7 +1,7 @@
 // b.proto is the target of a.proto's same-package import. The
-// import resolves through the configured search root; the resulting
-// node.Import on a.proto carries `Path = "b.proto"` per the spec's
-// import-modelling rule.
+// import resolves through the configured search root; the
+// resulting node.Import on a.proto carries `Path = "b.proto"`
+// verbatim from the proto source.
 syntax = "proto3";
 
 package eidos.protobuf.testdata.imports;

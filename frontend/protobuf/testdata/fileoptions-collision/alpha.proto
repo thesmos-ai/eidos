@@ -1,0 +1,13 @@
+// alpha.proto sets go_package to one value; beta.proto sets it
+// to a different value on the same proto package. The converter
+// surfaces the silent last-writer-wins behaviour as a positioned
+// diag.Warn so the override is observable.
+syntax = "proto3";
+
+package eidos.protobuf.testdata.fileoptions.collision;
+
+option go_package = "github.com/example/collision/alpha";
+
+message Alpha {
+  string id = 1;
+}

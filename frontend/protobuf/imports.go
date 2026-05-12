@@ -10,12 +10,12 @@ import (
 )
 
 // collectFileImports returns one [node.Import] per declaration in
-// fd's import list, in source order. Per the spec's import-modelling
-// rule each import carries the imported proto file's path verbatim
-// on [node.Import.Path]; [node.Import.Alias] stays empty because
-// proto has no import-alias syntax. Public and weak modifiers are
-// not surfaced on the import node — consumers needing them read the
-// underlying descriptor through the cache layer.
+// fd's import list, in source order. Each import carries the
+// imported proto file's path verbatim on [node.Import.Path];
+// [node.Import.Alias] stays empty because proto has no
+// import-alias syntax. Public and weak modifiers are not surfaced
+// on the import node — consumers needing them read the underlying
+// descriptor through the cache layer.
 func collectFileImports(fd protoreflect.FileDescriptor) []*node.Import {
 	imps := fd.Imports()
 	count := imps.Len()
@@ -49,10 +49,7 @@ func dedupeImports(pkg *node.Package) {
 				continue
 			}
 			seen[imp.Path] = struct{}{}
-			pkg.Imports = append(pkg.Imports, &node.Import{
-				Path:  imp.Path,
-				Alias: imp.Alias,
-			})
+			pkg.Imports = append(pkg.Imports, &node.Import{Path: imp.Path})
 		}
 	}
 }

@@ -10,17 +10,17 @@ import (
 	"go.thesmos.sh/eidos/node"
 )
 
-// TestConvert_RecordsImports covers the spec's import-modelling
-// rule: each `import "..."` declaration in a proto file produces a
-// [node.Import] on the corresponding [node.File], and the owning
-// [node.Package] carries the deduplicated union of every file's
-// imports. Per the spec, Path is the imported .proto file path
+// TestConvert_RecordsImports covers the import-modelling
+// contract: each `import "..."` declaration in a proto file
+// produces a [node.Import] on the corresponding [node.File], and
+// the owning [node.Package] carries the deduplicated union of
+// every file's imports. Path is the imported .proto file path
 // verbatim; Alias is empty (proto has no import aliases).
 //
 // The fixture covers two import shapes: an in-tree import that
 // resolves through the configured import root, and a well-known
-// import (`google/protobuf/timestamp.proto`) that resolves through
-// protocompile's bundled descriptors (the frontend's
+// import (`google/protobuf/timestamp.proto`) that resolves
+// through protocompile's bundled descriptors (the frontend's
 // [Options.IncludeWellKnown] default is true).
 func TestConvert_RecordsImports(t *testing.T) {
 	t.Parallel()

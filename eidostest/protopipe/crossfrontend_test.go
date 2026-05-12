@@ -21,24 +21,20 @@ import (
 	"go.thesmos.sh/eidos/store"
 )
 
-// TestCrossFrontend_MarkerScope covers the framework-convention
-// addition this milestone introduces: every produced
-// [node.Package] carries the bare `frontend` meta key whose value
-// is the producing frontend's plugin name. The test loads proto
-// sources via the protobuf frontend and Go sources via the Go
-// frontend into one shared store, then asserts:
+// TestCrossFrontend_MarkerScope covers the cross-frontend
+// provenance-marker convention: every produced [node.Package]
+// carries the bare `frontend` meta key whose value is the
+// producing frontend's plugin name. The test loads proto sources
+// via the protobuf frontend and Go sources via the Go frontend
+// into one shared store, then asserts:
 //
 //  1. Proto-derived packages carry `frontend = "protobuf"`.
 //  2. Go-derived packages carry `frontend = "golang"`.
-//  3. No `go.*` meta leaks onto proto-derived packages (the bridge
-//     annotator hasn't run; the source-graph stays untranslated).
+//  3. No `go.*` meta leaks onto proto-derived packages.
 //  4. No `proto.*` meta leaks onto Go-derived packages.
 //
 // Together these assertions close the cross-namespace scope loop
-// the bridge-annotator pattern relies on. The audit step in a
-// later milestone broadens the assertion across the full node
-// graph; for now the package-level shape is the smallest test
-// surface that proves the marker convention is wired.
+// the bridge-annotator pattern relies on.
 func TestCrossFrontend_MarkerScope(t *testing.T) {
 	t.Parallel()
 

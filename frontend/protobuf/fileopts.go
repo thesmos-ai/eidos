@@ -14,12 +14,12 @@ import (
 
 // stampFileOptions walks fd's file-level options and stamps each
 // set option on pkg's meta bag under the documented
-// `proto.option.<full-name>` channel. Standard options (defined on
-// google.protobuf.FileOptions) stamp under their short name —
+// `proto.option.<full-name>` channel. Standard options (defined
+// on google.protobuf.FileOptions) stamp under their short name —
 // `proto.option.go_package`, `proto.option.deprecated`. Custom
 // extension options stamp under the extension's proto FQN —
 // `proto.option.acme.cfg.feature_flag`. Value types follow the
-// spec's value-type table.
+// documented value-type mapping.
 //
 // File-level options accumulate across multiple .proto files
 // sharing one proto package: later files' options merge into the
@@ -43,10 +43,15 @@ func stampFileOptions(ps *diag.PluginSink, pkg *node.Package, fd protoreflect.Fi
 }
 
 // stampOneOption stamps one option (field, value) pair on pkg's
-// meta bag. The key namespace and the typed value follow the spec's
+// meta bag. The key namespace and the typed value follow the
 // option-channel convention; unsupported value forms surface as
-// positioned diag.Warn so an under-handled option doesn't silently
-// vanish from the meta surface.
+// positioned diag.Warn so an under-handled option doesn't
+// silently vanish from the meta surface.
+//
+// Cross-file collisions — the same option key set on two .proto
+// files contributing to one proto package — surface as a Warn so
+// users see the silent last-writer-wins behaviour rather than
+// inheriting one file's value at random.
 func stampOneOption(
 	ps *diag.PluginSink, pkg *node.Package, fd protoreflect.FileDescriptor,
 	field protoreflect.FieldDescriptor, value protoreflect.Value,
@@ -55,19 +60,27 @@ func stampOneOption(
 	pos := position.Pos{File: fd.Path()}
 	switch field.Kind() {
 	case protoreflect.StringKind:
-		key := meta.EnsureKey(MetaOptionPrefix+name, meta.StringParser)
-		key.SetAt(pkg.Meta(), value.String(), meta.AuthorityPlugin, FrontendName, pos)
+		stampStringOption(ps, pkg, name, value.String(), fd.Path(), pos)
 	case protoreflect.BoolKind:
-		key := meta.EnsureKey(MetaOptionPrefix+name, meta.BoolParser)
-		key.SetAt(pkg.Meta(), value.Bool(), meta.AuthorityPlugin, FrontendName, pos)
+		stampBoolOption(ps, pkg, name, value.Bool(), fd.Path(), pos)
+	case protoreflect.EnumKind:
+		variant := enumVariantName(field, value.Enum())
+		if variant == "" {
+			ps.Warnf(
+				pos,
+				"protobuf: file option %s carries unknown enum number %d; skipped",
+				name, value.Enum(),
+			)
+			return
+		}
+		stampStringOption(ps, pkg, name, variant, fd.Path(), pos)
 	default:
-		// Other value forms (int / uint / float / bytes / enum /
-		// message / repeated / map) ride the same channel but their
-		// typed-stamping paths land alongside the host kinds that
-		// motivate them (message-level options, field-level options,
-		// service-level options, …). The Phase-B fixture only
-		// exercises string and bool file options; later milestones
-		// extend this switch with the remaining value forms.
+		// Other value forms (int / uint / float / bytes / message /
+		// repeated / map) ride the same channel but their typed
+		// stamping paths land alongside the host kinds that
+		// exercise them. Until a host kind populates this switch,
+		// callers receive a positioned diag.Warn rather than a
+		// silent drop.
 		ps.Warnf(
 			pos,
 			"protobuf: file option %s carries unsupported value kind %s; skipped",
@@ -76,13 +89,51 @@ func stampOneOption(
 	}
 }
 
-// optionKeyName returns the canonical option-channel key fragment
-// for field. Custom extensions stamp under their proto FQN;
-// standard options on google.protobuf.FileOptions stamp under the
-// short well-known name (`go_package`, `deprecated`, …).
-func optionKeyName(field protoreflect.FieldDescriptor) string {
-	if field.IsExtension() {
-		return string(field.FullName())
+// stampStringOption stamps a string-typed option, surfacing a Warn
+// when a sibling file in the same proto package already stamped a
+// different value under the same key.
+func stampStringOption(
+	ps *diag.PluginSink, pkg *node.Package,
+	name, value, file string, pos position.Pos,
+) {
+	key := meta.EnsureKey(MetaOptionPrefix+name, meta.StringParser)
+	if prior, ok := key.Get(pkg.Meta()); ok && prior != value {
+		ps.Warnf(
+			pos,
+			"protobuf: file option %s = %q on %s overwrites prior value %q from sibling file",
+			name, value, file, prior,
+		)
 	}
-	return string(field.Name())
+	key.SetAt(pkg.Meta(), value, meta.AuthorityPlugin, FrontendName, pos)
 }
+
+// stampBoolOption stamps a bool-typed option with the same
+// cross-file-overwrite guard [stampStringOption] applies.
+func stampBoolOption(
+	ps *diag.PluginSink, pkg *node.Package,
+	name string, value bool, file string, pos position.Pos,
+) {
+	key := meta.EnsureKey(MetaOptionPrefix+name, meta.BoolParser)
+	if prior, ok := key.Get(pkg.Meta()); ok && prior != value {
+		ps.Warnf(
+			pos,
+			"protobuf: file option %s = %t on %s overwrites prior value %t from sibling file",
+			name, value, file, prior,
+		)
+	}
+	key.SetAt(pkg.Meta(), value, meta.AuthorityPlugin, FrontendName, pos)
+}
+
+// enumVariantName resolves an enum-typed option value to the
+// variant's source-form name. Returns the empty string when the
+// numeric value doesn't match any declared variant — protocompile
+// normally rejects such inputs at parse time; the empty return is
+// the defensive fallback callers surface as a Warn.
+func enumVariantName(field protoreflect.FieldDescriptor, number protoreflect.EnumNumber) string {
+	v := field.Enum().Values().ByNumber(number)
+	if v == nil {
+		return ""
+	}
+	return string(v.Name())
+}
+

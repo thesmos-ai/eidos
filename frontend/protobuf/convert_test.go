@@ -51,13 +51,13 @@ func TestConvert_SinglePackage(t *testing.T) {
 	})
 }
 
-// TestConvert_MergesSamePackageFiles covers the spec's package
-// merge rule: multiple `.proto` files declaring the same proto
-// package qualifier collapse into a single [node.Package]. The
-// merge order is deterministic — alphabetical by file path within
-// the import root — so the Files slice on the merged package
-// reflects the canonical iteration order regardless of
-// protocompile's dependency-resolution order.
+// TestConvert_MergesSamePackageFiles covers the package merge
+// rule: multiple `.proto` files declaring the same proto package
+// qualifier collapse into a single [node.Package]. The merge
+// order is deterministic — alphabetical by file path within the
+// import root — so the Files slice on the merged package reflects
+// the canonical iteration order regardless of protocompile's
+// dependency-resolution order.
 func TestConvert_MergesSamePackageFiles(t *testing.T) {
 	t.Parallel()
 
@@ -115,13 +115,13 @@ func TestConvert_SplitsAcrossDistinctPackages(t *testing.T) {
 	})
 }
 
-// TestConvert_Deterministic pins the spec's determinism contract:
-// two consecutive loads against the same source set produce
-// byte-identical [node.Package] slices in store-insertion order.
-// The assertion is fixture-driven across the per-construct cases
-// Phase B introduces (package merge, file-level options, import
-// records) so a regression in any single contributor surfaces
-// here rather than as a downstream cache miss.
+// TestConvert_Deterministic pins the frontend's determinism
+// contract: two consecutive loads against the same source set
+// produce byte-identical [node.Package] slices in store-insertion
+// order. The assertion is fixture-driven across every per-construct
+// case the frontend produces (package merge, file-level options,
+// import records) so a regression in any single contributor
+// surfaces here rather than as a downstream cache miss.
 func TestConvert_Deterministic(t *testing.T) {
 	t.Parallel()
 	cases := []string{
@@ -130,6 +130,7 @@ func TestConvert_Deterministic(t *testing.T) {
 		"multifile-split-pkg",
 		"imports",
 		"fileoptions",
+		"fileoptions-collision",
 	}
 	for _, name := range cases {
 		t.Run(name+" fixture serializes identically across two consecutive loads", func(t *testing.T) {
@@ -157,7 +158,13 @@ func serializeFixture(t *testing.T, name string) []byte {
 	if env.diag.HasErrors() {
 		t.Fatalf("fixture %q produced error diagnostics: %+v", name, env.diag.Diagnostics())
 	}
-	body, err := json.Marshal(collectPackages(t, env)) //nolint:musttag // node types tag through embedded BaseNode
+	// musttag flags this because node.Package's fields inherit
+	// JSON tags through an embedded BaseNode rather than declaring
+	// them on the host struct — the linter's struct-traversal
+	// doesn't follow promotion. The marshalled output is well-formed
+	// and stable; the byte-equality assertion below is the canonical
+	// proof.
+	body, err := json.Marshal(collectPackages(t, env)) //nolint:musttag // tags ride on the embedded BaseNode
 	if err != nil {
 		t.Fatalf("marshal packages for %q: %v", name, err)
 	}

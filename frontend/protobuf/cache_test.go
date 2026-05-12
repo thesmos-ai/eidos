@@ -21,11 +21,11 @@ import (
 )
 
 // TestLoad_ConsultsCache pins the framework-cache-consumer
-// contract from the spec's Cache-integration section: every Load
-// run composes a content-addressed key and consults the
-// configured cache. The fixture-driven test cycles two consecutive
-// runs against the same fixture and asserts the cache sees Get +
-// Put on the first run, and Get only on the second run.
+// contract: every Load run composes a content-addressed key and
+// consults the configured cache. The fixture-driven test cycles
+// two consecutive runs against the same fixture and asserts the
+// cache sees Get + Put on the first run, and Get only on the
+// second run.
 func TestLoad_ConsultsCache(t *testing.T) {
 	t.Parallel()
 

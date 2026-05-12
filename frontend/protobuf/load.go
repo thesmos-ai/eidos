@@ -159,7 +159,7 @@ func discoverProtoFiles(root, pattern string) ([]string, error) {
 // compile pass. proto2 sources reach protocompile and surface as
 // resolution errors via the standard reporter callback —
 // protocompile handles proto2's syntax declaration on the
-// resolver path; the editions guard here is the spec-mandated
+// resolver path; the editions guard here is the explicit
 // fast-path because editions is the proto3-incompatible case
 // users most commonly write.
 func filterUnsupportedSyntax(ps *diag.PluginSink, root string, files []string) []string {
@@ -274,7 +274,8 @@ func newCompiler(ps *diag.PluginSink, opts Options, root string) *protocompile.C
 // posFromReporter translates protocompile's per-error source
 // position into the framework's [position.Pos] form. protocompile
 // reports file + line + column tuples; the framework's `Offset`
-// field stays zero per the spec's Position translation rule.
+// field stays zero because protocompile does not surface byte
+// offsets on its source-location API.
 func posFromReporter(err reporter.ErrorWithPos) position.Pos {
 	p := err.GetPosition()
 	return position.Pos{File: p.Filename, Line: p.Line, Column: p.Col}

@@ -40,10 +40,10 @@ import (
 // through [runtime.Caller] so the path is stable regardless of the
 // test's working directory.
 //
-// Per the protobuf frontend's spec, proto fixtures live in
-// Go-buildable directories so the framework's alongside-source
-// layout produces sensible `_mock_test.go` paths under the Go
-// toolchain.
+// Proto fixtures live in Go-buildable directories so the
+// framework's alongside-source layout produces sensible
+// `_mock_test.go` paths under the Go toolchain when the rendered
+// output lands beside the .proto sources.
 func FixtureRoot(t *testing.T, name string) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)

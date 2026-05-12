@@ -1,0 +1,13 @@
+// beta.proto sets go_package to a different value than
+// alpha.proto. Iteration is alphabetical-by-path so alpha.proto
+// stamps first; beta.proto's stamp overwrites and surfaces a
+// positioned diag.Warn.
+syntax = "proto3";
+
+package eidos.protobuf.testdata.fileoptions.collision;
+
+option go_package = "github.com/example/collision/beta";
+
+message Beta {
+  int32 count = 1;
+}

@@ -20,16 +20,15 @@ import (
 // [node.Package] per distinct proto package qualifier. Multiple
 // source files sharing one proto package merge into a single
 // Package entry — the merge is deterministic: descriptor iteration
-// sorts by file path before any merging or stamping, so the produced
-// graph is byte-stable across runs regardless of protocompile's
-// internal resolve order.
+// sorts by file path before any merging or stamping, so the
+// produced graph is byte-stable across runs regardless of
+// protocompile's internal resolve order.
 //
 // Each produced Package carries the cross-frontend provenance
-// marker per the framework-convention addition (`frontend =
-// "protobuf"`) plus a [node.File] entry per contributing proto
-// source. Per-message, per-enum, and per-service translation lands
-// in later milestones; the Package emitted here carries no
-// declarations beyond files and imports.
+// marker (`frontend = "protobuf"`) plus a [node.File] entry per
+// contributing proto source with that file's imports recorded;
+// the Package's Imports slice is the deduplicated union across
+// every contributing file.
 func convertFiles(
 	ctx *plugin.FrontendContext, ps *diag.PluginSink,
 	descriptors []protoreflect.FileDescriptor,
@@ -84,14 +83,6 @@ func newPackage(qualifier string) *node.Package {
 		name = qualifier[dot+1:]
 	}
 	return &node.Package{Name: name, Path: qualifier}
-}
-
-// stampFrontendMarker records the cross-frontend provenance marker
-// on pkg's meta bag. Every produced package carries this stamp;
-// bridge annotators and the cross-namespace audit step pivot on it
-// to scope their walks to the correct frontend's sources.
-func stampFrontendMarker(pkg *node.Package) {
-	MetaFrontend.Set(pkg.Meta(), FrontendName, FrontendName)
 }
 
 // appendFile records one [node.File] on pkg derived from fd. Name
