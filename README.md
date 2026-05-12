@@ -6,250 +6,344 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/thesmos-ai/eidos)](go.mod)
 
-A plugin-driven code generator built around typed metadata, a queryable
-intermediate representation, and composable injection slots. Output is
-byte-deterministic, `gofmt`-clean, and cache-friendly. Embeddable as
-either a binary or a library.
+A plugin-driven code-generation library built around typed metadata, a
+queryable intermediate representation, and composable injection slots.
+Output is byte-deterministic, `gofmt`-clean, and cache-friendly.
 
 ```
-Source files  →  Frontend  →  Annotators  →  Generators  →  Backend  →  Sink
-                              (stamp meta)  (emit fragments) (render)
+Source files → Frontend → Annotators → Generators → Backend → Sink
+                          (stamp meta) (emit fragments) (render)
 ```
 
 ## What it is
 
-`eidos` is a framework, not a fixed code generator. You compose a
-generator by enabling plugins:
+`eidos` is a Go library for assembling code generators. Hosts embed it
+and compose a pipeline from plugins:
 
-- a **Frontend** parses source into a language-agnostic intermediate
-  representation,
-- **Annotators** detect patterns (writers, readers, paginators, pure
-  functions, …) and stamp typed metadata onto the relevant nodes,
+- a **Frontend** parses source into a language-agnostic node graph
+  (the source-side IR);
+- **Annotators** detect patterns and stamp typed metadata onto nodes;
 - a directive-override step lets users override any of that from
-  source comments (`+gen:`, `-gen:`),
-- **Generators** read the model and emit code fragments — including
-  fragments that target named *slots* on other generators' output,
+  source comments (`+gen:`, `-gen:`);
+- **Generators** read the model and emit code fragments on a parallel
+  output-side IR — including fragments that target named *slots* on
+  other generators' output;
 - a **Backend** runs the fragments through templates, resolves
   imports, formats, and writes through a configurable sink.
 
-Today's reach is Go → Go. The architecture is language-agnostic and
-the layering is enforced by import-path lint; additional frontends
-(proto, OpenAPI, Rust) and backends (Rust, TypeScript, Python) slot
-in through the same plugin contracts without re-architecting the
-core.
+The supported target today is Go → Go. The pipeline, plugin contracts,
+and slot model are language-agnostic; additional frontends and backends
+slot in through the same plugin interfaces.
 
 ## Quality contracts
 
-These are guarantees the framework provides, tested in CI, not
-aspirations:
+These are guarantees the library provides, tested in CI:
 
 - **Determinism.** The same inputs produce byte-identical output
-  across runs and machines. No `range map` is exposed in any
-  iteration path; topological ties break alphabetically; provenance
-  hashes are reproducible.
-- **Composability.** Cross-cutting concerns (validation, audit,
-  metrics, debug, logging) stack into typed slots on the generated
-  code in deterministic order — generators don't become god-objects.
-- **Provenance.** Every emitted token can be traced back to the
-  plugin that produced it, the directive that triggered it, and the
-  source position that motivated it. `eidos explain <selector>`
-  prints the trail.
-- **Parallel safety.** Annotators with disjoint `Provides` run
-  concurrently; backend file rendering parallelises; the Store and
-  Emit graph are race-detector clean and enforce mutability windows.
-- **Caching.** Per-plugin, per-input, per-scope cache keys. Bumping
-  a plugin's version invalidates only that plugin's outputs.
-  `--verify-cache` recomputes and asserts byte-identity against
-  cached results.
+  across runs and machines. Topological ties break alphabetically;
+  every output carries a SHA-256 provenance hash over its body bytes;
+  the header and footer carry no run-dependent fields.
+- **Composability.** Cross-cutting concerns stack into typed slots on
+  generated code in deterministic order — capability-topological
+  across plugins, append-sequence within a plugin. Generators don't
+  become god-objects.
+- **Provenance.** Every metadata entry, slot contribution, and emit
+  entity carries `(setBy, authority, sourcePos)` provenance. The
+  authority ladder (plugin < directive < manual) resolves conflicting
+  writes deterministically.
+- **Parallel safety.** Annotators with disjoint `Provides` may run
+  concurrently; backend per-file rendering is concurrency-safe; the
+  Store and emit graph are race-detector clean and enforce mutability
+  windows per phase.
+- **Caching.** Per-plugin, per-input cache keys; bumping a plugin's
+  version (via the optional `Versioned` capability) invalidates only
+  that plugin's outputs.
 - **Panic isolation.** A plugin that panics produces an `Error`
   diagnostic with a stack trace; subsequent plugins still run; the
-  process exits with a structured status code, never a raw panic.
-
-## A minimal example
-
-```go
-package users
-
-//+gen:repo
-type User struct {
-    ID    string
-    Email string
-}
-```
-
-Run:
-
-```bash
-eidos run
-```
-
-Generates `users/user_repo_gen.go`:
-
-```go
-// Code generated by eidos. DO NOT EDIT.
-//
-// Source:    users/user.go
-// Plugins:   repogen@1.2.0, validation@0.4.1
-// Command:   eidos run
-// Generated: 2026-05-11T08:42:11Z
-
-package users
-
-import "context"
-
-type UserRepo interface {
-    Get(ctx context.Context, id string) (*User, error)
-    Save(ctx context.Context, u *User) error
-    Delete(ctx context.Context, id string) error
-}
-
-// ... implementation ...
-
-// eidos:provenance 7f3a1d4c8b2e9f0a
-```
-
-Enabling the `validation` plugin causes it to append validation
-calls into each method's `prebody` slot; enabling `audit` appends
-audit logging into `postbody`; enabling `mockgen` produces a typed
-mock alongside. Each plugin is independent — none of them know
-about each other. They only know about typed slots and metadata
-keys.
+  pipeline returns a structured error rather than a raw panic.
+- **Layering.** `depguard` rules in `.golangci.yml` enforce the
+  package layering: `node/` and `emit/` are language-agnostic and
+  forbidden from importing language-specific stdlib (`go/ast`,
+  `go/format`, `text/template`); `core/*` cannot import any specific
+  frontend or backend; frontends and backends cannot import each
+  other.
 
 ## Installation
 
 ```bash
-go install go.thesmos.sh/eidos/cmd/eidos@latest
+go get go.thesmos.sh/eidos
 ```
 
 Requires Go 1.26 or later.
 
-## Usage
+## Minimal example
 
-### As a CLI
-
-```
-eidos run                    generate from .eidos.yaml (walked up from CWD)
-eidos plan                   print resolved plugin order; no IO
-eidos explain <selector>     provenance trace for an entity / meta key / slot
-eidos check                  CI gate: fail if any output would change
-eidos prune                  remove generated files no longer claimed
-eidos watch                  rerun on source changes
-eidos version                tool, emit-contract, and plugin versions
-```
-
-Cross-command flags:
-
-```
---config <path>          override config-file discovery
---diag-format=text|json  diagnostic output format
---no-cache               disable cache for this invocation
---verify-cache           recompute and assert byte-identity against cached output
---target=<scope>         restrict to file=, interface=, struct=, or package
-```
-
-Exit codes are structured: `0` success, `1` user/config error, `2`
-pipeline error, `3` internal error, `4` cache verification failed,
-`5` `eidos check` detected drift. CI gates can distinguish "your
-code is wrong" from "the tool is wrong."
-
-### As an embedded library
-
-Build your own binary with your own plugins, inherit every standard
-command:
+A working pipeline rendering a single struct to `out/x/x.go`:
 
 ```go
 package main
 
 import (
     "context"
-    "os"
+    "fmt"
 
-    "go.thesmos.sh/eidos/cli"
-
-    "go.example.com/myorg/myrepo"
-    "go.example.com/myorg/myaudit"
+    bgolang "go.thesmos.sh/eidos/backend/golang"
+    "go.thesmos.sh/eidos/eidostest/testpipe"
+    "go.thesmos.sh/eidos/emit"
+    "go.thesmos.sh/eidos/node"
+    "go.thesmos.sh/eidos/pipeline"
+    "go.thesmos.sh/eidos/plugin"
+    "go.thesmos.sh/eidos/sink"
 )
 
+// helloGenerator is a one-shot Generator that emits a single struct.
+type helloGenerator struct{}
+
+func (helloGenerator) Name() string { return "hellogen" }
+
+func (helloGenerator) Generate(ctx *plugin.GeneratorContext) error {
+    target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+    return ctx.Store.Emit().AddPackage(&emit.Package{
+        Name: "x", Path: "x",
+        Structs: []*emit.Struct{{
+            Name: "Greeting", Package: "x", Target: target,
+            Fields: []*emit.Field{{Name: "Message", Type: emit.Builtin("string")}},
+        }},
+    })
+}
+
 func main() {
-    os.Exit(cli.Run(context.Background(),
-        cli.WithPlugins(
-            myrepo.New(),
-            myaudit.New(),
-        ),
-        cli.WithConfigPath(".myapp.yaml"),
-    ))
+    p, err := pipeline.New().
+        WithFrontend(testpipe.FromNodes(&node.Package{Name: "x", Path: "x"})).
+        WithGenerator(helloGenerator{}).
+        WithBackend(bgolang.New()).
+        WithSink(sink.NewDisk("./out")).
+        Build()
+    if err != nil {
+        fmt.Println(err)
+        return
+    }
+    if err := p.Run(context.Background()); err != nil {
+        fmt.Println(err)
+    }
 }
 ```
 
-No fork of `cmd/eidos` required. Your plugins coexist with the
-framework defaults and any plugins your config enables.
-
-### Programmatic pipeline
-
-For tests, build-orchestration tools, or hosts that don't want a
-config file:
+For real Go-source input, swap `testpipe.FromNodes(...)` for
+`frontend/golang.New()` and pass package patterns to `p.Run`:
 
 ```go
-p, err := pipeline.New().
-    WithFrontend(golang.New()).
-    WithAnnotators(writershape.New()).
-    WithGenerators(repogen.New(), mockgen.New()).
+p.Run(ctx, "./...")
+```
+
+## Public API surface
+
+### Composing a pipeline
+
+```go
+pipeline.New().
+    WithFrontend(p plugin.Frontend).
+    WithAnnotator(p plugin.Annotator).
+    WithGenerator(p plugin.Generator).
+    WithBackend(p plugin.Backend).
+    WithSink(s sink.Sink).
+    WithCache(c cache.Cache).
+    WithDiag(s *diag.Sink).
+    WithDirective(schemas ...directive.Schema).
+    WithDirectivePrefix(prefix string).
+    WithParallel(phases ...pipeline.Phase).
+    WithPluginOptions(name string, kv map[string]string).
+    WithManifestPath(path string).
+    WithVerbose(v bool).
+    Build()           // (*Pipeline, error)
+```
+
+`Build` returns sentinel errors callers compare with `errors.Is`:
+`ErrNoFrontend`, `ErrNoBackend`, `ErrMultipleBackends`, `ErrNoSink`,
+`ErrDuplicatePlugin`, `ErrDuplicateProvider`, `ErrCycle`,
+`ErrInvalidOptions`, `ErrDuplicateDirective`, `ErrIncompatibleEmitVersion`,
+`ErrInvalidDirectivePrefix`, `ErrTemplateFuncCollision`. The full list
+lives in `pipeline/errors.go`.
+
+`Pipeline.Run(ctx, patterns...)` runs the configured pipeline and
+returns `ErrRunHadErrors` when any plugin emitted an Error diagnostic.
+`Pipeline.DryRun(ctx)` returns the resolved `*Plan` without executing.
+
+### Plugin role interfaces
+
+Every plugin implements `plugin.Plugin` (`Name() string`) plus one or
+more role interfaces:
+
+```go
+type Frontend interface {
+    Plugin
+    Load(*FrontendContext) error
+}
+
+type Annotator interface {
+    Plugin
+    Annotate(*AnnotatorContext) error
+}
+
+type Generator interface {
+    Plugin
+    Generate(*GeneratorContext) error
+}
+
+type Backend interface {
+    Plugin
+    Language() string
+    Render(*BackendContext) error
+}
+```
+
+Optional capabilities a plugin may also implement:
+
+- `CapabilityProvider` — declares `Provides` / `Requires` capability
+  names for capability-topological ordering within the role bucket.
+- `OptionsProvider` — declares a typed `OptionsSchema` (`required`,
+  `default`, `one_of`, custom validators); plugin options surface as
+  positioned diagnostics on misconfiguration rather than silent
+  no-ops.
+- `Versioned` — declares the plugin's emit-contract version so the
+  backend can detect incompatible-version pairings at `Build` time
+  and so cache keys invalidate when the plugin's contract changes.
+- `TemplateProvider` (Backend-side) — ships a `fs.FS` of templates and
+  a funcmap merged into the backend's funcmap with conflict resolution
+  by capability topology.
+- `DirectiveProvider` — declares directive schemas (`AppliesTo`,
+  `RequiredKeys`, `AllowedKeys`, `MutuallyExclusiveWith`,
+  `PositionalArgs`).
+
+### Sinks and caches
+
+```go
+sink.NewDisk(root string) *Disk           // writes files under root/
+sink.NewMemory() *Memory                  // in-memory map; for tests
+sink.NewMulti(sinks ...Sink) *Multi       // fan-out
+sink.NewStdout(w io.Writer) *Stdout       // single stream
+```
+
+```go
+cache.NewDisk(root string) *Disk          // persistent
+cache.NewNone() *None                     // disabled
+```
+
+### Frontend / backend implementations
+
+- `frontend/golang.New()` — Go AST → node graph; populates `go.*`
+  metadata keys (`go.iterValueType`, `go.elementType`, …) consumed
+  by downstream annotators.
+- `backend/golang.New()` — renders the emit graph to gofmt-clean Go
+  source through a template-driven pipeline. Contract documented in
+  [`docs/backend/golang.md`](docs/backend/golang.md).
+
+## Determinism and provenance
+
+Every file the Go backend writes ends in a two-line footer:
+
+```go
+// <brand>: end of generated content.
+// <brand>:provenance <sha256-of-body-bytes>
+```
+
+The hash is over the body bytes alone (header and footer excluded), so
+the same emit graph produces an identical hash across runs regardless
+of `Command` or `Plugins` header text. The header itself carries no
+timestamp — two runs over the same input produce byte-identical files,
+header and footer included. `Brand` defaults to `eidos`; library
+embedders set `BackendContext.Brand` to re-brand their output.
+
+The provenance trail is queryable in-process: every `meta.Entry`
+carries `(setBy, authority, sourcePos)`; every slot contribution
+carries the contributing plugin's name; every emit entity threads its
+`OriginNode` back to the source-side IR. See
+[`docs/backend/golang.md`](docs/backend/golang.md) for the full
+envelope contract and the `imp` / `slot` / `provenance` template
+funcmap entries.
+
+## Test harness
+
+`eidostest/` ships in-tree helpers for unit and integration tests.
+
+`eidostest/storefixture` — fluent builders for hand-crafting a
+source-side node graph without parsing real source:
+
+```go
+import "go.thesmos.sh/eidos/eidostest/storefixture"
+
+pkg := storefixture.New().
+    Package("users", "example.com/users").
+    Struct("User", func(b *storefixture.StructBuilder) {
+        b.Field("ID", storefixture.Named("string"), nil)
+        b.Field("Email", storefixture.Named("string"), nil)
+    }).
+    PackageNode()
+```
+
+`eidostest/testpipe` — full pipeline harness over an in-memory sink
+with golden-file diffing:
+
+```go
+import "go.thesmos.sh/eidos/eidostest/testpipe"
+
+p := testpipe.New(t).
+    WithFrontend(testpipe.FromNodes(pkg)).
+    WithGenerator(myGen).
     WithBackend(backend_golang.New()).
     Build()
-if err != nil {
-    return err
-}
-return p.Run(ctx)
+p.Run("./...")
+p.AssertFile("user.go").
+    Contains("type User struct").
+    MatchesGolden("testdata/user.go.golden")
 ```
 
-### Configuration
+The package registers a `-update-golden` flag; run the test binary
+with `-update-golden` to rewrite golden fixtures atomically.
 
-`.eidos.yaml` declares the full pipeline:
+`core/diag.Capture()` / `core/diag.Discard()` produce diagnostic
+sinks for tests that respectively assert on or ignore emitted
+diagnostics.
 
-```yaml
-version: 1
-sources:
-  - frontend: golang
-    patterns: ["./..."]
-plugins:
-  - name: writershape
-    enabled: true
-  - name: repogen
-    enabled: true
-    options:
-      output_package: repo
-      interface_naming: Pascal
-  - name: mockgen
-    enabled: true
-    requires: ["repogen >= 1.0"]
-sink: disk
-sink_options:
-  out_dir: ./gen
-cache:
-  enabled: true
-  dir: ./.eidos/cache
+## Project layout
+
+```
+node/                 source-side IR (language-agnostic)
+emit/                 output-side IR (language-agnostic)
+store/                two-view (Source / Emit) store with mutability windows
+writer/               file-builder primitives: ImportSet, Header, Footer
+sink/                 Sink interface + Disk / Memory / Multi / Stdout
+cache/                Cache interface + Disk / None
+manifest/             written-output manifest for prune support
+priority/             capability-topo sort helpers
+plugin/               role interfaces (Frontend, Annotator, Generator, Backend)
+                      plus optional capabilities (Versioned, OptionsProvider,
+                      CapabilityProvider, TemplateProvider, …)
+pipeline/             Builder + Pipeline orchestration
+
+core/                 language-agnostic foundation primitives:
+  core/diag/            diagnostics (Info / Warn / Error) with positions
+  core/directive/       +gen: / -gen: parsing, schemas, registry
+  core/meta/            typed metadata keys, authority levels, provenance
+  core/naming/          case conversion (Pascal / Camel / Snake / Screaming / Title)
+  core/opt/             typed plugin-options primitives
+  core/position/        Pos / Range
+
+frontend/golang/      Go AST → node graph + go.* metadata
+backend/golang/       Go renderer: templates, funcmap, ImportSet, gofmt
+
+eidostest/
+  eidostest/storefixture/   typed source-graph builders
+  eidostest/testpipe/       pipeline harness, golden-file diffing
+  eidostest/pluginfixture/  plugin-defined emit-kind test fixture
+
+docs/
+  docs/backend/golang.md    Go-backend contract reference (template set,
+                            funcmap, envelope, sentinels)
+  docs/frontend/golang.md   Go-frontend contract reference
 ```
 
-YAML, JSON, and TOML loaders ship in-tree. Consumers register
-additional formats via `cli.WithConfigLoader`. Schema violations
-surface as positioned diagnostics in the config file (line/column
-of the offending key), not opaque "unknown field" errors.
-
-### `go generate` integration
-
-```go
-//go:generate eidos run --target=interface=UserRepo --out=./mocks/user_repo_mock.go
-
-type UserRepo interface {
-    Get(ctx context.Context, id string) (*User, error)
-    Save(ctx context.Context, u *User) error
-}
-```
-
-Scoping flags restrict the frontend to a single file, interface,
-struct, or package. Per-scope cache keys prevent file-scoped
-invocations from invalidating package-level cache, so
-`go generate ./...` is incremental on the second run.
+Layering is enforced by `depguard` in `.golangci.yml`.
 
 ## Design decisions
 
@@ -259,135 +353,39 @@ away, deliberately.
 **Plugins are static Go imports, not dynamically loaded.** A
 different pipeline is a different binary. The cost is that swapping
 plugins requires a rebuild; the wins are compile-time type-checking
-on plugin contracts, deterministic ordering, single-binary
-deployment, and no `plugin.Open` complexity.
+on plugin contracts, deterministic ordering, single-binary deployment,
+and no `plugin.Open` complexity.
 
 **Metadata is the universal extension mechanism.** Plugins do not
 subclass each other or call into each other directly. They
-communicate through typed, namespaced metadata keys
-(`shape.writer`, `go.iterValueType`, `<plugin>.*`) with explicit
+communicate through typed, namespaced metadata keys with explicit
 authority levels (plugin / directive / manual) and full provenance.
-You can override anything from source with `+gen:meta KEY=value` or
-delete it with `-gen:meta KEY` — no plugin code change required.
+Source can override anything with `+gen:meta KEY=value` or delete it
+with `-gen:meta KEY` — no plugin code change required.
 
 **Composition through slots, not inheritance.** A generator emits
-a `Method` with `prebody`, `postbody`, and `init` slots typed by
-content kind. Validation, audit, and logging plugins each append
-into the relevant slot; ordering is by capability topological sort
-across plugins, with alphabetical tie-break for determinism.
+emit-entities with named slots typed by content kind. Cross-cutting
+plugins append into the relevant slot; ordering is capability-topo
+across plugins with alphabetical tie-break.
 
-**Templates are owned by the backend (and by each plugin), not the
+**Templates are owned by each backend and each plugin, not the
 framework.** Adding a target language is mostly authoring templates
 plus a small format/imports pass. The Go backend's core templates
-live in `backend/golang/templates/`; plugins ship their own
-templates that get merged into the same funcmap, with override
-resolution by capability topology.
+live in `backend/golang/templates/`; plugins ship their own templates
+that merge into the same funcmap, with override resolution by
+capability topology.
 
 **Single backend per pipeline run.** Generating the same project to
-multiple languages = multiple pipeline runs (or a driver around the
-builder). Keeps import resolution, formatting, and target
-conventions monolingual and predictable per invocation.
+multiple languages = multiple pipeline runs. Keeps import resolution,
+formatting, and target conventions monolingual and predictable per
+invocation.
 
-**Determinism is a contract.** Tests assert byte-identity across
-runs; a lint catches any introduced `range map`; slot ordering is
-specified, not "implementation-defined."
+## Contributing
 
-## Plugin authoring
-
-A plugin implements one or more role interfaces (`Frontend`,
-`Annotator`, `Generator`, `Backend`) and optionally declares:
-
-- **Typed options** (`OptionsSchema`) with `required`, `default`,
-  `one_of`, and custom validators — surfaced in config-file schema
-  validation with positioned diagnostics.
-- **Directive schemas** with `AppliesTo`, `RequiredKeys`,
-  `MutuallyExclusiveWith`, `AllowedKeys`, `PositionalArgs` — wrong
-  directives produce structured diagnostics, not silent no-ops.
-- **Capabilities** (`Provides`, `Requires`) used for the topological
-  sort within priority buckets — no global ordering hacks.
-- **Templates** and **template funcs** merged into the backend's
-  funcmap, with conflict resolution by capability topology and
-  diagnostics for every override.
-- **Plugin-defined emit kinds** — a plugin can introduce its own
-  emit entity (e.g., `emit.Saga`) and ship templates for it; the
-  Go backend renders without any modification.
-
-Reference plugins live under `plugins/`:
-
-```
-plugins/annotate/shape/       writer, reader, paginator, pure, iterator
-plugins/generate/repo         repository pattern
-plugins/generate/builder      builder pattern
-plugins/generate/mock         mock generation (composes on top of repo)
-plugins/generate/crosscut/    debug, audit, validation, metrics, log
-```
-
-A plugin-authoring guide lives at `docs/plugin-authoring.md`.
-
-## Testing
-
-`testpipe` provides three layers, each used at the appropriate
-level of test:
-
-```go
-// Unit — no pipeline, just a fixture store.
-s := storefixture.New().AddStruct("User", storefixture.WithMethod("Write", ...))
-a := writershape.New()
-a.Annotate(&plugin.AnnotatorContext{Store: s, Diag: diag.Discard()})
-got, _ := writershape.Detected.Get(s.NodeByName("User"))
-
-// Synthetic pipeline — virtual filesystem, no disk.
-p := testpipe.New(t).
-    WithFrontend(testpipe.FromGoSource(map[string]string{
-        "user.go": "package m\ntype User struct { ID string `gen:repo` }",
-    })).
-    WithGenerator(repogen.New()).
-    WithBackend(backend_golang.New()).
-    Build()
-p.Run(t)
-p.AssertFile("user_repo_gen.go").
-    Contains("type UserRepo interface").
-    DiffGolden("testdata/user_repo.golden.go")
-
-// Fixtures on disk — full project layout under testdata/.
-p := testpipe.FromTestdata(t, "testdata/repo_basic")
-p.Run(t)
-p.AssertGoldenDir("testdata/repo_basic/golden")
-```
-
-`--update-golden` rewrites golden files atomically. Diagnostics are
-captured per-test through `diag.Capture()`; the harness rejects any
-unexpected `Error` diagnostic unless declared expected.
-
-## Project layout
-
-```
-cmd/eidos/        thin binary wrapper (~10 lines over cli.Run)
-cli/              library command surface: run / plan / explain / watch / prune / check / version
-config/           generic config loader; yaml / json / toml in-tree
-
-node/             generic source model + accessors
-emit/             generic output model + accessors
-meta/             typed metadata keys + authority + provenance
-directive/        +gen: / -gen: parsing, schemas, validation
-writer/           file buffer, ImportSet, target resolution
-position/         Pos and Range
-opt/              typed plugin options
-
-core/             store, plugin contracts, pipeline, cache, sink, diag, naming
-frontend/golang/  Go AST → Nodes + go.* metadata
-backend/golang/   core templates, funcmap, ImportSet, gofmt
-plugins/          annotators, generators, cross-cutting weavers
-
-testpipe/         test harness: synthetic frontends, in-memory sinks, golden-file diffing
-docs/             specs and ADRs
-```
-
-Layering is enforced by `depguard` rules in `.golangci.yml`. The
-language-agnostic core may not import any specific frontend or
-backend; plugins may not depend on a specific frontend or backend;
-frontends and backends may not import each other.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for development workflow,
+linting, and test-coverage expectations. Security issues:
+[`SECURITY.md`](SECURITY.md).
 
 ## License
 
-MIT. Copyright Thesmos B.V. See `LICENSE`.
+MIT. Copyright Thesmos B.V. See [`LICENSE`](LICENSE).
