@@ -1,5 +1,11 @@
 # eidos
 
+[![CI](https://github.com/thesmos-ai/eidos/actions/workflows/ci.yml/badge.svg)](https://github.com/thesmos-ai/eidos/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/go.thesmos.sh/eidos.svg)](https://pkg.go.dev/go.thesmos.sh/eidos)
+[![Go Report Card](https://goreportcard.com/badge/go.thesmos.sh/eidos)](https://goreportcard.com/report/go.thesmos.sh/eidos)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/thesmos-ai/eidos)](go.mod)
+
 A plugin-driven code generator built around typed metadata, a queryable
 intermediate representation, and composable injection slots. Output is
 byte-deterministic, `gofmt`-clean, and cache-friendly. Embeddable as

@@ -1,0 +1,3 @@
+# Default owner for every path in the repo.
+# Lines later in the file override earlier ones for matching paths.
+*       @thesmos-ai
