@@ -1,0 +1,10 @@
+// Edition source — the frontend must reject this with a positioned
+// diagnostic and skip the file while remaining files in the same
+// load keep parsing.
+edition = "2023";
+
+package eidos.protobuf.testdata.editions;
+
+message Future {
+  string name = 1;
+}

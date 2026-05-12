@@ -1,0 +1,12 @@
+// broken.proto is the canonical parse-error fixture. The message
+// body is malformed — a field declaration missing its tag number —
+// so protocompile's parser surfaces a positioned error through the
+// reporter callback the frontend funnels into the framework's
+// diagnostic sink.
+syntax = "proto3";
+
+package eidos.protobuf.testdata.parseerror;
+
+message Broken {
+  string name = ;
+}

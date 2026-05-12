@@ -1,0 +1,13 @@
+// hello.proto is a canonical proto3 fixture exercising the
+// frontend's parse-clean path. The frontend must compile this
+// file via protocompile with no diagnostics.
+syntax = "proto3";
+
+package eidos.protobuf.testdata.simple;
+
+// Greeter carries a single name field — enough to drive
+// protocompile through descriptor resolution without exercising
+// any per-construct mapping.
+message Greeter {
+  string name = 1;
+}
