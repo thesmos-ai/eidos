@@ -5,6 +5,7 @@ package golang
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"strconv"
 	"text/template"
@@ -73,6 +74,9 @@ func (b *Backend) Render(ctx *plugin.BackendContext) error {
 		state := newRenderState(b.tmpl, pluginOrder)
 		body, tracked, err := renderFile(state, target, entities, packageDocsFor(ctx, target))
 		if err != nil {
+			if errors.Is(err, ErrEmptyTarget) {
+				continue
+			}
 			ps.Errorf(position.Pos{}, "%s: %v", target.JoinPath(), err)
 			continue
 		}
@@ -116,18 +120,26 @@ func packageDocsFor(ctx *plugin.BackendContext, target emit.Target) []string {
 	return nil
 }
 
-// renderFile produces the raw rendered body for one Target. Phases:
+// renderFile produces the raw rendered body for one Target. The
+// composition follows spec §9 layout items 2 through 8:
 //
-//   - Dispatch each non-File entity through the per-Target
-//     [renderState]'s render so `imp` calls accumulate into the
-//     state's [writer.ImportSet].
-//   - Compose the final body as
-//     "<package-doc>" + "package <Name>" + import block + decls.
+//   - Pre-render pass: every entry in [emit.File.Imports] and
+//     [emit.File.ImportsSlot] registers with the per-Target
+//     [writer.ImportSet] so plugin-supplied imports flow through
+//     the authoritative deduper alongside template-driven `imp`
+//     calls.
+//   - Render the layout-item-5 "top" slot (File.Top), the
+//     layout-item-6 free-floating decls (each non-File entity), the
+//     layout-item-7 init block (File.Init composed into a single
+//     `func init() { … }`), and the layout-item-8 "bottom" slot
+//     (File.Bottom), each through the kind-template dispatcher.
+//   - Compose the body as
+//     "<package-doc>" + "package <Name>" + import block + top +
+//     decls + init + bottom.
 //
-// emit.File entities are filtered out of the decl loop — they are
-// file-level containers, not declarations; their rendering lives on
-// the [emit.File] kind template that arrives with multi-generator
-// composition.
+// Returns [ErrEmptyTarget] when the Target carries no decls and
+// every File slot is empty — the caller skips silently rather than
+// producing an empty sink write.
 //
 // The returned bytes are unformatted — [finaliseBody] runs them
 // through [go/format.Source] and the goimports library pass. The
@@ -140,11 +152,14 @@ func renderFile(
 	entities []emit.Node,
 	packageDocs []string,
 ) ([]byte, []writer.Import, error) {
+	file := fileFor(entities, target)
+	if err := state.preRenderImports(file); err != nil {
+		return nil, nil, err
+	}
+
+	decls := declEntities(entities)
 	var declsBuf bytes.Buffer
-	for _, n := range entities {
-		if _, isFile := n.(*emit.File); isFile {
-			continue
-		}
+	for _, n := range decls {
 		rendered, err := state.render(n)
 		if err != nil {
 			return nil, nil, err
@@ -153,13 +168,32 @@ func renderFile(
 		declsBuf.WriteString("\n\n")
 	}
 
+	top, initBlock, bottom, err := state.renderFileSlots(file)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if len(decls) == 0 && top == "" && initBlock == "" && bottom == "" {
+		return nil, nil, ErrEmptyTarget
+	}
+
 	tracked := state.imports.Imports()
 	var fileBuf bytes.Buffer
 	fileBuf.WriteString(renderDocs(packageDocs))
 	fmt.Fprintf(&fileBuf, "package %s\n", target.Package)
 	writeImportBlock(&fileBuf, tracked)
 	fileBuf.WriteByte('\n')
+	if top != "" {
+		fileBuf.WriteString(top)
+	}
 	fileBuf.Write(declsBuf.Bytes())
+	if initBlock != "" {
+		fileBuf.WriteString(initBlock)
+		fileBuf.WriteByte('\n')
+	}
+	if bottom != "" {
+		fileBuf.WriteString(bottom)
+	}
 
 	return fileBuf.Bytes(), tracked, nil
 }

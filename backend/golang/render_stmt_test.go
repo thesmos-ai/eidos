@@ -114,6 +114,55 @@ func TestRenderStmt_Variants(t *testing.T) {
 			want: "for k, v := range items {",
 		},
 		{
+			name: "for with init + cond + post (C-style)",
+			body: []*emit.Stmt{emit.NewForFull(
+				emit.NewAssign(
+					[]*emit.Expr{{ExprKind: emit.ExprIdent, Name: "i"}},
+					":=",
+					[]*emit.Expr{{ExprKind: emit.ExprLiteral, LitKind: emit.LitInt, RawText: "0"}},
+				),
+				&emit.Expr{
+					ExprKind: emit.ExprBinary, Op: "<",
+					Left:  &emit.Expr{ExprKind: emit.ExprIdent, Name: "i"},
+					Right: &emit.Expr{ExprKind: emit.ExprLiteral, LitKind: emit.LitInt, RawText: "10"},
+				},
+				emit.NewAssign(
+					[]*emit.Expr{{ExprKind: emit.ExprIdent, Name: "i"}},
+					"+=",
+					[]*emit.Expr{{ExprKind: emit.ExprLiteral, LitKind: emit.LitInt, RawText: "1"}},
+				),
+				[]*emit.Stmt{emit.NewBreak("")},
+			)},
+			want: "for i := 0; i < 10; i += 1 {",
+		},
+		{
+			name: "for range key only",
+			body: []*emit.Stmt{emit.NewForRange(
+				"k", "",
+				&emit.Expr{ExprKind: emit.ExprIdent, Name: "items"},
+				nil,
+			)},
+			want: "for k := range items {",
+		},
+		{
+			name: "for range value only renders blank key",
+			body: []*emit.Stmt{emit.NewForRange(
+				"", "v",
+				&emit.Expr{ExprKind: emit.ExprIdent, Name: "items"},
+				nil,
+			)},
+			want: "for _, v := range items {",
+		},
+		{
+			name: "for range bare (no key, no value)",
+			body: []*emit.Stmt{emit.NewForRange(
+				"", "",
+				&emit.Expr{ExprKind: emit.ExprIdent, Name: "items"},
+				nil,
+			)},
+			want: "for range items {",
+		},
+		{
 			name: "switch with case + default",
 			body: []*emit.Stmt{emit.NewSwitch(
 				&emit.Expr{ExprKind: emit.ExprIdent, Name: "x"},

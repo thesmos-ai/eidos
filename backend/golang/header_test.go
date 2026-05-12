@@ -97,7 +97,8 @@ func TestHeader_SourcesFromOrigin(t *testing.T) {
 		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
 		// b.go and a.go contribute distinct entities; duplicate
 		// b.go entries should not double-count.
-		addEmitPackage(t, ctx, emitPackage("x",
+		addEmitPackage(t, ctx, emitPackage(
+			"x",
 			structWithOrigin("X1", "x", target, "b.go"),
 			structWithOrigin("X2", "x", target, "a.go"),
 			structWithOrigin("X3", "x", target, "b.go"),

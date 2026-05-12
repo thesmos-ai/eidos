@@ -137,6 +137,38 @@ func TestRenderFields_TypeParams(t *testing.T) {
 			t.Fatalf("generic alias mismatched; got:\n%s", body)
 		}
 	})
+
+	t.Run("multi-embed constraint renders inline interface intersection", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		addEmitPackage(t, ctx, &emit.Package{
+			Name: "x", Path: "x",
+			Structs: []*emit.Struct{{
+				Name: "Pair", Package: "x", Target: target,
+				TypeParams: []*emit.TypeParam{{
+					Name: "T",
+					Constraint: &emit.Constraint{Embedded: []emit.Ref{
+						emit.External("io", "Reader"),
+						emit.External("io", "Closer"),
+					}},
+				}},
+				Fields: []*emit.Field{{Name: "V", Type: emit.Builtin("int")}},
+			}},
+		})
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		// Multi-embed renders the type parameter's bound as an
+		// inline-interface intersection. gofmt expands the
+		// single-line `interface { A; B }` into a multi-line block,
+		// so the assertion checks fragments rather than a one-line
+		// substring.
+		if !strings.Contains(string(body), "type Pair[T interface {") {
+			t.Fatalf("multi-embed constraint should open inline interface; got:\n%s", body)
+		}
+		if !strings.Contains(string(body), "io.Reader") || !strings.Contains(string(body), "io.Closer") {
+			t.Fatalf("expected both embeds io.Reader + io.Closer; got:\n%s", body)
+		}
+	})
 }
 
 // TestRenderFields_TagAggregation covers the renderFields tag-blob

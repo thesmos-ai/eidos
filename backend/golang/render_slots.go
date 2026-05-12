@@ -22,6 +22,24 @@ import (
 // a stack trace.
 var ErrDuplicateEntity = errors.New("backend/golang: duplicate slot entity")
 
+// ErrNilHost is returned by funcmap-exposed render helpers when
+// invoked with a nil host pointer. Core templates always pass a
+// non-nil dot context, so the sentinel surfaces only when a
+// plugin-supplied template calls one of the canonical helpers
+// (`renderStructFields`, `renderMethodBody`, …) with a wrong
+// receiver — typically a nil dot from an outer-scope misuse. The
+// wrapped message names the offending helper and the expected
+// host type so the diagnostic points the plugin author at the
+// concrete fix.
+var ErrNilHost = errors.New("backend/golang: nil host passed to funcmap helper")
+
+// nilHostErrf returns a wrapped [ErrNilHost] naming the offending
+// helper and the host type it expected. Centralised so every
+// funcmap-exposed render helper emits the same diagnostic shape.
+func nilHostErrf(helper, hostType string) error {
+	return fmt.Errorf("%w: %s requires a non-nil %s", ErrNilHost, helper, hostType)
+}
+
 // typedContentSource is the provenance marker for names recorded
 // directly on the host's typed slice (Fields / Methods / Variants),
 // distinguishing typed-content collisions from slot-vs-slot
@@ -113,19 +131,13 @@ func orderByPlugin(items []emit.Node, prov []emit.Provenance, order []string) ([
 // a typed-field or earlier-slot-field name from a different
 // provenance.
 func (s *renderState) mergedFields(host *emit.Struct) ([]*emit.Field, error) {
-	if host == nil {
-		return nil, nil
-	}
 	slot := host.FieldsSlot()
 	items, prov := orderByPlugin(slot.Items, slot.ProvenanceList, s.pluginOrder)
 	out := make([]*emit.Field, 0, len(host.Fields)+len(items))
 	out = append(out, host.Fields...)
 	names := fieldNameSet(host.Fields)
 	for i, item := range items {
-		f, ok := item.(*emit.Field)
-		if !ok {
-			continue
-		}
+		f := item.(*emit.Field)
 		if prior, exists := names[f.Name]; exists {
 			return nil, fmt.Errorf(
 				"%w: field %q in struct %s [contributors: %s and %s]",
@@ -144,19 +156,13 @@ func (s *renderState) mergedFields(host *emit.Struct) ([]*emit.Field, error) {
 // when a slot contribution duplicates a typed-method or earlier-
 // slot-method name.
 func (s *renderState) mergedMethods(host *emit.Struct) ([]*emit.Method, error) {
-	if host == nil {
-		return nil, nil
-	}
 	slot := host.MethodsSlot()
 	items, prov := orderByPlugin(slot.Items, slot.ProvenanceList, s.pluginOrder)
 	out := make([]*emit.Method, 0, len(host.Methods)+len(items))
 	out = append(out, host.Methods...)
 	names := methodNameSet(host.Methods)
 	for i, item := range items {
-		m, ok := item.(*emit.Method)
-		if !ok {
-			continue
-		}
+		m := item.(*emit.Method)
 		if prior, exists := names[m.Name]; exists {
 			return nil, fmt.Errorf(
 				"%w: method %q on struct %s [contributors: %s and %s]",
@@ -174,17 +180,12 @@ func (s *renderState) mergedMethods(host *emit.Struct) ([]*emit.Method, error) {
 // QName check (struct-level duplicates are caught by the Go
 // compiler with a clear error already).
 func (s *renderState) mergedStructEmbeds(host *emit.Struct) []*emit.Embed {
-	if host == nil {
-		return nil
-	}
 	slot := host.EmbedsSlot()
 	items, _ := orderByPlugin(slot.Items, slot.ProvenanceList, s.pluginOrder)
 	out := make([]*emit.Embed, 0, len(host.Embeds)+len(items))
 	out = append(out, host.Embeds...)
 	for _, item := range items {
-		if e, ok := item.(*emit.Embed); ok {
-			out = append(out, e)
-		}
+		out = append(out, item.(*emit.Embed))
 	}
 	return out
 }
@@ -193,19 +194,13 @@ func (s *renderState) mergedStructEmbeds(host *emit.Struct) []*emit.Embed {
 // slice for an interface, in plugin-topo order with the slot's
 // duplicate-name check applied.
 func (s *renderState) mergedInterfaceMethods(host *emit.Interface) ([]*emit.Method, error) {
-	if host == nil {
-		return nil, nil
-	}
 	slot := host.MethodsSlot()
 	items, prov := orderByPlugin(slot.Items, slot.ProvenanceList, s.pluginOrder)
 	out := make([]*emit.Method, 0, len(host.Methods)+len(items))
 	out = append(out, host.Methods...)
 	names := methodNameSet(host.Methods)
 	for i, item := range items {
-		m, ok := item.(*emit.Method)
-		if !ok {
-			continue
-		}
+		m := item.(*emit.Method)
 		if prior, exists := names[m.Name]; exists {
 			return nil, fmt.Errorf(
 				"%w: method %q on interface %s [contributors: %s and %s]",
@@ -223,17 +218,12 @@ func (s *renderState) mergedInterfaceMethods(host *emit.Interface) ([]*emit.Meth
 // duplicate embedded interfaces are a Go compile error caught
 // downstream.
 func (s *renderState) mergedInterfaceEmbeds(host *emit.Interface) []*emit.Embed {
-	if host == nil {
-		return nil
-	}
 	slot := host.EmbedsSlot()
 	items, _ := orderByPlugin(slot.Items, slot.ProvenanceList, s.pluginOrder)
 	out := make([]*emit.Embed, 0, len(host.Embeds)+len(items))
 	out = append(out, host.Embeds...)
 	for _, item := range items {
-		if e, ok := item.(*emit.Embed); ok {
-			out = append(out, e)
-		}
+		out = append(out, item.(*emit.Embed))
 	}
 	return out
 }
@@ -241,19 +231,13 @@ func (s *renderState) mergedInterfaceEmbeds(host *emit.Interface) []*emit.Embed 
 // mergedVariants returns the typed + slot variant slice for an
 // enum, in plugin-topo order with a duplicate-name check.
 func (s *renderState) mergedVariants(host *emit.Enum) ([]*emit.EnumVariant, error) {
-	if host == nil {
-		return nil, nil
-	}
 	slot := host.VariantsSlot()
 	items, prov := orderByPlugin(slot.Items, slot.ProvenanceList, s.pluginOrder)
 	out := make([]*emit.EnumVariant, 0, len(host.Variants)+len(items))
 	out = append(out, host.Variants...)
 	names := variantNameSet(host.Variants)
 	for i, item := range items {
-		v, ok := item.(*emit.EnumVariant)
-		if !ok {
-			continue
-		}
+		v := item.(*emit.EnumVariant)
 		if prior, exists := names[v.Name]; exists {
 			return nil, fmt.Errorf(
 				"%w: variant %q on enum %s [contributors: %s and %s]",
@@ -273,15 +257,13 @@ func (s *renderState) mergedVariants(host *emit.Enum) ([]*emit.EnumVariant, erro
 //
 // Returns nil + nil for an empty slot (no allocation).
 func (s *renderState) mergedSlotStmts(slot *emit.Slot) []*emit.Stmt {
-	if slot == nil || slot.Len() == 0 {
+	if slot.Len() == 0 {
 		return nil
 	}
 	items, _ := orderByPlugin(slot.Items, slot.ProvenanceList, s.pluginOrder)
 	out := make([]*emit.Stmt, 0, len(items))
 	for _, item := range items {
-		if st, ok := item.(*emit.Stmt); ok {
-			out = append(out, st)
-		}
+		out = append(out, item.(*emit.Stmt))
 	}
 	return out
 }
@@ -290,15 +272,13 @@ func (s *renderState) mergedSlotStmts(slot *emit.Slot) []*emit.Stmt {
 // the supplied slot, re-grouped by plugin order. Caller appends
 // these to the host's typed Params slice.
 func (s *renderState) mergedSlotParams(slot *emit.Slot) []*emit.Param {
-	if slot == nil || slot.Len() == 0 {
+	if slot.Len() == 0 {
 		return nil
 	}
 	items, _ := orderByPlugin(slot.Items, slot.ProvenanceList, s.pluginOrder)
 	out := make([]*emit.Param, 0, len(items))
 	for _, item := range items {
-		if p, ok := item.(*emit.Param); ok {
-			out = append(out, p)
-		}
+		out = append(out, item.(*emit.Param))
 	}
 	return out
 }
@@ -312,6 +292,9 @@ func (s *renderState) mergedSlotParams(slot *emit.Slot) []*emit.Param {
 // `renderStructFields` is one of the reserved canonical-render
 // funcmap entries — plugin overrides are rejected at Build time.
 func (s *renderState) renderStructFields(host *emit.Struct) (string, error) {
+	if host == nil {
+		return "", nilHostErrf("renderStructFields", "*emit.Struct")
+	}
 	merged, err := s.mergedFields(host)
 	if err != nil {
 		return "", err
@@ -327,6 +310,9 @@ func (s *renderState) renderStructFields(host *emit.Struct) (string, error) {
 // `renderStructEmbeds` is one of the reserved canonical-render
 // funcmap entries — plugin overrides are rejected at Build time.
 func (s *renderState) renderStructEmbeds(host *emit.Struct) (string, error) {
+	if host == nil {
+		return "", nilHostErrf("renderStructEmbeds", "*emit.Struct")
+	}
 	return s.renderEmbeds(s.mergedStructEmbeds(host))
 }
 
@@ -341,6 +327,9 @@ func (s *renderState) renderStructEmbeds(host *emit.Struct) (string, error) {
 // `renderStructMethods` is one of the reserved canonical-render
 // funcmap entries — plugin overrides are rejected at Build time.
 func (s *renderState) renderStructMethods(host *emit.Struct) ([]*emit.Method, error) {
+	if host == nil {
+		return nil, nilHostErrf("renderStructMethods", "*emit.Struct")
+	}
 	return s.mergedMethods(host)
 }
 
@@ -352,6 +341,9 @@ func (s *renderState) renderStructMethods(host *emit.Struct) ([]*emit.Method, er
 // `renderInterfaceEmbeds` is one of the reserved canonical-render
 // funcmap entries — plugin overrides are rejected at Build time.
 func (s *renderState) renderInterfaceEmbeds(host *emit.Interface) (string, error) {
+	if host == nil {
+		return "", nilHostErrf("renderInterfaceEmbeds", "*emit.Interface")
+	}
 	return s.renderEmbeds(s.mergedInterfaceEmbeds(host))
 }
 
@@ -364,6 +356,9 @@ func (s *renderState) renderInterfaceEmbeds(host *emit.Interface) (string, error
 // `renderInterfaceMethods` is one of the reserved canonical-render
 // funcmap entries — plugin overrides are rejected at Build time.
 func (s *renderState) renderInterfaceMethods(host *emit.Interface) ([]*emit.Method, error) {
+	if host == nil {
+		return nil, nilHostErrf("renderInterfaceMethods", "*emit.Interface")
+	}
 	return s.mergedInterfaceMethods(host)
 }
 
@@ -375,6 +370,9 @@ func (s *renderState) renderInterfaceMethods(host *emit.Interface) ([]*emit.Meth
 // `renderEnumVariants` is one of the reserved canonical-render
 // funcmap entries — plugin overrides are rejected at Build time.
 func (s *renderState) renderEnumVariants(host *emit.Enum) (string, error) {
+	if host == nil {
+		return "", nilHostErrf("renderEnumVariants", "*emit.Enum")
+	}
 	merged, err := s.mergedVariants(host)
 	if err != nil {
 		return "", err
@@ -398,7 +396,7 @@ func (s *renderState) renderEnumVariants(host *emit.Enum) (string, error) {
 // funcmap entries — plugin overrides are rejected at Build time.
 func (s *renderState) renderFunctionBody(host *emit.Function) (string, error) {
 	if host == nil {
-		return "", nil
+		return "", nilHostErrf("renderFunctionBody", "*emit.Function")
 	}
 	body := composeBody(s.mergedSlotStmts(host.Prebody()), host.Body, s.mergedSlotStmts(host.Postbody()))
 	return s.renderStmtBlock(body)
@@ -413,7 +411,7 @@ func (s *renderState) renderFunctionBody(host *emit.Function) (string, error) {
 // funcmap entries — plugin overrides are rejected at Build time.
 func (s *renderState) renderMethodBody(host *emit.Method) (string, error) {
 	if host == nil {
-		return "", nil
+		return "", nilHostErrf("renderMethodBody", "*emit.Method")
 	}
 	body := composeBody(s.mergedSlotStmts(host.Prebody()), host.Body, s.mergedSlotStmts(host.Postbody()))
 	return s.renderStmtBlock(body)
@@ -428,7 +426,7 @@ func (s *renderState) renderMethodBody(host *emit.Method) (string, error) {
 // funcmap entries — plugin overrides are rejected at Build time.
 func (s *renderState) renderFunctionParams(host *emit.Function) (string, error) {
 	if host == nil {
-		return s.renderParams(nil)
+		return "", nilHostErrf("renderFunctionParams", "*emit.Function")
 	}
 	return s.renderParams(mergeParams(host.Params, s.mergedSlotParams(host.ParamsSlot())))
 }
@@ -442,7 +440,7 @@ func (s *renderState) renderFunctionParams(host *emit.Function) (string, error) 
 // funcmap entries — plugin overrides are rejected at Build time.
 func (s *renderState) renderMethodParams(host *emit.Method) (string, error) {
 	if host == nil {
-		return s.renderParams(nil)
+		return "", nilHostErrf("renderMethodParams", "*emit.Method")
 	}
 	return s.renderParams(mergeParams(host.Params, s.mergedSlotParams(host.ParamsSlot())))
 }

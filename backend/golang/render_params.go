@@ -100,7 +100,10 @@ func paramListSummary(params []*emit.Param) string {
 // `renderReceiver` is one of the reserved canonical-render funcmap
 // entries — plugin overrides are rejected at Build time.
 func (s *renderState) renderReceiver(m *emit.Method) (string, error) {
-	if m == nil || m.Receiver == nil {
+	if m == nil {
+		return "", nilHostErrf("renderReceiver", "*emit.Method")
+	}
+	if m.Receiver == nil {
 		return "", nil
 	}
 	t, err := s.renderType(m.Receiver)

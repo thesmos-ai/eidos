@@ -201,6 +201,20 @@ func assertInternalRefRenders(t *testing.T, target emit.Node, wantName string) {
 	}
 }
 
+// bindFile returns the [emit.File] routed to target, creating it
+// lazily via [store.EmitView.FileFor]. The store wires the File's
+// Dir/Name/Package from the supplied Target so subsequent slot
+// contributions route consistently. Used by Phase-I tests that
+// need a host for File-level slot appends.
+func bindFile(t *testing.T, ctx *plugin.BackendContext, target emit.Target) *emit.File {
+	t.Helper()
+	f, err := ctx.Store.Emit().FileFor(target)
+	if err != nil {
+		t.Fatalf("FileFor %v: %v", target, err)
+	}
+	return f
+}
+
 // mustOrderedSubstrings asserts each successive substring appears
 // in body, and that their positions are strictly increasing in
 // source order. Used by slot-ordering tests to verify

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"go.thesmos.sh/eidos/backend/golang"
+	"go.thesmos.sh/eidos/core/diag"
 	"go.thesmos.sh/eidos/eidostest/testpipe"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/plugin"
@@ -110,6 +111,29 @@ func TestSlots_StructMethods_RenderedInline(t *testing.T) {
 	})
 }
 
+// TestErrNilHost pins the exported sentinel surfaced by every
+// funcmap-exposed render helper when invoked with a nil host. The
+// helpers are unreachable from core templates (the kind dispatcher
+// always passes a real host), so the wrapped-message diagnostic
+// surface only fires from plugin-supplied templates that call the
+// canonical helpers with a wrong dot. The full reachability
+// fixture lands with Phase J once plugin template merge ships;
+// today's coverage pins the sentinel shape so plugin authors can
+// match against it via [errors.Is].
+func TestErrNilHost(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ErrNilHost is exported and satisfies errors.Is", func(t *testing.T) {
+		t.Parallel()
+		if golang.ErrNilHost == nil {
+			t.Fatalf("ErrNilHost must be exported and non-nil")
+		}
+		if !errors.Is(golang.ErrNilHost, golang.ErrNilHost) {
+			t.Fatalf("ErrNilHost must satisfy errors.Is reflexivity")
+		}
+	})
+}
+
 // TestSlots_DuplicateEntity covers the slot-internal collision
 // rule: two contributions to the same `methods` slot using the
 // same name surface as [golang.ErrDuplicateEntity], with the
@@ -127,9 +151,9 @@ func TestSlots_DuplicateEntity(t *testing.T) {
 		}
 	})
 
-	t.Run("two slot contributions with same name produce diagnostic", func(t *testing.T) {
+	t.Run("two struct-method slot contributions with same name produce diagnostic", func(t *testing.T) {
 		t.Parallel()
-		ctx, mem, _ := newBackendContext(t)
+		ctx, mem, d := newBackendContext(t)
 		ctx.Ordered = []plugin.Plugin{
 			stubPluginVersion{name: "audit"},
 			stubPluginVersion{name: "validation"},
@@ -154,6 +178,147 @@ func TestSlots_DuplicateEntity(t *testing.T) {
 		}
 		if _, ok := mem.Get(target); ok {
 			t.Fatalf("duplicate-method collision must suppress the sink write")
+		}
+		if !diagnosticsContain(d, diag.Error, "duplicate slot entity") {
+			t.Fatalf("expected ErrDuplicateEntity diagnostic; got %+v", d.Diagnostics())
+		}
+	})
+
+	t.Run("two struct-field slot contributions with same name produce diagnostic", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		ctx.Ordered = []plugin.Plugin{
+			stubPluginVersion{name: "audit"},
+			stubPluginVersion{name: "validation"},
+		}
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		host := &emit.Struct{Name: "Doc", Package: "x", Target: target}
+		if err := host.FieldsSlot().Append(
+			&emit.Field{Name: "Required", Type: emit.Builtin("bool")},
+			emit.Provenance{SetBy: "audit"},
+		); err != nil {
+			t.Fatalf("append audit field: %v", err)
+		}
+		if err := host.FieldsSlot().Append(
+			&emit.Field{Name: "Required", Type: emit.Builtin("string")},
+			emit.Provenance{SetBy: "validation"},
+		); err != nil {
+			t.Fatalf("append validation field: %v", err)
+		}
+		addEmitPackage(t, ctx, emitPackage("x", host))
+		if err := mustNew(t).Render(ctx); err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		if _, ok := mem.Get(target); ok {
+			t.Fatalf("duplicate-field collision must suppress the sink write")
+		}
+		if !diagnosticsContain(d, diag.Error, "duplicate slot entity") {
+			t.Fatalf("expected ErrDuplicateEntity diagnostic; got %+v", d.Diagnostics())
+		}
+	})
+
+	t.Run("typed-field name colliding with slot field produces diagnostic", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		ctx.Ordered = []plugin.Plugin{stubPluginVersion{name: "validation"}}
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		host := &emit.Struct{
+			Name: "Doc", Package: "x", Target: target,
+			Fields: []*emit.Field{{Name: "ID", Type: emit.Builtin("int")}},
+		}
+		if err := host.FieldsSlot().Append(
+			&emit.Field{Name: "ID", Type: emit.Builtin("string")},
+			emit.Provenance{SetBy: "validation"},
+		); err != nil {
+			t.Fatalf("append validation field: %v", err)
+		}
+		addEmitPackage(t, ctx, emitPackage("x", host))
+		if err := mustNew(t).Render(ctx); err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		if _, ok := mem.Get(target); ok {
+			t.Fatalf("typed/slot field collision must suppress the sink write")
+		}
+		if !diagnosticsContain(d, diag.Error, "typed-content") {
+			t.Fatalf("expected diagnostic citing typed-content; got %+v", d.Diagnostics())
+		}
+	})
+
+	t.Run("two interface-method slot contributions with same name produce diagnostic", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		ctx.Ordered = []plugin.Plugin{
+			stubPluginVersion{name: "tracegen"},
+			stubPluginVersion{name: "metricsgen"},
+		}
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		iface := &emit.Interface{Name: "Service", Package: "x", Target: target}
+		if err := iface.MethodsSlot().Append(
+			&emit.Method{Name: "Probe"},
+			emit.Provenance{SetBy: "tracegen"},
+		); err != nil {
+			t.Fatalf("append tracegen method: %v", err)
+		}
+		if err := iface.MethodsSlot().Append(
+			&emit.Method{Name: "Probe"},
+			emit.Provenance{SetBy: "metricsgen"},
+		); err != nil {
+			t.Fatalf("append metricsgen method: %v", err)
+		}
+		addEmitPackage(t, ctx, &emit.Package{
+			Name: "x", Path: "x",
+			Interfaces: []*emit.Interface{iface},
+		})
+		if err := mustNew(t).Render(ctx); err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		if _, ok := mem.Get(target); ok {
+			t.Fatalf("duplicate interface-method collision must suppress the sink write")
+		}
+		if !diagnosticsContain(d, diag.Error, "duplicate slot entity") {
+			t.Fatalf("expected ErrDuplicateEntity diagnostic; got %+v", d.Diagnostics())
+		}
+	})
+
+	t.Run("two enum-variant slot contributions with same name produce diagnostic", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		ctx.Ordered = []plugin.Plugin{
+			stubPluginVersion{name: "extragen1"},
+			stubPluginVersion{name: "extragen2"},
+		}
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		host := &emit.Enum{
+			Name: "Phase", Package: "x", Target: target,
+			Underlying: emit.Builtin("int"),
+			Variants: []*emit.EnumVariant{
+				{Name: "Pending", Value: &emit.Expr{ExprKind: emit.ExprIdent, Name: "iota"}},
+			},
+		}
+		if err := host.VariantsSlot().Append(
+			&emit.EnumVariant{Name: "Extra"},
+			emit.Provenance{SetBy: "extragen1"},
+		); err != nil {
+			t.Fatalf("append extragen1 variant: %v", err)
+		}
+		if err := host.VariantsSlot().Append(
+			&emit.EnumVariant{Name: "Extra"},
+			emit.Provenance{SetBy: "extragen2"},
+		); err != nil {
+			t.Fatalf("append extragen2 variant: %v", err)
+		}
+		addEmitPackage(t, ctx, &emit.Package{
+			Name: "x", Path: "x",
+			Enums: []*emit.Enum{host},
+		})
+		if err := mustNew(t).Render(ctx); err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		if _, ok := mem.Get(target); ok {
+			t.Fatalf("duplicate enum-variant collision must suppress the sink write")
+		}
+		if !diagnosticsContain(d, diag.Error, "duplicate slot entity") {
+			t.Fatalf("expected ErrDuplicateEntity diagnostic; got %+v", d.Diagnostics())
 		}
 	})
 }

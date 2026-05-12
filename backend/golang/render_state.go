@@ -89,7 +89,6 @@ func (s *renderState) funcMap() template.FuncMap {
 		"renderReturns":          s.renderReturns,
 		"renderExpr":             s.renderExpr,
 		"renderStmt":             s.renderStmt,
-		"renderStmts":            s.renderStmts,
 		"renderStructFields":     s.renderStructFields,
 		"renderStructEmbeds":     s.renderStructEmbeds,
 		"renderStructMethods":    s.renderStructMethods,

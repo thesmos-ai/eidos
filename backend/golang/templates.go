@@ -54,7 +54,6 @@ var parsePlaceholders = map[string]any{
 	"renderReturns":          func([]emit.Ref) (string, error) { return "", errPlaceholderInvoked },
 	"renderExpr":             func(*emit.Expr) (string, error) { return "", errPlaceholderInvoked },
 	"renderStmt":             func(*emit.Stmt) (string, error) { return "", errPlaceholderInvoked },
-	"renderStmts":            func([]*emit.Stmt) (string, error) { return "", errPlaceholderInvoked },
 	"renderStructFields":     func(*emit.Struct) (string, error) { return "", errPlaceholderInvoked },
 	"renderStructEmbeds":     func(*emit.Struct) (string, error) { return "", errPlaceholderInvoked },
 	"renderStructMethods":    func(*emit.Struct) ([]*emit.Method, error) { return nil, errPlaceholderInvoked },

@@ -92,18 +92,6 @@ func (s *renderState) renderStmt(st *emit.Stmt) (string, error) {
 	}
 }
 
-// renderStmts is the funcmap-facing alias for
-// [renderState.renderStmtBlock]: templates calling `renderStmts`
-// render a function or method body as a sequence of statements,
-// one per line, terminated by `\n`. The caller's template wraps
-// the result in `{ … }`; go/format.Source handles indentation.
-//
-// `renderStmts` is one of the reserved canonical-render funcmap
-// entries — plugin overrides are rejected at Build time.
-func (s *renderState) renderStmts(stmts []*emit.Stmt) (string, error) {
-	return s.renderStmtBlock(stmts)
-}
-
 // renderStmtBlock renders a slice of statements as the body of a
 // brace-wrapped block — one statement per line, terminated by `\n`.
 // The caller wraps the result in `{ … }` as appropriate;

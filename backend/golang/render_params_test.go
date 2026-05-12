@@ -82,3 +82,29 @@ func TestRenderParams_MixedNamed(t *testing.T) {
 		}
 	})
 }
+
+// TestRenderReceiver_NilReceiver covers the renderReceiver branch
+// for a method whose [emit.Method.Receiver] is nil — the helper
+// returns the empty string so the method template can still render
+// the method name without a receiver clause. Reachable when a
+// cross-cutting plugin contributes a Method to a struct's
+// `methods` slot without populating the receiver type.
+func TestRenderReceiver_NilReceiver(t *testing.T) {
+	t.Parallel()
+
+	t.Run("slot method with nil receiver renders without receiver clause", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		host := &emit.Struct{Name: "Holder", Package: "x", Target: target}
+		host.Methods = []*emit.Method{{Name: "NoReceiver"}}
+		addEmitPackage(t, ctx, emitPackage("x", host))
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		// The method template's `func{{ with renderReceiver . }} {{ . }}{{ end }} Name`
+		// idiom drops the receiver clause entirely when renderReceiver
+		// returns the empty string. gofmt collapses to `func NoReceiver()`.
+		if !strings.Contains(string(body), "func NoReceiver()") {
+			t.Fatalf("nil-receiver method must render without receiver clause; got:\n%s", body)
+		}
+	})
+}
