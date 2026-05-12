@@ -7,10 +7,14 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"go.thesmos.sh/eidos/cli"
 	"go.thesmos.sh/eidos/core/directive"
+	"go.thesmos.sh/eidos/manifest"
+	"go.thesmos.sh/eidos/pipeline"
+	"go.thesmos.sh/eidos/plugin"
 )
 
 // TestLoadConfig_Defaults covers the empty-path entry point: an
@@ -29,7 +33,11 @@ func TestLoadConfig_Defaults(t *testing.T) {
 			t.Fatalf("default Version = %d, want %d", c.Version, cli.ConfigVersion)
 		}
 		if c.Directives.Prefix != directive.DefaultPrefix {
-			t.Fatalf("default Directives.Prefix = %q, want %q", c.Directives.Prefix, directive.DefaultPrefix)
+			t.Fatalf(
+				"default Directives.Prefix = %q, want %q",
+				c.Directives.Prefix,
+				directive.DefaultPrefix,
+			)
 		}
 		if c.Sink.Kind != "disk" {
 			t.Fatalf("default Sink.Kind = %q, want %q", c.Sink.Kind, "disk")
@@ -361,7 +369,7 @@ app:
 		if err := cli.LoadConfigInto(path, cfg); err != nil {
 			t.Fatalf("LoadConfigInto: %v", err)
 		}
-		if err := cli.ValidateConfig(&cfg.Config, path); err != nil {
+		if _, err := cli.ValidateConfig(&cfg.Config, path); err != nil {
 			t.Fatalf("ValidateConfig: %v", err)
 		}
 		if cfg.App.Region != "eu-west-1" || cfg.App.Replicas != 3 {
@@ -388,7 +396,10 @@ app:
 			t.Fatalf("seeded App should be preserved; got %+v", cfg.App)
 		}
 		if cfg.Sink.Kind != "disk" {
-			t.Fatalf("seeded framework defaults should be preserved; got Sink.Kind=%q", cfg.Sink.Kind)
+			t.Fatalf(
+				"seeded framework defaults should be preserved; got Sink.Kind=%q",
+				cfg.Sink.Kind,
+			)
 		}
 	})
 
@@ -414,6 +425,289 @@ app:
 		var ce *cli.ConfigError
 		if !errors.As(err, &ce) {
 			t.Fatalf("expected *cli.ConfigError; got %T (%v)", err, err)
+		}
+	})
+}
+
+// TestValidateConfig_OutputBlock covers the routing-layer config
+// validation: the layout-enum check, the centralised-requires-
+// package rule, and the dir-without-centralised warning. Each
+// rule is exercised at project level and at per-plugin level.
+func TestValidateConfig_OutputBlock(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unknown project layout value is rejected", func(t *testing.T) {
+		t.Parallel()
+		c := cli.DefaultConfig()
+		c.Output = cli.ConfigOutput{Layout: "bogus"}
+		_, err := cli.ValidateConfig(c, "")
+		var ce *cli.ConfigError
+		if !errors.As(err, &ce) {
+			t.Fatalf("expected *cli.ConfigError; got %v", err)
+		}
+		if !strings.Contains(ce.Reason, "output.layout") {
+			t.Fatalf("error should name output.layout; got %q", ce.Reason)
+		}
+	})
+
+	t.Run("centralised without package fails at project level", func(t *testing.T) {
+		t.Parallel()
+		c := cli.DefaultConfig()
+		c.Output = cli.ConfigOutput{Layout: pipeline.LayoutCentralised}
+		_, err := cli.ValidateConfig(c, "")
+		var ce *cli.ConfigError
+		if !errors.As(err, &ce) {
+			t.Fatalf("expected *cli.ConfigError; got %v", err)
+		}
+		if !strings.Contains(ce.Reason, "output.package") {
+			t.Fatalf("error should name output.package; got %q", ce.Reason)
+		}
+	})
+
+	t.Run("centralised with package validates clean", func(t *testing.T) {
+		t.Parallel()
+		c := cli.DefaultConfig()
+		c.Output = cli.ConfigOutput{
+			Layout: pipeline.LayoutCentralised, Package: "gen",
+		}
+		warnings, err := cli.ValidateConfig(c, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(warnings) != 0 {
+			t.Fatalf("unexpected warnings: %v", warnings)
+		}
+	})
+
+	t.Run("dir without centralised surfaces a warning", func(t *testing.T) {
+		t.Parallel()
+		c := cli.DefaultConfig()
+		c.Output = cli.ConfigOutput{Dir: "internal/gen"}
+		warnings, err := cli.ValidateConfig(c, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(warnings) != 1 || !strings.Contains(warnings[0], "output.dir") {
+			t.Fatalf("expected output.dir warning; got %v", warnings)
+		}
+	})
+
+	t.Run("per-plugin centralised inherits project package", func(t *testing.T) {
+		t.Parallel()
+		c := cli.DefaultConfig()
+		c.Output = cli.ConfigOutput{Package: "gen"}
+		c.Plugins = []cli.ConfigPlugin{
+			{Name: "mockgen", Output: &cli.ConfigOutput{Layout: pipeline.LayoutCentralised}},
+		}
+		warnings, err := cli.ValidateConfig(c, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(warnings) != 0 {
+			t.Fatalf("unexpected warnings: %v", warnings)
+		}
+	})
+
+	t.Run("per-plugin centralised without inherited package fails", func(t *testing.T) {
+		t.Parallel()
+		c := cli.DefaultConfig()
+		c.Plugins = []cli.ConfigPlugin{
+			{Name: "mockgen", Output: &cli.ConfigOutput{Layout: pipeline.LayoutCentralised}},
+		}
+		_, err := cli.ValidateConfig(c, "")
+		var ce *cli.ConfigError
+		if !errors.As(err, &ce) {
+			t.Fatalf("expected *cli.ConfigError; got %v", err)
+		}
+		if !strings.Contains(ce.Reason, "plugins[0].output") {
+			t.Fatalf("error should name plugins[0].output; got %q", ce.Reason)
+		}
+	})
+
+	t.Run("per-plugin dir without centralised surfaces a warning", func(t *testing.T) {
+		t.Parallel()
+		c := cli.DefaultConfig()
+		c.Plugins = []cli.ConfigPlugin{
+			{Name: "mockgen", Output: &cli.ConfigOutput{Dir: "internal/mocks"}},
+		}
+		warnings, err := cli.ValidateConfig(c, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(warnings) != 1 || !strings.Contains(warnings[0], "plugins[0].output.dir") {
+			t.Fatalf("expected plugins[0].output.dir warning; got %v", warnings)
+		}
+	})
+
+	t.Run("per-plugin unknown layout value is rejected", func(t *testing.T) {
+		t.Parallel()
+		c := cli.DefaultConfig()
+		c.Plugins = []cli.ConfigPlugin{
+			{Name: "mockgen", Output: &cli.ConfigOutput{Layout: "weird"}},
+		}
+		_, err := cli.ValidateConfig(c, "")
+		var ce *cli.ConfigError
+		if !errors.As(err, &ce) {
+			t.Fatalf("expected *cli.ConfigError; got %v", err)
+		}
+		if !strings.Contains(ce.Reason, "plugins[0].output.layout") {
+			t.Fatalf("error should name plugins[0].output.layout; got %q", ce.Reason)
+		}
+	})
+}
+
+// TestBuildPipeline_OutputConfigThreaded pins the wiring contract:
+// project-level and per-plugin output blocks loaded from a Config
+// reach the constructed [pipeline.Pipeline] and surface through
+// [pipeline.Pipeline.LayoutPolicyFor] for both the run-wide
+// default and per-plugin lookups.
+func TestBuildPipeline_OutputConfigThreaded(t *testing.T) {
+	t.Parallel()
+
+	t.Run("project + per-plugin output config flow to LayoutPolicyFor", func(t *testing.T) {
+		t.Parallel()
+		env, _, _ := freshEnv(t, "eidos")
+		cfg := cli.DefaultConfig()
+		cfg.Output = cli.ConfigOutput{
+			Layout: pipeline.LayoutCentralised, Package: "gen", Dir: "internal/gen",
+		}
+		cfg.Plugins = []cli.ConfigPlugin{
+			{Name: "fe"},
+			{Name: "mockgen", Output: &cli.ConfigOutput{
+				Layout: pipeline.LayoutCentralised, Package: "mocks", Dir: "internal/mocks",
+			}},
+			{Name: "repogen"},
+			{Name: "be"},
+		}
+		p, err := cli.BuildPipeline(env, cfg, []plugin.Plugin{
+			stubFrontend{name: "fe"},
+			stubGenerator{name: "mockgen"},
+			stubGenerator{name: "repogen"},
+			stubBackend{name: "be", lang: "stub"},
+		})
+		if err != nil {
+			t.Fatalf("BuildPipeline: %v", err)
+		}
+		// Mockgen has a per-plugin override → its Layout policy
+		// carries the per-plugin fields (under per-plugin
+		// attribution).
+		got := p.LayoutPolicyFor("mockgen")
+		if got.Package != "mocks" || got.PackageFrom != manifest.LayerPerPlugin {
+			t.Errorf(
+				"mockgen Package = %q from %q, want mocks from per-plugin",
+				got.Package,
+				got.PackageFrom,
+			)
+		}
+		if got.Dir != "internal/mocks" || got.DirFrom != manifest.LayerPerPlugin {
+			t.Errorf(
+				"mockgen Dir = %q from %q, want internal/mocks from per-plugin",
+				got.Dir,
+				got.DirFrom,
+			)
+		}
+		// Repogen has no per-plugin override → its policy is the
+		// project-level merge.
+		got = p.LayoutPolicyFor("repogen")
+		if got.Package != "gen" || got.PackageFrom != manifest.LayerProject {
+			t.Errorf(
+				"repogen Package = %q from %q, want gen from project",
+				got.Package,
+				got.PackageFrom,
+			)
+		}
+		if got.Dir != "internal/gen" || got.DirFrom != manifest.LayerProject {
+			t.Errorf(
+				"repogen Dir = %q from %q, want internal/gen from project",
+				got.Dir,
+				got.DirFrom,
+			)
+		}
+	})
+
+	t.Run("empty output config leaves the framework default in place", func(t *testing.T) {
+		t.Parallel()
+		env, _, _ := freshEnv(t, "eidos")
+		cfg := cli.DefaultConfig()
+		p, err := cli.BuildPipeline(env, cfg, []plugin.Plugin{
+			stubFrontend{name: "fe"},
+			stubBackend{name: "be", lang: "stub"},
+		})
+		if err != nil {
+			t.Fatalf("BuildPipeline: %v", err)
+		}
+		got := p.LayoutPolicyFor("anything")
+		switch {
+		case got.Layout != pipeline.LayoutAlongsideSource,
+			got.LayoutFrom != manifest.LayerFramework:
+			t.Fatalf("default policy = %+v, want framework alongside-source", got)
+		}
+	})
+}
+
+// TestConfig_OutputBlock_RoundTrip pins the YAML serialisation
+// contract: a config carrying every documented output-block
+// field marshals, re-loads, and re-marshals byte-identically.
+// Embedders and tools that round-trip configs through YAML rely
+// on this stability — a field rename or tag drift would surface
+// here immediately.
+func TestConfig_OutputBlock_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	t.Run("project + per-plugin output round-trip preserves every field", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := filepath.Join(dir, ".eidos.yaml")
+		body := []byte(`version: 1
+output:
+  layout: centralised
+  package: gen
+  dir: internal/gen
+plugins:
+  - name: mockgen
+    output:
+      layout: centralised
+      package: mocks
+      dir: internal/mocks
+  - name: repogen
+    output:
+      package: repos
+`)
+		if err := os.WriteFile(path, body, 0o600); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+		cfg, err := cli.LoadConfig(path)
+		if err != nil {
+			t.Fatalf("LoadConfig: %v", err)
+		}
+		if cfg.Output.Layout != pipeline.LayoutCentralised {
+			t.Errorf("Output.Layout = %q, want centralised", cfg.Output.Layout)
+		}
+		if cfg.Output.Package != "gen" {
+			t.Errorf("Output.Package = %q, want gen", cfg.Output.Package)
+		}
+		if cfg.Output.Dir != "internal/gen" {
+			t.Errorf("Output.Dir = %q, want internal/gen", cfg.Output.Dir)
+		}
+		if len(cfg.Plugins) != 2 {
+			t.Fatalf("Plugins len = %d, want 2", len(cfg.Plugins))
+		}
+		mock := cfg.Plugins[0]
+		if mock.Output == nil {
+			t.Fatalf("mockgen.Output should be non-nil")
+		}
+		switch {
+		case mock.Output.Layout != pipeline.LayoutCentralised,
+			mock.Output.Package != "mocks",
+			mock.Output.Dir != "internal/mocks":
+			t.Errorf("mockgen.Output = %+v", *mock.Output)
+		}
+		repo := cfg.Plugins[1]
+		if repo.Output == nil {
+			t.Fatalf("repogen.Output should be non-nil")
+		}
+		if repo.Output.Package != "repos" {
+			t.Errorf("repogen.Output.Package = %q, want repos", repo.Output.Package)
 		}
 	})
 }

@@ -49,13 +49,34 @@ type Builder struct {
 	outputLayout    string
 	outputDir       string
 	targetSymbol    string
+
+	// Project-level routing layer — the `output.*` block on
+	// [cli.Config.Output]. Populated by [Builder.WithProjectOutput];
+	// empty when no project-level config is supplied.
+	projectLayout  string
+	projectPackage string
+	projectDir     string
+
+	// Per-plugin routing overrides — the `plugins[*].output.*`
+	// block keyed by plugin name. Populated by repeated
+	// [Builder.WithPluginOutput] calls.
+	pluginOutputs map[string]layoutOverride
+}
+
+// layoutOverride captures one layer's contribution to the routing
+// merge: any non-empty field overrides the layer below.
+type layoutOverride struct {
+	Layout  string
+	Package string
+	Dir     string
 }
 
 // New returns an empty Builder ready to accept plugins.
 func New() *Builder {
 	return &Builder{
-		options:  map[string]map[string]string{},
-		parallel: map[Phase]bool{},
+		options:       map[string]map[string]string{},
+		parallel:      map[Phase]bool{},
+		pluginOutputs: map[string]layoutOverride{},
 	}
 }
 
@@ -153,6 +174,36 @@ func (b *Builder) WithOutputLayout(layout string) *Builder {
 // origin. Maps to the CLI's `-output-dir` flag.
 func (b *Builder) WithOutputDir(dir string) *Builder {
 	b.outputDir = dir
+	return b
+}
+
+// WithProjectOutput supplies the project-level routing-layer
+// policy — the `output.*` block on `.eidos.yaml`. Each non-empty
+// argument upgrades the corresponding field's attribution from
+// [manifest.LayerFramework] to [manifest.LayerProject] in the
+// merge the Layout phase walks; empty arguments leave the layer
+// below unchanged. The triple is identical at every plugin name
+// (plugin-specific overrides slot in through
+// [Builder.WithPluginOutput]).
+func (b *Builder) WithProjectOutput(layout, pkg, dir string) *Builder {
+	b.projectLayout = layout
+	b.projectPackage = pkg
+	b.projectDir = dir
+	return b
+}
+
+// WithPluginOutput supplies a per-plugin routing override — the
+// `plugins[*].output.*` block on `.eidos.yaml`. Each non-empty
+// argument upgrades the field's attribution to
+// [manifest.LayerPerPlugin] in the merge for plugin `name`;
+// empty arguments leave the layer below unchanged. Repeated
+// calls for the same name replace the prior entry verbatim.
+func (b *Builder) WithPluginOutput(name, layout, pkg, dir string) *Builder {
+	b.pluginOutputs[name] = layoutOverride{
+		Layout:  layout,
+		Package: pkg,
+		Dir:     dir,
+	}
 	return b
 }
 
@@ -329,26 +380,28 @@ func (b *Builder) Build() (*Pipeline, error) {
 		return nil, errors.Join(postStructural...)
 	}
 
+	defaultPolicy, pluginPolicies := b.resolveLayoutPolicies()
 	return &Pipeline{
-		frontends:    b.frontends,
-		annotators:   b.annotators,
-		generators:   b.generators,
-		backend:      b.backends[0],
-		sink:         b.sink,
-		cache:        b.cache,
-		diag:         b.diag,
-		verbose:      b.verbose,
-		parallel:     b.parallel,
-		manifestPath: b.manifestPath,
-		command:      b.command,
-		sourceRoot:   b.resolveSourceRoot(),
-		policy:       b.resolveLayoutPolicy(),
-		outFilename:  b.outputFilename,
-		scope:        b.resolveScope(),
-		targetSym:    b.targetSymbol,
-		plan:         plan,
-		registry:     registry,
-		parser:       parser,
+		frontends:      b.frontends,
+		annotators:     b.annotators,
+		generators:     b.generators,
+		backend:        b.backends[0],
+		sink:           b.sink,
+		cache:          b.cache,
+		diag:           b.diag,
+		verbose:        b.verbose,
+		parallel:       b.parallel,
+		manifestPath:   b.manifestPath,
+		command:        b.command,
+		sourceRoot:     b.resolveSourceRoot(),
+		defaultPolicy:  defaultPolicy,
+		pluginPolicies: pluginPolicies,
+		outFilename:    b.outputFilename,
+		scope:          b.resolveScope(),
+		targetSym:      b.targetSymbol,
+		plan:           plan,
+		registry:       registry,
+		parser:         parser,
 	}, nil
 }
 
@@ -372,41 +425,83 @@ func (b *Builder) resolveSourceRoot() string {
 	return wd
 }
 
-// resolveLayoutPolicy returns the [LayoutPolicy] the Pipeline
-// stamps onto every layout decision. It walks every precedence
-// layer in order — framework default, then (when their consumer
-// is wired) project config, then per-plugin overrides, then the
-// builder-supplied CLI inputs — and re-stamps each field's
-// [manifest.Layer] sibling whenever a layer takes effect.
+// resolveLayoutPolicies pre-computes the per-plugin
+// [LayoutPolicy] map the Pipeline serves from
+// [Pipeline.LayoutPolicyFor]. Every plugin known to the Builder
+// gets an entry that walks the precedence layers — framework
+// default, project config, per-plugin override, CLI flags — and
+// stamps each field's [manifest.Layer] sibling as a higher-
+// priority layer takes effect. Plugins with no per-plugin
+// override resolve identically; plugins with an override see
+// only the fields the override touches diverge from the project
+// merge.
 //
-// The walk is the canonical merge: every consumer of resolved
-// attribution reads the sibling From fields rather than inferring
-// the source from the value, so adding a layer here doesn't
-// require touching the Layout phase or the manifest sink. The
-// existing layers in the walk:
-//
-//   - Framework default: Layout = alongside-source. Package and
-//     Dir empty (alongside-source derives them from origin).
-//   - CLI overrides: outputLayout / outputPackage / outputDir
-//     pin their respective fields when non-empty.
-//
-// Project and per-plugin layers slot in between framework and
-// CLI when [cli.OutputConfig] consumers feed them through —
-// each layer touches the fields it sets and leaves the others.
-func (b *Builder) resolveLayoutPolicy() LayoutPolicy {
-	// Layer 1: framework default. Every field gets the framework
-	// stamp; subsequent layers overwrite as they take effect.
-	policy := LayoutPolicy{
-		Layout:      LayoutAlongsideSource,
-		LayoutFrom:  manifest.LayerFramework,
-		PackageFrom: manifest.LayerFramework,
-		DirFrom:     manifest.LayerFramework,
+// The default policy returned alongside the map covers two
+// cases: queries against plugin names the Builder doesn't know
+// (defensive lookups by tooling that constructs queries before
+// the plugin set is finalised), and the initial composition for
+// emit decls attributed to a plugin not yet in the per-plugin
+// map.
+func (b *Builder) resolveLayoutPolicies() (LayoutPolicy, map[string]LayoutPolicy) {
+	base := b.mergedBasePolicy()
+	out := make(map[string]LayoutPolicy, len(b.pluginOutputs))
+	for _, p := range b.frontends {
+		out[p.Name()] = b.applyPerPluginAndCLI(base, p.Name())
 	}
+	for _, p := range b.annotators {
+		out[p.Name()] = b.applyPerPluginAndCLI(base, p.Name())
+	}
+	for _, p := range b.generators {
+		out[p.Name()] = b.applyPerPluginAndCLI(base, p.Name())
+	}
+	for _, p := range b.backends {
+		out[p.Name()] = b.applyPerPluginAndCLI(base, p.Name())
+	}
+	return b.applyPerPluginAndCLI(base, ""), out
+}
 
-	// Layer 6: CLI overrides. Each non-empty raw input upgrades
-	// the field's source to LayerCLI. Layers 3 (project) and 4
-	// (per-plugin) slot in between framework and CLI once their
-	// consumer is wired.
+// mergedBasePolicy returns the framework-default policy with the
+// project-level layer applied on top. The result is the
+// pre-per-plugin / pre-CLI merge every plugin starts from.
+func (b *Builder) mergedBasePolicy() LayoutPolicy {
+	policy := NewLayoutPolicy()
+	if b.projectLayout != "" {
+		policy.Layout = b.projectLayout
+		policy.LayoutFrom = manifest.LayerProject
+	}
+	if b.projectPackage != "" {
+		policy.Package = b.projectPackage
+		policy.PackageFrom = manifest.LayerProject
+	}
+	if b.projectDir != "" {
+		policy.Dir = b.projectDir
+		policy.DirFrom = manifest.LayerProject
+	}
+	return policy
+}
+
+// applyPerPluginAndCLI applies the per-plugin override (when
+// `name` matches a configured entry) and then the CLI flags on
+// top of base. An empty name skips the per-plugin layer — used
+// to compute the default policy for unknown plugin names.
+func (b *Builder) applyPerPluginAndCLI(base LayoutPolicy, name string) LayoutPolicy {
+	policy := base
+	if name != "" {
+		if over, ok := b.pluginOutputs[name]; ok {
+			if over.Layout != "" {
+				policy.Layout = over.Layout
+				policy.LayoutFrom = manifest.LayerPerPlugin
+			}
+			if over.Package != "" {
+				policy.Package = over.Package
+				policy.PackageFrom = manifest.LayerPerPlugin
+			}
+			if over.Dir != "" {
+				policy.Dir = over.Dir
+				policy.DirFrom = manifest.LayerPerPlugin
+			}
+		}
+	}
 	if b.outputLayout != "" {
 		policy.Layout = b.outputLayout
 		policy.LayoutFrom = manifest.LayerCLI

@@ -344,17 +344,127 @@ func TestPipeline_LayoutPolicyFor(t *testing.T) {
 		}
 	})
 
-	t.Run("accessor returns the same policy across plugin names in this phase", func(t *testing.T) {
+	t.Run("NewLayoutPolicy seeds the framework-default attribution", func(t *testing.T) {
+		t.Parallel()
+		got := pipeline.NewLayoutPolicy()
+		want := pipeline.LayoutPolicy{
+			Layout:      pipeline.LayoutAlongsideSource,
+			LayoutFrom:  manifest.LayerFramework,
+			PackageFrom: manifest.LayerFramework,
+			DirFrom:     manifest.LayerFramework,
+		}
+		if got != want {
+			t.Fatalf("NewLayoutPolicy = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("project layer stamps LayerProject on the touched fields", func(t *testing.T) {
 		t.Parallel()
 		p, err := pipeline.New().
 			WithFrontend(&stubFE{name: "fe"}).
 			WithBackend(&stubBE{name: "be"}).
 			WithSink(sink.NewMemory()).
-			WithOutputPackage("gen").
+			WithProjectOutput(pipeline.LayoutCentralised, "gen", "internal/gen").
 			Build()
 		assertNoError(t, err)
-		if p.LayoutPolicyFor("repogen") != p.LayoutPolicyFor("buildergen") {
-			t.Fatalf("Phase 2 should resolve identically across plugins")
+		got := p.LayoutPolicyFor("repogen")
+		want := pipeline.LayoutPolicy{
+			Layout:      pipeline.LayoutCentralised,
+			LayoutFrom:  manifest.LayerProject,
+			Package:     "gen",
+			PackageFrom: manifest.LayerProject,
+			Dir:         "internal/gen",
+			DirFrom:     manifest.LayerProject,
+		}
+		if got != want {
+			t.Fatalf("LayoutPolicyFor = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("per-plugin layer overrides project per field", func(t *testing.T) {
+		t.Parallel()
+		gen := &stubGen{name: "mockgen"}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(gen).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			WithProjectOutput(pipeline.LayoutAlongsideSource, "gen", "").
+			WithPluginOutput("mockgen", pipeline.LayoutCentralised, "mocks", "internal/mocks").
+			Build()
+		assertNoError(t, err)
+		got := p.LayoutPolicyFor("mockgen")
+		want := pipeline.LayoutPolicy{
+			Layout:      pipeline.LayoutCentralised,
+			LayoutFrom:  manifest.LayerPerPlugin,
+			Package:     "mocks",
+			PackageFrom: manifest.LayerPerPlugin,
+			Dir:         "internal/mocks",
+			DirFrom:     manifest.LayerPerPlugin,
+		}
+		if got != want {
+			t.Fatalf("LayoutPolicyFor(mockgen) = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("per-plugin layer leaves unset fields at the project layer", func(t *testing.T) {
+		t.Parallel()
+		gen := &stubGen{name: "mockgen"}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(gen).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			WithProjectOutput("", "gen", "").
+			WithPluginOutput("mockgen", pipeline.LayoutCentralised, "", "").
+			Build()
+		assertNoError(t, err)
+		got := p.LayoutPolicyFor("mockgen")
+		want := pipeline.LayoutPolicy{
+			Layout:      pipeline.LayoutCentralised,
+			LayoutFrom:  manifest.LayerPerPlugin,
+			Package:     "gen",
+			PackageFrom: manifest.LayerProject,
+			DirFrom:     manifest.LayerFramework,
+		}
+		if got != want {
+			t.Fatalf("LayoutPolicyFor(mockgen) = %+v, want %+v (per-plugin Layout, project Package)", got, want)
+		}
+	})
+
+	t.Run("CLI layer overrides per-plugin override", func(t *testing.T) {
+		t.Parallel()
+		gen := &stubGen{name: "mockgen"}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(gen).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			WithPluginOutput("mockgen", pipeline.LayoutCentralised, "mocks", "internal/mocks").
+			WithOutputPackage("cli-pkg").
+			Build()
+		assertNoError(t, err)
+		got := p.LayoutPolicyFor("mockgen")
+		if got.Package != "cli-pkg" || got.PackageFrom != manifest.LayerCLI {
+			t.Fatalf("CLI override missing: %+v", got)
+		}
+		if got.Dir != "internal/mocks" || got.DirFrom != manifest.LayerPerPlugin {
+			t.Fatalf("per-plugin Dir should stick when CLI doesn't override it: %+v", got)
+		}
+	})
+
+	t.Run("unknown plugin name returns the project + CLI default", func(t *testing.T) {
+		t.Parallel()
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			WithProjectOutput("", "gen", "").
+			Build()
+		assertNoError(t, err)
+		got := p.LayoutPolicyFor("not-registered")
+		if got.Package != "gen" || got.PackageFrom != manifest.LayerProject {
+			t.Fatalf("unknown-plugin default = %+v, want project Package", got)
 		}
 	})
 }

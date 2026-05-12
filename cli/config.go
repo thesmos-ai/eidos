@@ -12,6 +12,7 @@ import (
 	"go.yaml.in/yaml/v4"
 
 	"go.thesmos.sh/eidos/core/directive"
+	"go.thesmos.sh/eidos/pipeline"
 )
 
 // ConfigVersion is the schema version the loader accepts. Bump
@@ -60,6 +61,50 @@ type Config struct {
 	// Verbose mirrors the --verbose flag; the CLI flag overrides
 	// when set.
 	Verbose bool `yaml:"verbose,omitempty"`
+
+	// Output configures the project-wide routing-layer policy. The
+	// pipeline merges this layer below per-plugin overrides and
+	// CLI flags when resolving each plugin's effective routing
+	// decision. Empty fields fall through to the framework
+	// defaults (alongside-source, origin-derived Package/Dir).
+	Output ConfigOutput `yaml:"output,omitempty"`
+}
+
+// ConfigOutput configures the routing layer's output policy. The
+// project-level block on [Config.Output] sets the run-wide
+// defaults; per-plugin overrides nest under each plugin entry's
+// [ConfigPlugin.Output] field (pointer so absence is
+// distinguishable from "all-empty-fields"). The Layout phase
+// composes each output by walking the precedence layers —
+// framework default, project, per-plugin, CLI — and stamping the
+// supplying [manifest.Layer] on every field that takes effect.
+type ConfigOutput struct {
+	// Layout selects the routing layout — either
+	// `alongside-source` (the framework default; output lands
+	// next to its originating source) or `centralised` (output
+	// lands in a configured shared directory). Empty defers to
+	// the layer below in the precedence merge.
+	Layout string `yaml:"layout,omitempty"`
+
+	// Package pins the rendered file's package name. Required
+	// when the effective Layout resolves to `centralised`. Under
+	// `alongside-source` a non-empty Package still pins the
+	// rendered package (the source directory is preserved).
+	Package string `yaml:"package,omitempty"`
+
+	// Dir pins the rendered file's directory under centralised
+	// layout. Ignored — with a configuration warning — under
+	// alongside-source layout. Empty defers to the layer below
+	// in the precedence merge or, under centralised layout, to
+	// Package as the directory name.
+	Dir string `yaml:"dir,omitempty"`
+}
+
+// IsEmpty reports whether o carries no overrides — every field
+// is empty. The pipeline uses this to short-circuit no-op layers
+// in the precedence merge.
+func (o ConfigOutput) IsEmpty() bool {
+	return o.Layout == "" && o.Package == "" && o.Dir == ""
 }
 
 // ConfigSource is one frontend + input-pattern pair.
@@ -85,6 +130,14 @@ type ConfigPlugin struct {
 	// Options is the plugin's typed options map. The pipeline
 	// validates each entry against the plugin's OptionsSchema.
 	Options map[string]any `yaml:"options,omitempty"`
+
+	// Output overrides the project-wide routing policy for this
+	// plugin's emissions. nil means "no per-plugin override —
+	// inherit the project-level [Config.Output] merged with any
+	// CLI overrides". A non-nil pointer with empty fields still
+	// counts as "no override" for the merge but is distinguishable
+	// from absence at the YAML layer for embedders that care.
+	Output *ConfigOutput `yaml:"output,omitempty"`
 }
 
 // IsEnabled reports whether the plugin is active. Defaults to true
@@ -186,7 +239,7 @@ func LoadConfig(path string) (*Config, error) {
 	if err := LoadConfigInto(path, cfg); err != nil {
 		return nil, err
 	}
-	if err := ValidateConfig(cfg, path); err != nil {
+	if _, err := ValidateConfig(cfg, path); err != nil {
 		return nil, err
 	}
 	return cfg, nil
@@ -264,23 +317,35 @@ func DiscoverConfig(start, filename string) (string, bool) {
 
 // ValidateConfig enforces structural invariants the YAML decoder
 // can't express: known Version, plugins must have names, sources
-// must have a frontend, etc. The function also fills in framework
-// defaults for fields the parser left zero (Sink.Kind,
-// Directives.Prefix, Version) so callers observe a uniform shape
-// regardless of file content.
+// must have a frontend, output blocks must declare a valid layout
+// enum, centralised layout requires a package, etc. The function
+// also fills in framework defaults for fields the parser left zero
+// (Sink.Kind, Directives.Prefix, Version) so callers observe a
+// uniform shape regardless of file content.
+//
+// The returned warnings slice carries non-fatal advisories — the
+// canonical example is `output.dir` set under a non-centralised
+// effective layout, where the directory is ignored at routing time
+// because alongside-source derives Dir from origin. Warnings are
+// purely observability; callers may surface them through their
+// diagnostic pipeline or discard them.
 //
 // Exposed for embedders that compose their own Config via inline
 // embedding through [LoadConfigInto]: after the typed extension
 // parses, embedders call ValidateConfig on the embedded *Config
 // to share the framework's validation pass.
-func ValidateConfig(c *Config, path string) error {
+func ValidateConfig(c *Config, path string) ([]string, error) {
 	if c.Version == 0 {
 		c.Version = ConfigVersion
 	}
 	if c.Version != ConfigVersion {
-		return &ConfigError{
-			Path:   path,
-			Reason: fmt.Sprintf("unsupported config version %d (expected %d)", c.Version, ConfigVersion),
+		return nil, &ConfigError{
+			Path: path,
+			Reason: fmt.Sprintf(
+				"unsupported config version %d (expected %d)",
+				c.Version,
+				ConfigVersion,
+			),
 		}
 	}
 	if c.Directives.Prefix == "" {
@@ -291,19 +356,25 @@ func ValidateConfig(c *Config, path string) error {
 	}
 	for i, src := range c.Sources {
 		if src.Frontend == "" {
-			return &ConfigError{Path: path, Reason: fmt.Sprintf("sources[%d]: frontend is required", i)}
+			return nil, &ConfigError{
+				Path:   path,
+				Reason: fmt.Sprintf("sources[%d]: frontend is required", i),
+			}
 		}
 	}
 	for i, p := range c.Plugins {
 		if p.Name == "" {
-			return &ConfigError{Path: path, Reason: fmt.Sprintf("plugins[%d]: name is required", i)}
+			return nil, &ConfigError{
+				Path:   path,
+				Reason: fmt.Sprintf("plugins[%d]: name is required", i),
+			}
 		}
 	}
 	switch c.Sink.Kind {
 	case SinkKindDisk, SinkKindMemory, SinkKindMulti, SinkKindStdout:
 		// known kinds.
 	default:
-		return &ConfigError{
+		return nil, &ConfigError{
 			Path: path,
 			Reason: fmt.Sprintf(
 				"sink.kind %q is not recognised (one of: %s, %s, %s, %s)",
@@ -311,5 +382,95 @@ func ValidateConfig(c *Config, path string) error {
 			),
 		}
 	}
-	return nil
+	return validateOutputBlocks(c, path)
+}
+
+// validateOutputBlocks enforces the routing-layer config rules
+// against the project-level [Config.Output] and every per-plugin
+// [ConfigPlugin.Output] entry. Returns warnings for non-fatal
+// advisories (the documented `output.dir` under non-centralised
+// case) and a typed *ConfigError on the first hard violation.
+//
+// Rules:
+//   - output.layout must be one of [pipeline.LayoutAlongsideSource],
+//     [pipeline.LayoutCentralised], or empty.
+//   - output.layout=centralised requires a non-empty package
+//     somewhere in the effective merge (project + per-plugin).
+//   - output.dir under a non-centralised effective layout is a
+//     warning rather than an error — alongside-source derives Dir
+//     from origin and ignores the field.
+//
+// Per-plugin entries are validated against the *effective* merged
+// policy (project-level fields override the framework defaults,
+// per-plugin fields override on top of project) so a plugin can
+// declare `output.layout: centralised` without restating the
+// project-level package.
+func validateOutputBlocks(c *Config, path string) ([]string, error) {
+	var warnings []string
+	if err := validateLayoutEnum("output", c.Output.Layout, path); err != nil {
+		return nil, err
+	}
+	if c.Output.Layout == pipeline.LayoutCentralised && c.Output.Package == "" {
+		return nil, &ConfigError{
+			Path:   path,
+			Reason: "output.layout=centralised requires output.package to be set",
+		}
+	}
+	if c.Output.Dir != "" && c.Output.Layout != pipeline.LayoutCentralised {
+		warnings = append(
+			warnings,
+			"output.dir is set but output.layout is not centralised; the directory will be ignored at routing time",
+		)
+	}
+	for i, p := range c.Plugins {
+		if p.Output == nil {
+			continue
+		}
+		field := fmt.Sprintf("plugins[%d].output", i)
+		if err := validateLayoutEnum(field, p.Output.Layout, path); err != nil {
+			return warnings, err
+		}
+		effLayout := p.Output.Layout
+		if effLayout == "" {
+			effLayout = c.Output.Layout
+		}
+		effPackage := p.Output.Package
+		if effPackage == "" {
+			effPackage = c.Output.Package
+		}
+		if effLayout == pipeline.LayoutCentralised && effPackage == "" {
+			return warnings, &ConfigError{
+				Path: path,
+				Reason: fmt.Sprintf(
+					"%s.layout=centralised requires a package — set %s.package or the project-level output.package",
+					field,
+					field,
+				),
+			}
+		}
+		if p.Output.Dir != "" && effLayout != pipeline.LayoutCentralised {
+			warnings = append(
+				warnings,
+				field+".dir is set but the effective layout is not centralised; the directory will be ignored at routing time",
+			)
+		}
+	}
+	return warnings, nil
+}
+
+// validateLayoutEnum rejects layout values outside the documented
+// enum. The empty string is allowed; the merge layer below
+// supplies the effective value.
+func validateLayoutEnum(field, layout, path string) error {
+	switch layout {
+	case "", pipeline.LayoutAlongsideSource, pipeline.LayoutCentralised:
+		return nil
+	}
+	return &ConfigError{
+		Path: path,
+		Reason: fmt.Sprintf(
+			"%s.layout %q is not recognised (one of: %s, %s)",
+			field, layout, pipeline.LayoutAlongsideSource, pipeline.LayoutCentralised,
+		),
+	}
 }

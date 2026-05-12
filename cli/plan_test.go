@@ -28,6 +28,15 @@ func (b stubBackend) Name() string                        { return b.name }
 func (b stubBackend) Language() string                    { return b.lang }
 func (stubBackend) Render(_ *plugin.BackendContext) error { return nil }
 
+// stubGenerator is the minimal [plugin.Generator] role for tests
+// that need a named generator to exist in the plugin universe
+// (for per-plugin output-config wiring) without contributing any
+// emit graph.
+type stubGenerator struct{ name string }
+
+func (g stubGenerator) Name() string                            { return g.name }
+func (stubGenerator) Generate(_ *plugin.GeneratorContext) error { return nil }
+
 // TestPlanCommand_Text covers the human-readable plan output.
 // Build invariants force a frontend + backend pair so the
 // rendering walks every plan section.

@@ -1129,6 +1129,130 @@ func TestLayout_OutDirective_NoArgs(t *testing.T) {
 	})
 }
 
+// TestLayout_EmptySuffixIsFiltered pins the collection-boundary
+// contract: a plugin that implements [plugin.FilenameProvider]
+// but returns the empty string is filtered out of the suffix
+// lookup and surfaces [pipeline.ErrMissingFilenameProvider] when
+// it emits a routable decl — the same code path as a plugin
+// that doesn't implement the capability at all.
+func TestLayout_EmptySuffixIsFiltered(t *testing.T) {
+	t.Parallel()
+
+	t.Run("empty FilenameSuffix() is treated as no declaration", func(t *testing.T) {
+		t.Parallel()
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "x/x.go"}},
+			Name:     "X", Package: "example.com/x",
+		}
+		s := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin},
+			Name:     "X", Package: "x",
+		}
+		// layoutGen with suffix="" implements FilenameProvider
+		// but returns the empty string — must surface the typed
+		// sentinel just like a plugin without the capability.
+		d := diag.New()
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(&layoutGen{name: "rg", suffix: "", pkg: &emit.Package{
+				Name: "x", Path: "example.com/x",
+				Structs: []*emit.Struct{s},
+			}}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			WithDiag(d).
+			Build()
+		assertNoError(t, err)
+		runErr := p.Run(t.Context(), "x")
+		if !errors.Is(runErr, pipeline.ErrRunHadErrors) {
+			t.Fatalf("Run = %v, want ErrRunHadErrors", runErr)
+		}
+		if !hasDiagContaining(d, pipeline.ErrMissingFilenameProvider.Error()) {
+			t.Fatalf("expected ErrMissingFilenameProvider diagnostic; got %+v", d.Diagnostics())
+		}
+	})
+}
+
+// TestLayout_OutDirective_MixedDirectives pins the directive-skip
+// loop in [outDirectiveFilename]: a directive list mixing
+// non-`out` directives with the `out` directive must skip the
+// non-matching ones and find the `out` entry.
+func TestLayout_OutDirective_MixedDirectives(t *testing.T) {
+	t.Parallel()
+
+	t.Run("non-out directives are skipped before reaching the out directive", func(t *testing.T) {
+		t.Parallel()
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{
+				SourcePos: position.Pos{File: "x/x.go"},
+				DirectiveList: []*directive.Directive{
+					{Name: "other"},
+					{Name: "another"},
+					{Name: pipeline.OutDirective, Args: []string{"pinned.go"}},
+				},
+			},
+			Name: "X", Package: "example.com/x",
+		}
+		s := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin},
+			Name:     "X", Package: "x",
+		}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(&layoutGen{name: "rg", suffix: "_gen.go", pkg: &emit.Package{
+				Name: "x", Path: "example.com/x",
+				Structs: []*emit.Struct{s},
+			}}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "x"))
+		if got, want := s.Target.Filename, "pinned.go"; got != want {
+			t.Fatalf("Target.Filename = %q, want %q (mixed-directive find)", got, want)
+		}
+	})
+}
+
+// TestLayout_OriginSourceDirBasename_NoDir pins the
+// current-directory normalisation in [originSourceDirBasename]:
+// a Pos.File without a directory component ("x.go") yields
+// filepath.Dir == ".", which the helper normalises to the empty
+// string so downstream consumers don't accumulate stray dots in
+// rendered paths.
+func TestLayout_OriginSourceDirBasename_NoDir(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Pos.File without a directory yields empty Target.Dir", func(t *testing.T) {
+		t.Parallel()
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "x.go"}},
+			Name:     "X", Package: "example.com/x",
+		}
+		s := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin},
+			Name:     "X", Package: "x",
+		}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(&layoutGen{name: "rg", suffix: "_gen.go", pkg: &emit.Package{
+				Name: "x", Path: "example.com/x",
+				Structs: []*emit.Struct{s},
+			}}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "x"))
+		if s.Target.Dir != "" {
+			t.Fatalf("Target.Dir = %q, want empty (`.` normalisation)", s.Target.Dir)
+		}
+		if got, want := s.Target.Filename, "x_gen.go"; got != want {
+			t.Fatalf("Target.Filename = %q, want %q", got, want)
+		}
+	})
+}
+
 // TestLayout_OutDirectiveRegistered confirms the `out` directive
 // is registered in the framework's core directive set at Build
 // time, regardless of whether the caller also supplies directives

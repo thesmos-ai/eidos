@@ -46,6 +46,14 @@ const LayoutCentralised = "centralised"
 // pipeline reads the From fields when stamping the manifest's
 // observability block so attribution stays accurate as more
 // layers (project / per-plugin config) feed into the merge.
+//
+// The zero value of LayoutPolicy is NOT a valid policy — its
+// `*From` fields are empty strings rather than [manifest.Layer]
+// values, which the manifest sink would record as missing
+// attribution. Construct policies through [NewLayoutPolicy] (for
+// a framework-default seed) or via [Builder.Build] (which runs
+// the canonical merge); never construct directly from a struct
+// literal in non-test code.
 type LayoutPolicy struct {
 	Layout      string
 	LayoutFrom  manifest.Layer
@@ -53,6 +61,21 @@ type LayoutPolicy struct {
 	PackageFrom manifest.Layer
 	Dir         string
 	DirFrom     manifest.Layer
+}
+
+// NewLayoutPolicy returns a [LayoutPolicy] seeded with the
+// framework default — alongside-source layout, empty Package and
+// Dir, every `*From` field stamped [manifest.LayerFramework].
+// Layers higher in the precedence merge overwrite individual
+// fields and re-stamp their `*From` siblings as they take
+// effect.
+func NewLayoutPolicy() LayoutPolicy {
+	return LayoutPolicy{
+		Layout:      LayoutAlongsideSource,
+		LayoutFrom:  manifest.LayerFramework,
+		PackageFrom: manifest.LayerFramework,
+		DirFrom:     manifest.LayerFramework,
+	}
 }
 
 // Pipeline is the validated, ready-to-run artifact returned by
@@ -77,13 +100,20 @@ type Pipeline struct {
 	manifestPath string
 	command      string
 	sourceRoot   string
-	policy       LayoutPolicy
-	outFilename  string
-	scope        store.ScopePredicate
-	targetSym    string
-	plan         *Plan
-	registry     *directive.Registry
-	parser       *directive.Parser
+	// policy is the default [LayoutPolicy] returned by
+	// [Pipeline.LayoutPolicyFor] for plugin names that have no
+	// per-plugin override; pluginPolicies holds the pre-merged
+	// per-plugin policies keyed by plugin name. Both are pinned
+	// at Build time so the Layout phase reads a stable policy
+	// across the run.
+	defaultPolicy  LayoutPolicy
+	pluginPolicies map[string]LayoutPolicy
+	outFilename    string
+	scope          store.ScopePredicate
+	targetSym      string
+	plan           *Plan
+	registry       *directive.Registry
+	parser         *directive.Parser
 
 	// lastStore caches the store from the most recent Run for
 	// post-run inspection (test harnesses, "eidos explain"
@@ -165,16 +195,18 @@ func (p *Pipeline) Plan() *Plan { return p.plan }
 // LayoutPolicyFor returns the resolved [LayoutPolicy] for the
 // named plugin. The result is composed by merging framework
 // default + project config + per-plugin override + CLI overrides
-// field by field. Until the project / per-plugin config consumer
-// arrives, the resolved policy is run-wide and returned uniformly
-// regardless of pluginName — the accessor's signature is stable
-// so per-plugin merge layers slot in without consumer changes.
-//
-// The accessor is stable across repeated calls for the same
-// pluginName on the same pipeline instance; the policy is pinned
-// at [Builder.Build] time.
-func (p *Pipeline) LayoutPolicyFor(_ string) LayoutPolicy {
-	return p.policy
+// field by field; the policy is pinned at [Builder.Build] time so
+// repeated calls for the same pluginName on the same pipeline
+// instance return the same value. Plugin names the Builder didn't
+// see at construction time (defensive lookups by tooling that
+// queries before the plugin set is finalised) resolve to the
+// project + CLI merge — the per-plugin layer is skipped because
+// no override is registered.
+func (p *Pipeline) LayoutPolicyFor(pluginName string) LayoutPolicy {
+	if pol, ok := p.pluginPolicies[pluginName]; ok {
+		return pol
+	}
+	return p.defaultPolicy
 }
 
 // OutputFilename returns the literal filename pinned by

@@ -12,12 +12,14 @@ import (
 	"go.thesmos.sh/eidos/sink"
 )
 
-// buildPipeline composes a [pipeline.Pipeline] from the supplied
+// BuildPipeline composes a [pipeline.Pipeline] from the supplied
 // Config and plugin universe. The Config selects which plugins
 // from `plugins` are active and supplies their options; the
 // function constructs the appropriate sink and cache, registers
-// every active plugin in its correct role, and applies the
-// envelope / parallel / directive-prefix settings.
+// every active plugin in its correct role, applies the envelope /
+// parallel / directive-prefix settings, and threads the routing-
+// layer config (project-level and per-plugin output blocks) onto
+// the Builder.
 //
 // Returns:
 //   - the constructed *pipeline.Pipeline ready for Run.
@@ -25,10 +27,28 @@ import (
 //     plugin named in Config.Plugins but absent from the slice).
 //   - any sentinel error from pipeline.Build (ErrNoFrontend etc.).
 //
-// The function is shared across [RunCommand], [PlanCommand],
-// [CheckCommand], [PruneCommand], and [ExplainCommand] — every
-// command that needs a live pipeline rather than just the parsed
-// config.
+// Shared by every command that needs a live pipeline rather than
+// just the parsed config: [RunCommand], [PlanCommand],
+// [CheckCommand], [PruneCommand], [ExplainCommand]. Exposed so
+// embedders and integration tests can construct a Pipeline from
+// a Config without going through a Command.
+//
+// Runtime overrides (`--no-cache`, the check command's in-memory
+// sink swap) are CLI-internal — they live on the unexported
+// pipelineOverride channel passed by each Command. Embedders
+// configure equivalent behaviour through the on-disk config:
+// [Config.Cache.Enabled] toggles the cache, [Config.Sink.Kind]
+// selects the sink implementation, [Config.Manifest.Path] pins
+// the manifest path. The exported entry deliberately omits the
+// override channel so embedder code stays declarative.
+func BuildPipeline(
+	env *Env,
+	cfg *Config,
+	plugins []plugin.Plugin,
+) (*pipeline.Pipeline, error) {
+	return buildPipeline(env, cfg, plugins, pipelineOverride{})
+}
+
 func buildPipeline(
 	env *Env,
 	cfg *Config,
@@ -79,6 +99,7 @@ func buildPipeline(
 		// repository-relative and byte-stable across machines.
 		b.WithSourceRoot(env.Workdir)
 	}
+	applyOutputConfig(b, cfg)
 	p, err := b.Build()
 	if err != nil {
 		return nil, fmt.Errorf("cli: build pipeline: %w", err)
@@ -210,6 +231,30 @@ func buildCache(env *Env, cfg *Config, override pipelineOverride) cache.Cache {
 		dir = env.CacheDir()
 	}
 	return cache.NewDisk(dir)
+}
+
+// applyOutputConfig threads the project-level and per-plugin
+// routing configuration from cfg onto b. Project-level fields
+// land via [pipeline.Builder.WithProjectOutput]; every plugin
+// entry with a non-nil Output block lands via
+// [pipeline.Builder.WithPluginOutput] keyed by the plugin name.
+// Empty fields short-circuit so no-op layers don't perturb the
+// merge's per-field attribution.
+//
+// CLI-level overrides (`-layout` / `-p` / `-output-dir` /
+// `-o` / `-target`) are applied separately by the CLI command
+// flag wiring; this helper covers only the config-file
+// contribution.
+func applyOutputConfig(b *pipeline.Builder, cfg *Config) {
+	if !cfg.Output.IsEmpty() {
+		b.WithProjectOutput(cfg.Output.Layout, cfg.Output.Package, cfg.Output.Dir)
+	}
+	for _, p := range cfg.Plugins {
+		if p.Output == nil || p.Output.IsEmpty() {
+			continue
+		}
+		b.WithPluginOutput(p.Name, p.Output.Layout, p.Output.Package, p.Output.Dir)
+	}
 }
 
 // manifestPath returns the path the pipeline writes the manifest
