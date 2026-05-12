@@ -1,0 +1,236 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
+package cli
+
+import (
+	"fmt"
+
+	"go.thesmos.sh/eidos/cache"
+	"go.thesmos.sh/eidos/pipeline"
+	"go.thesmos.sh/eidos/plugin"
+	"go.thesmos.sh/eidos/sink"
+)
+
+// buildPipeline composes a [pipeline.Pipeline] from the supplied
+// Config and plugin universe. The Config selects which plugins
+// from `plugins` are active and supplies their options; the
+// function constructs the appropriate sink and cache, registers
+// every active plugin in its correct role, and applies the
+// envelope / parallel / directive-prefix settings.
+//
+// Returns:
+//   - the constructed *pipeline.Pipeline ready for Run.
+//   - any [*ConfigError] describing a configuration fault (e.g. a
+//     plugin named in Config.Plugins but absent from the slice).
+//   - any sentinel error from pipeline.Build (ErrNoFrontend etc.).
+//
+// The function is shared across [RunCommand], [PlanCommand],
+// [CheckCommand], [PruneCommand], and [ExplainCommand] — every
+// command that needs a live pipeline rather than just the parsed
+// config.
+func buildPipeline(
+	env *Env,
+	cfg *Config,
+	plugins []plugin.Plugin,
+	override pipelineOverride,
+) (*pipeline.Pipeline, error) {
+	if env.Brand == "" {
+		return nil, &ConfigError{Reason: "Env.Brand is required (the consumer's hardcoded tool identity)"}
+	}
+	enabled, err := filterEnabledPlugins(cfg, plugins)
+	if err != nil {
+		return nil, err
+	}
+	b := pipeline.New()
+	for _, p := range enabled {
+		registerPlugin(b, p)
+	}
+	for _, schema := range pluginOptionsFromConfig(cfg) {
+		b.WithPluginOptions(schema.name, schema.options)
+	}
+	s, err := buildSink(env, cfg, override)
+	if err != nil {
+		return nil, err
+	}
+	b.WithSink(s)
+	if c := buildCache(env, cfg, override); c != nil {
+		b.WithCache(c)
+	}
+	if cfg.Directives.Prefix != "" {
+		b.WithDirectivePrefix(cfg.Directives.Prefix)
+	}
+	for _, ph := range parsePhases(cfg.Parallel) {
+		b.WithParallel(ph)
+	}
+	if mp := manifestPath(env, cfg); mp != "" {
+		b.WithManifestPath(mp)
+	}
+	if env.Diag != nil {
+		b.WithDiag(env.Diag)
+	}
+	if cfg.Verbose || override.Verbose {
+		b.WithVerbose(true)
+	}
+	p, err := b.Build()
+	if err != nil {
+		return nil, fmt.Errorf("cli: build pipeline: %w", err)
+	}
+	return p, nil
+}
+
+// pipelineOverride bundles the runtime overrides CLI flags supply
+// on top of the file-loaded Config — `--no-cache` overrides
+// `cache.enabled: true`, `--verbose` wins over the file's value,
+// and a non-empty SinkOverride substitutes for the file's sink
+// kind (used by [CheckCommand] to swap the disk sink for an
+// in-memory sink without touching the file).
+type pipelineOverride struct {
+	NoCache bool
+	Verbose bool
+	// SinkOverride, when non-nil, replaces the sink built from the
+	// config file. Used by `check` to swap for an in-memory sink.
+	SinkOverride sink.Sink
+}
+
+// filterEnabledPlugins returns the subset of plugins enabled per the
+// config. A plugin named in the config but missing from the slice
+// is a user error (the consumer's binary doesn't statically import
+// it). When the config has no `plugins:` block at all, every plugin
+// in the slice is treated as enabled.
+func filterEnabledPlugins(cfg *Config, plugins []plugin.Plugin) ([]plugin.Plugin, error) {
+	if len(cfg.Plugins) == 0 {
+		return plugins, nil
+	}
+	available := make(map[string]plugin.Plugin, len(plugins))
+	for _, p := range plugins {
+		available[p.Name()] = p
+	}
+	out := make([]plugin.Plugin, 0, len(cfg.Plugins))
+	for _, entry := range cfg.Plugins {
+		p, ok := available[entry.Name]
+		if !ok {
+			return nil, &ConfigError{
+				Reason: fmt.Sprintf("plugins[%q]: not registered in the consumer's static plugin slice", entry.Name),
+			}
+		}
+		if entry.IsEnabled() {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
+// registerPlugin dispatches p to the Builder method matching its
+// role interface(s). One plugin may implement multiple roles
+// (e.g. an Annotator that also provides directive schemas via
+// DirectiveProvider); each implemented role is registered.
+func registerPlugin(b *pipeline.Builder, p plugin.Plugin) {
+	if fe, ok := p.(plugin.Frontend); ok {
+		b.WithFrontend(fe)
+	}
+	if ann, ok := p.(plugin.Annotator); ok {
+		b.WithAnnotator(ann)
+	}
+	if gen, ok := p.(plugin.Generator); ok {
+		b.WithGenerator(gen)
+	}
+	if be, ok := p.(plugin.Backend); ok {
+		b.WithBackend(be)
+	}
+}
+
+// pluginOptionsEntry pairs a plugin name with its decoded options
+// map. Used by [pluginOptionsFromConfig] to flow file-supplied
+// options into the Builder's [Builder.WithPluginOptions] calls.
+type pluginOptionsEntry struct {
+	name    string
+	options map[string]string
+}
+
+// pluginOptionsFromConfig walks cfg.Plugins and returns the
+// (name, options) pairs for plugins whose entries carry an
+// `options:` map. Empty options skip the corresponding
+// WithPluginOptions call so the Builder doesn't see noise.
+func pluginOptionsFromConfig(cfg *Config) []pluginOptionsEntry {
+	out := make([]pluginOptionsEntry, 0, len(cfg.Plugins))
+	for _, entry := range cfg.Plugins {
+		if !entry.IsEnabled() || len(entry.Options) == 0 {
+			continue
+		}
+		kv := make(map[string]string, len(entry.Options))
+		for k, v := range entry.Options {
+			kv[k] = fmt.Sprint(v)
+		}
+		out = append(out, pluginOptionsEntry{name: entry.Name, options: kv})
+	}
+	return out
+}
+
+// buildSink returns the sink the pipeline writes through. When
+// override.SinkOverride is non-nil it wins unconditionally (used
+// by `check`); otherwise the function constructs one from the
+// config file's sink.kind.
+func buildSink(env *Env, cfg *Config, override pipelineOverride) (sink.Sink, error) {
+	if override.SinkOverride != nil {
+		return override.SinkOverride, nil
+	}
+	switch cfg.Sink.Kind {
+	case SinkKindDisk, "":
+		return sink.NewDisk(env.Workdir), nil
+	case SinkKindMemory:
+		return sink.NewMemory(), nil
+	case SinkKindStdout:
+		return sink.NewStdout(env.Stdout), nil
+	default:
+		return nil, &ConfigError{
+			Reason: fmt.Sprintf("sink.kind %q has no constructor wired in cli; supported: %s, %s, %s",
+				cfg.Sink.Kind, SinkKindDisk, SinkKindMemory, SinkKindStdout),
+		}
+	}
+}
+
+// buildCache returns the cache implementation the pipeline uses.
+// override.NoCache disables the cache regardless of file settings.
+// The pipeline tolerates a NoneCache; no error path exists today,
+// so the caller treats the result as unconditional.
+func buildCache(env *Env, cfg *Config, override pipelineOverride) cache.Cache {
+	if override.NoCache || !cfg.Cache.IsEnabled() {
+		return cache.NewNone()
+	}
+	dir := cfg.Cache.Dir
+	if dir == "" {
+		dir = env.CacheDir()
+	}
+	return cache.NewDisk(dir)
+}
+
+// manifestPath returns the path the pipeline writes the manifest
+// to. Empty disables manifest writes. The file's
+// manifest.path wins when set; otherwise the brand-derived default
+// applies.
+func manifestPath(env *Env, cfg *Config) string {
+	if cfg.Manifest.Path != "" {
+		return cfg.Manifest.Path
+	}
+	return env.ManifestPath()
+}
+
+// parsePhases translates the config's parallel-phase names into
+// [pipeline.Phase] values, silently ignoring unknown names — the
+// validator already enforces known values at LoadConfig time, so
+// any unknown here means caller-side hand-crafted Config.
+func parsePhases(names []string) []pipeline.Phase {
+	out := make([]pipeline.Phase, 0, len(names))
+	for _, n := range names {
+		switch n {
+		case "frontend":
+			out = append(out, pipeline.PhaseFrontend)
+		case "annotator":
+			out = append(out, pipeline.PhaseAnnotator)
+		case "generator":
+			out = append(out, pipeline.PhaseGenerator)
+		}
+	}
+	return out
+}

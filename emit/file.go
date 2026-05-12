@@ -83,10 +83,13 @@ func (f *File) Top() *Slot { return f.slot(f, "top", "") }
 // file's declarations.
 func (f *File) Bottom() *Slot { return f.slot(f, "bottom", "") }
 
-// Init returns the "init" slot for statements rendered inside an
-// `init()` function in this file. Element kind is constrained to
-// [KindStmt].
-func (f *File) Init() *Slot { return f.slot(f, "init", KindStmt) }
+// Init returns the "init" slot for items rendered inside an
+// `init()` function in this file. The slot accepts [emit.Stmt]
+// values for typed statements and plugin-defined emit kinds whose
+// template renders a single-statement form (e.g. a registry's
+// `Register(...)` call). The slot itself carries no [Slot.ElemKind]
+// constraint so plugin-defined kinds reach the renderer.
+func (f *File) Init() *Slot { return f.slot(f, "init", "") }
 
 // ImportsSlot returns the "imports" slot for cross-cutting import
 // injection. Distinct from [File.Imports]: the typed field is for

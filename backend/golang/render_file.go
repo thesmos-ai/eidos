@@ -148,7 +148,10 @@ func (s *renderState) renderFileNodeSlot(slot *emit.Slot) (string, error) {
 }
 
 // renderInitBlock composes the file's init() body from the supplied
-// init slot. Empty input returns the empty string; the caller
+// init slot. Each item renders either through the statement
+// dispatcher (typed [emit.Stmt] entries) or through the kind-template
+// dispatcher (plugin-defined emit kinds shipping a single-statement
+// template). Empty input returns the empty string; the caller
 // concatenates an empty segment unchanged so no `func init() {}`
 // artifact slips into the output.
 func (s *renderState) renderInitBlock(slot *emit.Slot) (string, error) {
@@ -156,13 +159,26 @@ func (s *renderState) renderInitBlock(slot *emit.Slot) (string, error) {
 		return "", nil
 	}
 	items, _ := orderByPlugin(slot.Items, slot.ProvenanceList, s.pluginOrder)
-	stmts := make([]*emit.Stmt, 0, len(items))
+	var body strings.Builder
 	for _, item := range items {
-		stmts = append(stmts, item.(*emit.Stmt))
+		rendered, err := s.renderInitItem(item)
+		if err != nil {
+			return "", err
+		}
+		body.WriteString(rendered)
+		body.WriteByte('\n')
 	}
-	body, err := s.renderStmtBlock(stmts)
-	if err != nil {
-		return "", err
+	return "func init() {\n" + body.String() + "}\n", nil
+}
+
+// renderInitItem renders one entry of [emit.File.Init]: a typed
+// [emit.Stmt] dispatches through [renderState.renderStmt]; a
+// plugin-defined emit kind dispatches through the kind-template
+// renderer so its `registrygen.registration` template (or similar)
+// produces the one-line form the init-block layout expects.
+func (s *renderState) renderInitItem(item emit.Node) (string, error) {
+	if stmt, ok := item.(*emit.Stmt); ok {
+		return s.renderStmt(stmt)
 	}
-	return "func init() {\n" + body + "}\n", nil
+	return s.render(item)
 }
