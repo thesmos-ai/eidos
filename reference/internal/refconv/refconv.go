@@ -35,10 +35,39 @@ func FromNode(r *node.TypeRef) emit.Ref {
 		return emit.Builtin(r.Name)
 	case r.IsTypeParam():
 		return emit.Builtin(r.Name)
+	case r.IsAnonInterface():
+		// Anonymous interfaces sit in two practical buckets at the
+		// reference-plugin tier: the empty interface (the
+		// constraint-fallback shape the Go frontend emits for the
+		// predeclared `any`) and inline interfaces with methods or
+		// embeds (which the reference plugins do not yet preserve
+		// structurally). For the former, render through the
+		// `any` builtin so type-parameter constraints round-trip
+		// correctly; for the latter, fall back to the same
+		// keyword — the rendered output keeps compiling at the
+		// cost of losing the inline shape, which is a separate
+		// follow-up for the reference surface.
+		return emit.Builtin("any")
 	}
 	args := make([]emit.Ref, 0, len(r.TypeArgs))
 	for _, a := range r.TypeArgs {
 		args = append(args, FromNode(a))
 	}
 	return emit.External(r.Package, r.Name, args...)
+}
+
+// ConstraintFromNode lifts a [node.Constraint] into its [emit.Constraint]
+// equivalent. The any-constraint shape (nil receiver or no Embedded
+// entries) lifts to nil — callers passing the result into a builder
+// setter that documents "nil means any" get the right behaviour
+// without further branching.
+func ConstraintFromNode(c *node.Constraint) *emit.Constraint {
+	if c == nil || c.IsAny() {
+		return nil
+	}
+	refs := make([]emit.Ref, 0, len(c.Embedded))
+	for _, e := range c.Embedded {
+		refs = append(refs, FromNode(e))
+	}
+	return &emit.Constraint{Raw: c.Raw, Embedded: refs}
 }

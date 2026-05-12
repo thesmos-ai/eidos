@@ -70,6 +70,21 @@ const DirectiveName directive.Name = "mock"
 // name to form the alongside-source output filename: `<src>_mock.go`.
 const FilenameSuffix = "_mock.go"
 
+// TestFilenameSuffix is appended to the lower-cased target interface
+// name when [Options.Test] is set: `<src>_test.go`. The Go test
+// toolchain compiles `_test.go` files only at test time, so the
+// generated mock stays out of production builds.
+const TestFilenameSuffix = "_test.go"
+
+// TestPackageSuffix is appended to the source package's short name
+// to form the rendered file's package clause when [Options.Test]
+// is set: `<srcPkg.Name>_test`. The same suffix is applied to the
+// source package's import path to derive a distinct
+// [emit.Target.ImportPath] — distinct so same-package elision does
+// NOT fire when the test-package mock references types in the
+// regular package.
+const TestPackageSuffix = "_test"
+
 // Options carries the plugin's user-tunable settings.
 type Options struct {
 	// OutputPackage is the Go package name + directory the emitted
@@ -78,12 +93,26 @@ type Options struct {
 	// interface; the router resolves [emit.Target.Dir] from the
 	// originating source. Set OutputPackage when the project keeps
 	// generated code in a dedicated sibling package.
+	//
+	// OutputPackage is ignored when [Options.Test] is set — test
+	// mocks always land alongside the source under the
+	// `<srcPkg>_test` package, regardless of any centralised
+	// OutputPackage routing.
 	OutputPackage string `eidos:"output_package"`
 
 	// Suffix is appended to the targeted interface's name to form
 	// the emitted mock struct's identifier (`<Type><Suffix>`).
 	// Defaults to `Mock`.
 	Suffix string `eidos:"suffix,default=Mock"`
+
+	// Test enables test-package emission. When true, every emitted
+	// mock lands in `<src>_test.go` next to the source file under
+	// a `<srcPkg>_test` package — the Go-conventional placement
+	// for fakes that should compile only at test time. The test
+	// package's import identity differs from the regular
+	// package's, so references back to the regular package's
+	// types qualify rather than elide.
+	Test bool `eidos:"test,default=false"`
 }
 
 // Plugin is the mock-implementation generator. The zero value is
@@ -139,17 +168,75 @@ func (*Plugin) Directives() []directive.Schema {
 // `-gen:mock`; source-side interfaces are mocked only when they
 // carry `+gen:mock`.
 //
-// Output layout depends on [Options.OutputPackage]:
+// Output layout depends on [Options.Test] / [Options.OutputPackage]:
 //
-//   - Unset (default): one emit.Package per source package, emitted
-//     alongside the source files. Emit-side interfaces group by the
-//     directory portion of their upstream Target.
-//   - Set: every decl lands in a single centralised emit.Package.
+//   - [Options.Test] set: one mock per `+gen:mock` source interface,
+//     emitted to `<src>_test.go` next to the source under a
+//     `<srcPkg.Name>_test` package. OutputPackage is ignored.
+//   - OutputPackage set (and Test unset): every decl lands in a
+//     single centralised emit.Package.
+//   - Both unset (default): one emit.Package per source package,
+//     emitted alongside the source files. Emit-side interfaces
+//     group by the directory portion of their upstream Target.
 func (p *Plugin) Generate(ctx *plugin.GeneratorContext) error {
+	if p.opts.Test {
+		return p.generateTestPackage(ctx)
+	}
 	if p.opts.OutputPackage != "" {
 		return p.generateCentralised(ctx)
 	}
 	return p.generateAlongsideSource(ctx)
+}
+
+// generateTestPackage emits one mock per `+gen:mock` source
+// interface into `<src>_test.go` under the source's `_test`
+// package. Emit-side interfaces (produced by upstream generators
+// like repogen) are skipped — they belong in the regular package's
+// fixtures, not the test package; downstream callers that want
+// emit-side mocks in the test package can run mockgen twice with
+// different configurations.
+//
+// The synthetic ImportPath (`<srcPkg.Path>_test`) ensures the
+// renderer does NOT elide references back into the regular package
+// — `storage.Repository[T]` rendered from inside `storage_test`
+// resolves through an `import "example.com/.../storage"` rather
+// than as a bare `Repository[T]`.
+func (p *Plugin) generateTestPackage(ctx *plugin.GeneratorContext) error {
+	var firstErr error
+	ctx.Reader.Packages().Each(func(srcPkg *node.Package) {
+		matches := matchingInterfaces(srcPkg)
+		if len(matches) == 0 {
+			return
+		}
+		testPkgName := srcPkg.Name + TestPackageSuffix
+		testImportPath := srcPkg.Path + TestPackageSuffix
+		c := builder.For(Name, emit.Target{})
+		pkg := c.Package(testPkgName, Name+":test:"+srcPkg.Path)
+		for _, si := range matches {
+			target := emit.Target{
+				Filename:   strings.ToLower(si.Name) + TestFilenameSuffix,
+				Package:    testPkgName,
+				ImportPath: testImportPath,
+			}
+			// External ref into the regular package — the test
+			// package's distinct ImportPath keeps the renderer
+			// from eliding the qualifier.
+			p.emitForSourceInterface(pkg, si, target, emit.External(si.Package, si.Name))
+		}
+		out, err := pkg.Build()
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			return
+		}
+		if err := ctx.Store.Emit().AddPackage(out); err != nil {
+			if firstErr == nil {
+				firstErr = errors.Join(errAddPackage, err)
+			}
+		}
+	})
+	return firstErr
 }
 
 // generateCentralised drops every emitted mock into one shared
@@ -347,7 +434,9 @@ type paramSig struct {
 // interface using the supplied Target. The Mock references the
 // source interface by [emit.Internal] so the rendered struct
 // correctly resolves the in-target name regardless of the emit
-// interface's own package.
+// interface's own package. Generic emit interfaces propagate their
+// type parameters to the mock so the rendered struct, methods, and
+// ifaceRef-instantiation all thread `[T1, T2, …]` consistently.
 func (p *Plugin) emitForEmitInterface(pkg *builder.PackageBuilder, i *emit.Interface, target emit.Target) {
 	sigs := make([]methodSig, 0, len(i.Methods))
 	for _, m := range i.Methods {
@@ -361,7 +450,9 @@ func (p *Plugin) emitForEmitInterface(pkg *builder.PackageBuilder, i *emit.Inter
 		}
 		sigs = append(sigs, methodSig{name: m.Name, params: params, returns: returns})
 	}
-	p.emitMock(pkg, i.Name, emit.Internal(i), target, i.Origin(), sigs)
+	tps := emitTypeParamsFromEmit(i.TypeParams)
+	typeArgs := typeArgsFromEmitParams(i.TypeParams)
+	p.emitMock(pkg, i.Name, emit.Internal(i, typeArgs...), target, i.Origin(), tps, sigs)
 }
 
 // emitForSourceInterface emits a Mock struct for a source-side
@@ -370,7 +461,13 @@ func (p *Plugin) emitForEmitInterface(pkg *builder.PackageBuilder, i *emit.Inter
 // signatures the source declares. ifaceRef is the reference the
 // emitted mock uses for the source interface (passed by the caller
 // so centralised layout gets [emit.External] while alongside-source
-// layout gets [emit.Builtin], avoiding the self-import).
+// layout gets [emit.External] too — the same-package elision
+// performed via [emit.Target.ImportPath] renders it bare).
+//
+// Generic source interfaces propagate their type parameters to the
+// mock and thread the type-arg list through ifaceRef so the
+// rendered struct, methods, and embedded reference all carry
+// `[T1, T2, …]` consistently.
 func (p *Plugin) emitForSourceInterface(
 	pkg *builder.PackageBuilder,
 	i *node.Interface,
@@ -389,20 +486,26 @@ func (p *Plugin) emitForSourceInterface(
 		}
 		sigs = append(sigs, methodSig{name: m.Name, params: params, returns: returns})
 	}
-	p.emitMock(pkg, i.Name, ifaceRef, target, i, sigs)
+	tps := emitTypeParamsFromNode(i.TypeParams)
+	typeArgs := typeArgsFromNodeParams(i.TypeParams)
+	p.emitMock(pkg, i.Name, applyIfaceTypeArgs(ifaceRef, typeArgs), target, i, tps, sigs)
 }
 
 // emitMock appends one Mock struct decl carrying the func-valued
 // fields and dispatching methods for every signature in sigs. The
 // mocked interface is rendered through ifaceRef in field-receiver
 // position so callers can pass the Mock anywhere the source
-// interface is required.
+// interface is required. typeParams (when non-empty) propagate the
+// host interface's generic parameters to the mock so the rendered
+// struct, methods, and receivers all carry the same `[T1, T2, …]`
+// bracket list.
 func (p *Plugin) emitMock(
 	pkg *builder.PackageBuilder,
 	ifaceName string,
 	ifaceRef emit.Ref,
 	target emit.Target,
 	origin node.Node,
+	typeParams []emitTypeParamSpec,
 	sigs []methodSig,
 ) {
 	_ = ifaceRef // reserved for future "var _ Iface = (*Mock)(nil)" emission.
@@ -412,10 +515,14 @@ func (p *Plugin) emitMock(
 		b.Target(target)
 		b.Node().OriginNode = origin
 		b.Docs(mockName + " is a func-valued mock implementation of " + ifaceName + ".")
+		for _, tp := range typeParams {
+			b.TypeParam(tp.Name, tp.Constraint)
+		}
 		for _, s := range sigs {
 			b.Field(s.name+"Func", funcRefFor(s), nil)
 		}
-		recv := emit.Ptr(emit.Internal(b.Node()))
+		typeArgs := typeArgsFromSpecs(typeParams)
+		recv := emit.Ptr(emit.Internal(b.Node(), typeArgs...))
 		for _, s := range sigs {
 			b.Method(s.name, func(m *builder.MethodBuilder) {
 				m.Receiver("m", recv)
@@ -429,6 +536,100 @@ func (p *Plugin) emitMock(
 			})
 		}
 	})
+}
+
+// emitTypeParamSpec captures the per-parameter shape needed to
+// stamp generic parameters on the emitted mock struct: the
+// parameter name and its resolved constraint.
+type emitTypeParamSpec struct {
+	Name       string
+	Constraint *emit.Constraint
+}
+
+// emitTypeParamsFromNode lifts a [node.TypeParam] slice into the
+// emitTypeParamSpec slice the mock builder consumes. Constraint
+// conversion runs through [refconv.ConstraintFromNode] so the
+// any-constraint shape collapses to nil for round-tripping through
+// the renderer's IsAny path.
+func emitTypeParamsFromNode(params []*node.TypeParam) []emitTypeParamSpec {
+	if len(params) == 0 {
+		return nil
+	}
+	out := make([]emitTypeParamSpec, 0, len(params))
+	for _, tp := range params {
+		out = append(out, emitTypeParamSpec{
+			Name:       tp.Name,
+			Constraint: refconv.ConstraintFromNode(tp.Constraint),
+		})
+	}
+	return out
+}
+
+// emitTypeParamsFromEmit projects an [emit.TypeParam] slice (the
+// upstream-generator-produced interfaces this plugin consumes) into
+// the spec form. The constraint passes through verbatim since it
+// already lives on the emit layer.
+func emitTypeParamsFromEmit(params []*emit.TypeParam) []emitTypeParamSpec {
+	if len(params) == 0 {
+		return nil
+	}
+	out := make([]emitTypeParamSpec, 0, len(params))
+	for _, tp := range params {
+		out = append(out, emitTypeParamSpec{Name: tp.Name, Constraint: tp.Constraint})
+	}
+	return out
+}
+
+// typeArgsFromNodeParams / typeArgsFromEmitParams / typeArgsFromSpecs
+// produce the parallel bare-name [emit.Ref] list that callers pass
+// as the variadic typeArgs to [emit.Internal] / [emit.External] when
+// instantiating a generic host with its own type parameters.
+func typeArgsFromNodeParams(params []*node.TypeParam) []emit.Ref {
+	if len(params) == 0 {
+		return nil
+	}
+	out := make([]emit.Ref, 0, len(params))
+	for _, tp := range params {
+		out = append(out, emit.Builtin(tp.Name))
+	}
+	return out
+}
+
+func typeArgsFromEmitParams(params []*emit.TypeParam) []emit.Ref {
+	if len(params) == 0 {
+		return nil
+	}
+	out := make([]emit.Ref, 0, len(params))
+	for _, tp := range params {
+		out = append(out, emit.Builtin(tp.Name))
+	}
+	return out
+}
+
+func typeArgsFromSpecs(specs []emitTypeParamSpec) []emit.Ref {
+	if len(specs) == 0 {
+		return nil
+	}
+	out := make([]emit.Ref, 0, len(specs))
+	for _, s := range specs {
+		out = append(out, emit.Builtin(s.Name))
+	}
+	return out
+}
+
+// applyIfaceTypeArgs adapts the supplied source-interface reference
+// to carry the mock's type arguments when the source is generic.
+// Mirrors buildergen's applySrcTypeArgs — recognises [emit.ExternalRef]
+// (the canonical reference plugins emit for source interfaces) and
+// passes any other Ref variant through verbatim.
+func applyIfaceTypeArgs(ifaceRef emit.Ref, typeArgs []emit.Ref) emit.Ref {
+	if len(typeArgs) == 0 {
+		return ifaceRef
+	}
+	if e, ok := ifaceRef.(*emit.ExternalRef); ok {
+		return emit.External(e.Package, e.Name, typeArgs...)
+	}
+	return ifaceRef
 }
 
 // funcRefFor builds the `func(<params>) <returns>` type for the

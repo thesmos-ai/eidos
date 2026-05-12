@@ -1,0 +1,32 @@
+version: 1
+
+# multipkg fixture configuration. Routes:
+#   - mockgen with test: true → mocks land in <pkg>_test packages
+#     for storage.Repository, events.Handler, api.Handler. The
+#     legacy/events.LegacyDispatcher is mocked into the regular
+#     package so the same-package elision path is also exercised.
+#   - repogen + buildergen + registrygen run with defaults
+#     (alongside-source layout, log.Print fallbacks).
+#   - audit-weaver / debug-weaver run with stdlib log fallbacks.
+sources:
+  - frontend: golang
+    patterns:
+      - ./domain
+      - ./storage
+      - ./events
+      - ./legacy/events
+      - ./api
+      - ./internal/codec
+
+plugins:
+  - name: golang
+  - name: backend.golang
+  - name: repogen
+  - name: buildergen
+  - name: mockgen
+    options:
+      test: "true"
+  - name: registry-gen
+  - name: audit-weaver
+  - name: debug-weaver
+  - name: shape-writer

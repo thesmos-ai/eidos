@@ -238,7 +238,10 @@ func TestGenerate_FieldTypeCoverage(t *testing.T) {
 	}
 	wantNames := map[string]bool{
 		"builtin": false, "pointer": false, "slice": false,
-		"map": false, "external": false, "generic": false,
+		// `map` is a Go keyword; the keyword-safe identifier
+		// rewriter ([fieldIdent]) appends an underscore so the
+		// emitted builder field clears the reserved-word check.
+		"map_": false, "external": false, "generic": false,
 		"urlHandler": false,
 	}
 	for _, f := range probe.Fields {

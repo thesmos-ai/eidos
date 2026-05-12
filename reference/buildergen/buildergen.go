@@ -242,15 +242,25 @@ func (*Plugin) shouldEmit(s *node.Struct) bool {
 // srcRef is the reference the emitted `Build` method's return uses
 // for the source type — callers in centralised layout pass
 // [emit.External] so the renderer adds the import; callers in
-// alongside-source layout pass [emit.Builtin] so the renderer emits
-// a bare identifier without a self-import.
+// alongside-source layout pass [emit.External] too, and the
+// same-package elision performed via [emit.Target.ImportPath]
+// renders it bare.
+//
+// Generic source structs propagate their type parameters to the
+// emitted builder verbatim — `Dispatcher[T any]` produces
+// `DispatcherBuilder[T any]` with methods whose receivers and
+// returns carry `[T]` and Build returning `*Dispatcher[T]`. The
+// type-arg list is threaded through receiver / return / composite
+// references via `typeArgsFromParams`.
 //
 // The Origin of the emitted struct is set to src so the router can
 // resolve Target.Dir from the source's file path when target.Dir
 // is empty (alongside-source layout).
-func (p *Plugin) emitOne(pkg *builder.PackageBuilder, src *node.Struct, target emit.Target, srcRef emit.Ref) {
+func (p *Plugin) emitOne(pkg *builder.PackageBuilder, src *node.Struct, target emit.Target, srcRefBase emit.Ref) {
 	builderName := src.Name + p.opts.Suffix
 	exported := exportedFields(src)
+	typeArgs := typeArgsFromParams(src.TypeParams)
+	srcRef := applySrcTypeArgs(srcRefBase, typeArgs)
 
 	pkg.Struct(builderName, func(b *builder.StructBuilder) {
 		b.Target(target)
@@ -259,10 +269,13 @@ func (p *Plugin) emitOne(pkg *builder.PackageBuilder, src *node.Struct, target e
 			builderName + " accumulates field values for " + src.Name +
 				" and produces the populated value via " + builderName + ".Build.",
 		)
-		for _, f := range exported {
-			b.Field(unexport(f.Name), refconv.FromNode(f.Type), nil)
+		for _, tp := range src.TypeParams {
+			b.TypeParam(tp.Name, refconv.ConstraintFromNode(tp.Constraint))
 		}
-		recv := func() emit.Ref { return emit.Ptr(emit.Internal(b.Node())) }
+		for _, f := range exported {
+			b.Field(fieldIdent(f.Name), refconv.FromNode(f.Type), nil)
+		}
+		recv := func() emit.Ref { return emit.Ptr(emit.Internal(b.Node(), typeArgs...)) }
 		for _, f := range exported {
 			fieldName := f.Name
 			fieldType := f.Type
@@ -272,7 +285,7 @@ func (p *Plugin) emitOne(pkg *builder.PackageBuilder, src *node.Struct, target e
 				m.Return(recv())
 				m.Body(
 					emit.NewAssign(
-						[]*emit.Expr{emit.NewField(emit.NewIdent("b"), unexport(fieldName))},
+						[]*emit.Expr{emit.NewField(emit.NewIdent("b"), fieldIdent(fieldName))},
 						"=",
 						[]*emit.Expr{emit.NewIdent("value")},
 					),
@@ -288,6 +301,70 @@ func (p *Plugin) emitOne(pkg *builder.PackageBuilder, src *node.Struct, target e
 	})
 }
 
+// typeArgsFromParams projects a source struct's [node.TypeParam]
+// list into a parallel slice of bare-name [emit.Ref] values
+// suitable for passing as the trailing typeArgs to [emit.External]
+// / [emit.Internal]. An empty list returns nil so callers can pass
+// it through variadic spreads without conditional plumbing.
+func typeArgsFromParams(params []*node.TypeParam) []emit.Ref {
+	if len(params) == 0 {
+		return nil
+	}
+	out := make([]emit.Ref, 0, len(params))
+	for _, tp := range params {
+		out = append(out, emit.Builtin(tp.Name))
+	}
+	return out
+}
+
+// applySrcTypeArgs adapts the supplied source reference to carry
+// the builder's type arguments when the source is generic. For
+// non-generic sources (empty typeArgs), the reference passes through
+// unchanged. The function understands [emit.ExternalRef] (the
+// alongside-source / centralised layouts both pass these) and
+// returns the input verbatim for any other Ref variant.
+func applySrcTypeArgs(srcRef emit.Ref, typeArgs []emit.Ref) emit.Ref {
+	if len(typeArgs) == 0 {
+		return srcRef
+	}
+	if e, ok := srcRef.(*emit.ExternalRef); ok {
+		return emit.External(e.Package, e.Name, typeArgs...)
+	}
+	return srcRef
+}
+
+// fieldIdent returns the unexported identifier the builder uses for
+// the field of the supplied source name, with a trailing underscore
+// appended when the unexported form would collide with a Go
+// keyword (`type`, `default`, `range`, …). The keyword set is the
+// Go specification's reserved word list; identifiers outside that
+// set pass through [unexport] unchanged.
+func fieldIdent(name string) string {
+	id := unexport(name)
+	if isGoKeyword(id) {
+		return id + "_"
+	}
+	return id
+}
+
+// goKeywords is the set of Go reserved words that may not appear as
+// identifiers. Lookup is O(1) via map indexing.
+//
+//nolint:gochecknoglobals // set literal used as a read-only lookup table.
+var goKeywords = map[string]struct{}{
+	"break": {}, "case": {}, "chan": {}, "const": {}, "continue": {},
+	"default": {}, "defer": {}, "else": {}, "fallthrough": {}, "for": {},
+	"func": {}, "go": {}, "goto": {}, "if": {}, "import": {},
+	"interface": {}, "map": {}, "package": {}, "range": {}, "return": {},
+	"select": {}, "struct": {}, "switch": {}, "type": {}, "var": {},
+}
+
+// isGoKeyword reports whether id is a Go reserved word.
+func isGoKeyword(id string) bool {
+	_, ok := goKeywords[id]
+	return ok
+}
+
 // exportedFields returns the exported fields of src in declaration
 // order. Unexported fields are skipped — the emitted `With<Field>`
 // surface mirrors what a user-authored builder for the type could
@@ -300,16 +377,18 @@ func exportedFields(s *node.Struct) []*node.Field {
 
 // buildComposite returns the keyed composite-literal expression the
 // `Build` method's return statement constructs. Each exported field
-// maps to `<FieldName>: b.<unexportedFieldName>`. The composite's
-// type renders through the supplied srcRef (a [emit.Builtin] in
-// alongside-source layout — bare identifier — or an
-// [emit.ExternalRef] in centralised layout — package-qualified).
+// maps to `<FieldName>: b.<builderFieldIdent>`, where
+// `<builderFieldIdent>` is [fieldIdent] of the source field name —
+// the same keyword-safe identifier the builder struct declares for
+// its accumulating field. The composite's type renders through the
+// supplied srcRef so generic instantiations carry their type-arg
+// list through Build.
 func buildComposite(srcRef emit.Ref, exported []*node.Field) *emit.Expr {
 	keys := make([]string, 0, len(exported))
 	vals := make([]*emit.Expr, 0, len(exported))
 	for _, f := range exported {
 		keys = append(keys, f.Name)
-		vals = append(vals, emit.NewField(emit.NewIdent("b"), unexport(f.Name)))
+		vals = append(vals, emit.NewField(emit.NewIdent("b"), fieldIdent(f.Name)))
 	}
 	return emit.NewCompositeKeyed(srcRef, keys, vals)
 }

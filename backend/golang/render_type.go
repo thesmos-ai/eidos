@@ -57,7 +57,15 @@ func (s *renderState) renderType(r emit.Ref) (string, error) {
 		}
 		return alias + "." + typed.Name + args, nil
 	case *emit.TypeRef:
-		return internalTargetName(typed.Target)
+		base, err := internalTargetName(typed.Target)
+		if err != nil {
+			return "", err
+		}
+		args, err := s.renderTypeArgs(typed.TypeArgs)
+		if err != nil {
+			return "", err
+		}
+		return base + args, nil
 	case *emit.CompositeRef:
 		return s.renderComposite(typed)
 	default:
