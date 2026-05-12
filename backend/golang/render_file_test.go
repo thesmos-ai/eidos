@@ -15,12 +15,13 @@ import (
 	"go.thesmos.sh/eidos/store"
 )
 
-// TestFileCompose_SharedTargetTwoPlugins covers the Phase I
-// happy-path: two plugins each call AddPackage with one Struct
-// routed to the same Target. The backend composes both decls into
-// a single rendered file. Both Structs must appear, in plugin
-// registration order (which corresponds to AddPackage call order
-// since the store records insertion order for ByTarget).
+// TestFileCompose_SharedTargetTwoPlugins covers the happy-path of
+// multi-generator file composition: two plugins each call
+// AddPackage with one Struct routed to the same Target. The
+// backend composes both decls into a single rendered file. Both
+// Structs must appear, in plugin registration order (which
+// corresponds to AddPackage call order since the store records
+// insertion order for ByTarget).
 func TestFileCompose_SharedTargetTwoPlugins(t *testing.T) {
 	t.Parallel()
 
@@ -51,10 +52,10 @@ func TestFileCompose_SharedTargetTwoPlugins(t *testing.T) {
 	})
 }
 
-// TestFileCompose_InitBlockFromThreePlugins covers spec §9 layout
-// item 7 — three plugins each contribute one statement to the
-// file's [emit.File.Init] slot; the backend composes them into a
-// single `func init() { … }` block, topo-ordered.
+// TestFileCompose_InitBlockFromThreePlugins covers init composition
+// — three plugins each contribute one statement to the file's
+// [emit.File.Init] slot; the backend composes them into a single
+// `func init() { … }` block, topo-ordered.
 func TestFileCompose_InitBlockFromThreePlugins(t *testing.T) {
 	t.Parallel()
 
@@ -112,9 +113,9 @@ func TestFileCompose_InitBlockFromThreePlugins(t *testing.T) {
 	})
 }
 
-// TestFileCompose_TopBottomSlots covers spec §9 layout items 5 and
-// 8 — the file's Top slot renders above the free-floating decls,
-// Bottom below them, each in plugin-topo order.
+// TestFileCompose_TopBottomSlots covers the file-level slot
+// placement — the file's Top slot renders above the free-floating
+// decls, Bottom below them, each in plugin-topo order.
 func TestFileCompose_TopBottomSlots(t *testing.T) {
 	t.Parallel()
 
@@ -196,12 +197,13 @@ func TestFileCompose_EmptyTargetFilter(t *testing.T) {
 	})
 }
 
-// TestFileCompose_DuplicateQNameAcrossPlugins covers spec §9 — two
-// plugins emit decls with the same QName routed to the same
-// Target. Today's store-level dedup catches the collision at
-// AddPackage time with [store.ErrDuplicateQName]; this test pins
-// that surface so the duplicate-entity discipline is observable
-// from the public emit-view API.
+// TestFileCompose_DuplicateQNameAcrossPlugins covers the cross-
+// plugin duplicate-entity surface: two plugins emit decls with the
+// same QName routed to the same Target. Today's store-level dedup
+// catches the collision at AddPackage time with
+// [store.ErrDuplicateQName]; this test pins that surface so the
+// duplicate-entity discipline is observable from the public
+// emit-view API.
 func TestFileCompose_DuplicateQNameAcrossPlugins(t *testing.T) {
 	t.Parallel()
 
@@ -221,11 +223,12 @@ func TestFileCompose_DuplicateQNameAcrossPlugins(t *testing.T) {
 	})
 }
 
-// TestFileCompose_ImportsSlotRegistersBeforeBody covers spec §9 —
-// imports contributed via [emit.File.ImportsSlot] register with
-// the writer's [writer.ImportSet] before any template fires, so
-// the final import block carries the plugin-staged path even when
-// no decl references it. Verifies the pre-render pass.
+// TestFileCompose_ImportsSlotRegistersBeforeBody covers the pre-
+// render imports pass: imports contributed via
+// [emit.File.ImportsSlot] register with the writer's
+// [writer.ImportSet] before any template fires, so the final
+// import block carries the plugin-staged path even when no decl
+// references it.
 func TestFileCompose_ImportsSlotRegistersBeforeBody(t *testing.T) {
 	t.Parallel()
 
@@ -256,9 +259,9 @@ func TestFileCompose_ImportsSlotRegistersBeforeBody(t *testing.T) {
 }
 
 // TestFileCompose_Goldens pins canonical multi-plugin output for
-// the two flagship Phase I scenarios — a shared Target with two
-// plugin contributions and a three-plugin init block — so
-// byte-level drift in file composition is caught at PR time.
+// the two flagship file-composition scenarios — a shared Target
+// with two plugin contributions and a three-plugin init block —
+// so byte-level drift in file composition is caught at PR time.
 func TestFileCompose_Goldens(t *testing.T) {
 	t.Parallel()
 

@@ -157,11 +157,11 @@ func TestBackend_Render(t *testing.T) {
 	})
 }
 
-// TestBackend_Golden pins canonical output for each
-// Phase-C-shipped fixture so byte-level drift in templates,
-// funcmap, format.Source, or goimports is caught at PR time.
-// Each subtest covers a representative shape from the Phase C
-// acceptance criteria.
+// TestBackend_Golden pins canonical output for every shipped
+// rendering fixture so byte-level drift in templates, funcmap,
+// format.Source, or goimports is caught at PR time. Each subtest
+// covers a representative shape — envelope variations, struct
+// shapes, generic forms, enums, methods, and file composition.
 func TestBackend_Golden(t *testing.T) {
 	t.Parallel()
 

@@ -13,10 +13,10 @@ import (
 // ErrEmptyTarget is returned by [renderFile] when a Target carries
 // no declarations and its [emit.File] (if present) has no slot
 // contributions either. Empty Targets are filtered before render
-// per spec §9 — no sink write, no manifest entry. The error lets
-// the caller (the per-Target render loop in [Backend.Render])
-// distinguish the empty case from a render failure and skip
-// silently rather than surfacing a diagnostic.
+// — no sink write, no manifest entry. The error lets the caller
+// (the per-Target render loop in [Backend.Render]) distinguish
+// the empty case from a render failure and skip silently rather
+// than surfacing a diagnostic.
 var ErrEmptyTarget = errors.New("backend/golang: target is empty after pre-render")
 
 // fileFor returns the [emit.File] within entities for the supplied

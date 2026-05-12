@@ -116,10 +116,9 @@ func TestSlots_StructMethods_RenderedInline(t *testing.T) {
 // helpers are unreachable from core templates (the kind dispatcher
 // always passes a real host), so the wrapped-message diagnostic
 // surface only fires from plugin-supplied templates that call the
-// canonical helpers with a wrong dot. The full reachability
-// fixture lands with Phase J once plugin template merge ships;
-// today's coverage pins the sentinel shape so plugin authors can
-// match against it via [errors.Is].
+// canonical helpers with a wrong dot. This test pins the
+// sentinel's exported shape so plugin authors can match it via
+// [errors.Is].
 func TestErrNilHost(t *testing.T) {
 	t.Parallel()
 
@@ -509,10 +508,10 @@ func TestSlots_FunctionParamsSlot(t *testing.T) {
 	})
 }
 
-// TestSlots_FieldTagsViaSlot re-verifies the existing tag-slot
-// path under the Phase H plugin-topo treatment: two plugins each
-// append a tag, and the rendered struct field stitches them in
-// topo order after the base tag.
+// TestSlots_FieldTagsViaSlot covers the tag-slot composition under
+// the plugin-topo treatment: two plugins each append a tag, and
+// the rendered struct field stitches them in topo order after
+// the base tag.
 func TestSlots_FieldTagsViaSlot(t *testing.T) {
 	t.Parallel()
 
@@ -545,11 +544,8 @@ func TestSlots_FieldTagsViaSlot(t *testing.T) {
 		}
 		addEmitPackage(t, ctx, emitPackage("x", host))
 		body := string(assertRenderSucceeds(t, ctx, mem, d, target))
-		// Tag-slot ordering currently follows append order — the
-		// canonical Phase H topo treatment for Field.Tags lands
-		// when the renderFields helper migrates onto orderByPlugin.
-		// For now, both contributors must be present in the
-		// rendered backtick blob.
+		// Tag-slot ordering currently follows append order. Both
+		// contributors must be present in the rendered backtick blob.
 		if !strings.Contains(body, `db:"user_id"`) || !strings.Contains(body, `yaml:"id"`) {
 			t.Fatalf("expected both db and yaml tags in field; got:\n%s", body)
 		}

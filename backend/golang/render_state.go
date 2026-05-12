@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"maps"
 	"text/template"
 
 	"go.thesmos.sh/eidos/emit"
@@ -59,19 +60,54 @@ type renderState struct {
 }
 
 // newRenderState clones root, attaches a fresh funcmap whose
-// closures bind the returned state, and returns the ready-to-execute
-// rendering context for one Target. pluginOrder carries the
-// resolved capability-topo plugin sequence used to order slot
-// contributions.
-func newRenderState(root *template.Template, pluginOrder []string) *renderState {
+// closures bind the returned state, layers any plugin-supplied
+// funcmap extensions and overrides on top, and returns the ready-
+// to-execute rendering context for one Target. pluginOrder carries
+// the resolved capability-topo plugin sequence used to order slot
+// contributions. extensions and overrides are the per-Render
+// merged plugin contributions (see [mergePluginContributions]):
+// extensions never collide with core or each other; overrides
+// replace the non-reserved canonical entries they target. Pass
+// nil for either when running without plugin contributions
+// (typical for direct backend tests).
+func newRenderState(
+	root *template.Template,
+	pluginOrder []string,
+	extensions template.FuncMap,
+	overrides template.FuncMap,
+) *renderState {
 	clone := template.Must(root.Clone())
 	s := &renderState{
 		tmpl:        clone,
 		imports:     writer.NewImportSet(nil),
 		pluginOrder: pluginOrder,
 	}
-	clone.Funcs(s.funcMap())
+	fm := s.funcMap()
+	maps.Copy(fm, extensions)
+	maps.Copy(fm, overrides)
+	clone.Funcs(fm)
 	return s
+}
+
+// reservedNames returns the set of canonical funcmap entry names
+// the backend ships — the dispatch, slot-composition, and import-
+// collection helpers core templates depend on. Computed from
+// [renderState.funcMap] so the reserved set tracks the funcmap's
+// actual contents without a separate hardcoded list.
+//
+// Plugin extensions ([plugin.TemplateProvider.TemplateFuncs]) may
+// not use any of these names; plugin overrides
+// ([plugin.TemplateProvider.TemplateOverrides]) likewise may not
+// target these names. Both rules surface as Build-time
+// diagnostics — [ErrTemplateFuncCollision] and
+// [ErrReservedFuncName] respectively.
+func (s *renderState) reservedNames() map[string]struct{} {
+	fm := s.funcMap()
+	out := make(map[string]struct{}, len(fm))
+	for name := range fm {
+		out[name] = struct{}{}
+	}
+	return out
 }
 
 // funcMap returns the canonical core funcmap with every closure

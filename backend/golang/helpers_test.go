@@ -5,10 +5,12 @@ package golang_test
 
 import (
 	"errors"
+	"io/fs"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"text/template"
 
 	"go.thesmos.sh/eidos/backend/golang"
 	"go.thesmos.sh/eidos/core/diag"
@@ -110,6 +112,33 @@ type stubPluginNoVersion struct {
 
 func (s stubPluginNoVersion) Name() string { return s.name }
 
+// stubTemplateProvider satisfies [plugin.Plugin] +
+// [plugin.TemplateProvider] so tests can exercise the template /
+// funcmap merge paths without dragging in a real generator
+// plugin. tmplFS supplies an in-memory filesystem of *.tmpl
+// files, and funcs / overrides supply the funcmap contributions
+// for the extension and override passes.
+type stubTemplateProvider struct {
+	name      string
+	tmplFS    fs.FS
+	funcs     template.FuncMap
+	overrides template.FuncMap
+}
+
+func (s *stubTemplateProvider) Name() string { return s.name }
+
+func (s *stubTemplateProvider) Templates(_ string) (fs.FS, bool) {
+	return s.tmplFS, s.tmplFS != nil
+}
+
+func (s *stubTemplateProvider) TemplateFuncs(_ string) template.FuncMap {
+	return s.funcs
+}
+
+func (s *stubTemplateProvider) TemplateOverrides(_ string) template.FuncMap {
+	return s.overrides
+}
+
 // structWithOrigin builds a one-field struct whose origin is a
 // node.Struct carrying the supplied source-file path. Used by
 // header tests that exercise the per-entity origin derivation
@@ -204,8 +233,8 @@ func assertInternalRefRenders(t *testing.T, target emit.Node, wantName string) {
 // bindFile returns the [emit.File] routed to target, creating it
 // lazily via [store.EmitView.FileFor]. The store wires the File's
 // Dir/Name/Package from the supplied Target so subsequent slot
-// contributions route consistently. Used by Phase-I tests that
-// need a host for File-level slot appends.
+// contributions route consistently. Used by tests that need a
+// host for File-level slot appends.
 func bindFile(t *testing.T, ctx *plugin.BackendContext, target emit.Target) *emit.File {
 	t.Helper()
 	f, err := ctx.Store.Emit().FileFor(target)

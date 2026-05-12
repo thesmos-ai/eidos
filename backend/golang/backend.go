@@ -68,10 +68,17 @@ func (*Backend) Language() string { return Language }
 // backend-side faults rather than content defects.
 func (b *Backend) Render(ctx *plugin.BackendContext) error {
 	ps := ctx.Diag.For(Name)
+	probe := newRenderState(b.tmpl, nil, nil, nil)
+	reserved := probe.reservedNames()
+	merged, err := mergePluginContributions(ctx, b.tmpl, reserved, ps)
+	if err != nil {
+		ps.Errorf(position.Pos{}, "%v", err)
+		return nil
+	}
 	pluginOrder := pluginOrderFrom(ctx)
 	for _, target := range ctx.Store.Emit().ByTarget().Keys() {
 		entities := ctx.Store.Emit().ByTarget().Get(target)
-		state := newRenderState(b.tmpl, pluginOrder)
+		state := newRenderState(merged.tmpl, pluginOrder, merged.extensions, merged.overrides)
 		body, tracked, err := renderFile(state, target, entities, packageDocsFor(ctx, target))
 		if err != nil {
 			if errors.Is(err, ErrEmptyTarget) {
@@ -121,7 +128,7 @@ func packageDocsFor(ctx *plugin.BackendContext, target emit.Target) []string {
 }
 
 // renderFile produces the raw rendered body for one Target. The
-// composition follows spec §9 layout items 2 through 8:
+// composition follows the canonical layout items 2 through 8:
 //
 //   - Pre-render pass: every entry in [emit.File.Imports] and
 //     [emit.File.ImportsSlot] registers with the per-Target
