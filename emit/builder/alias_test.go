@@ -90,24 +90,28 @@ func TestAliasBuilder_MethodWithCallbackRuns(t *testing.T) {
 func TestAliasBuilder_Accessors(t *testing.T) {
 	t.Parallel()
 
-	t.Run("Pos / Docs / Directive / File / TypeParam thread through", func(t *testing.T) {
+	t.Run("Pos / Docs / Directive / File / TypeParam / Origin thread through", func(t *testing.T) {
 		t.Parallel()
 		c := builder.For("test", defaultTarget)
 		other := otherTarget()
 		d := fixtureDirective()
 		pos := fixturePos()
-		var node *emit.Alias
+		origin := fixtureOrigin()
+		var n *emit.Alias
 		c.Package("p", "p").
 			Alias("A", emit.Builtin("string"), func(b *builder.AliasBuilder) {
-				node = b.Node()
-				b.Pos(pos).Docs("docs").Directive(d).File(other).TypeParam("T", nil)
+				n = b.Node()
+				b.Pos(pos).Docs("docs").Directive(d).File(other).TypeParam("T", nil).Origin(origin)
 			})
-		assertCommon(t, node.SourcePos, node.DocLines, node.DirectiveList, pos, d)
-		if node.File != other {
-			t.Fatalf("alias File override failed; got %v", node.File)
+		assertCommon(t, n.SourcePos, n.DocLines, n.DirectiveList, pos, d)
+		if n.File != other {
+			t.Fatalf("alias File override failed; got %v", n.File)
 		}
-		if len(node.TypeParams) != 1 {
+		if len(n.TypeParams) != 1 {
 			t.Fatalf("type param not appended")
+		}
+		if n.Origin() != origin {
+			t.Fatalf("Origin not threaded; got %v, want %v", n.Origin(), origin)
 		}
 	})
 }

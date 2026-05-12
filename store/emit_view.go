@@ -75,8 +75,19 @@ func newEmitView() *EmitView {
 // AddPackage records p and every declaration it contains in the
 // view's per-kind buckets and cross-cutting indices. Returns
 // [ErrNilEntry] when p is nil; returns [ErrDuplicateQName] (wrapped
-// with the offending qualified name) when any entry collides with a
-// previously-recorded entry.
+// with the offending qualified name) when any decl entry collides
+// with a previously-recorded entry.
+//
+// When p.Path is already present (e.g. a second generator emitting
+// into the same logical Go package), the view merges p's
+// declarations into the existing [emit.Package] rather than
+// rejecting the duplicate. The decls are appended to the existing
+// package's per-kind slices in arrival order; the existing
+// package's identity (DocLines, owning fields) is preserved as the
+// authoritative record. Indexing of each decl proceeds normally,
+// so per-kind QName uniqueness still applies — two plugins trying
+// to emit the same `<pkg>.<Name>` decl still surface
+// [ErrDuplicateQName] from the bucket layer.
 //
 // Entries are added in the package's declaration order: files first,
 // then imports, then declarations as held by the [emit.Package].
@@ -90,53 +101,84 @@ func (v *EmitView) AddPackage(p *emit.Package) error {
 		return fmt.Errorf("%w: EmitView (post-generator phase)", ErrFrozen)
 	}
 
-	if err := v.packages.Add(p.Path, p); err != nil {
-		return err
+	host, merge := v.packages.ByQName(p.Path)
+	if !merge {
+		if err := v.packages.Add(p.Path, p); err != nil {
+			return err
+		}
+		v.indexCommon(p, p.Path, emit.Target{})
+		host = p
 	}
-	v.indexCommon(p, p.Path, emit.Target{})
 
 	for _, f := range p.Files {
 		if err := v.addFile(f, p.Path); err != nil {
 			return err
 		}
+		if merge {
+			host.Files = append(host.Files, f)
+		}
 	}
 	for _, imp := range p.Imports {
 		_ = v.imports.Add(imp.Path, imp) //nolint:errcheck // intentional dedup
 		v.indexCommon(imp, p.Path, emit.Target{})
+		if merge {
+			host.Imports = append(host.Imports, imp)
+		}
 	}
 	for _, s := range p.Structs {
 		if err := v.addStruct(s, p.Path); err != nil {
 			return err
+		}
+		if merge {
+			host.Structs = append(host.Structs, s)
 		}
 	}
 	for _, i := range p.Interfaces {
 		if err := v.addInterface(i, p.Path); err != nil {
 			return err
 		}
+		if merge {
+			host.Interfaces = append(host.Interfaces, i)
+		}
 	}
 	for _, fn := range p.Functions {
 		if err := v.addFunction(fn, p.Path); err != nil {
 			return err
+		}
+		if merge {
+			host.Functions = append(host.Functions, fn)
 		}
 	}
 	for _, vd := range p.Variables {
 		if err := v.addVariable(vd, p.Path); err != nil {
 			return err
 		}
+		if merge {
+			host.Variables = append(host.Variables, vd)
+		}
 	}
 	for _, c := range p.Constants {
 		if err := v.addConstant(c, p.Path); err != nil {
 			return err
+		}
+		if merge {
+			host.Constants = append(host.Constants, c)
 		}
 	}
 	for _, e := range p.Enums {
 		if err := v.addEnum(e, p.Path); err != nil {
 			return err
 		}
+		if merge {
+			host.Enums = append(host.Enums, e)
+		}
 	}
 	for _, a := range p.Aliases {
 		if err := v.addAlias(a, p.Path); err != nil {
 			return err
+		}
+		if merge {
+			host.Aliases = append(host.Aliases, a)
 		}
 	}
 	return nil

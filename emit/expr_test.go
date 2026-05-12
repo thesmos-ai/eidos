@@ -36,6 +36,7 @@ func TestExprKind_String(t *testing.T) {
 		{"Deref", emit.ExprDeref, "deref"},
 		{"Addr", emit.ExprAddr, "addr"},
 		{"Raw", emit.ExprRaw, "raw"},
+		{"External", emit.ExprExternal, "external"},
 		{"unknown stringifies with a marker", emit.ExprKind(99), "expr_kind(?)"},
 	}
 
@@ -191,6 +192,20 @@ func TestNewIdent(t *testing.T) {
 			t.Fatalf("ExprKind mismatch: %s", e.ExprKind)
 		}
 		assertEqualString(t, e.Name, "x")
+	})
+}
+
+func TestNewExternal(t *testing.T) {
+	t.Parallel()
+
+	t.Run("captures package + symbol name in an ExprExternal", func(t *testing.T) {
+		t.Parallel()
+		e := emit.NewExternal("example.com/audit", "Record")
+		if e.ExprKind != emit.ExprExternal {
+			t.Fatalf("ExprKind = %s, want ExprExternal", e.ExprKind)
+		}
+		assertEqualString(t, e.Pkg, "example.com/audit")
+		assertEqualString(t, e.Name, "Record")
 	})
 }
 

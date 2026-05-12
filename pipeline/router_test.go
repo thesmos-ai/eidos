@@ -199,6 +199,104 @@ func TestRouter_AliasFileField(t *testing.T) {
 	})
 }
 
+// TestRouter_AllKinds covers the per-kind range loops in
+// [runRouter] for the kinds the dedicated single-purpose tests
+// above don't already exercise — Constant and Enum — plus a sanity
+// check that the rerouted Targets land where the source's
+// directory says they should.
+func TestRouter_AllKinds(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Constant and Enum entities reroute from Origin like other decls", func(t *testing.T) {
+		t.Parallel()
+		constOrigin := &node.Constant{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "internal/x/consts.go"}},
+		}
+		enumOrigin := &node.Enum{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "internal/x/enums.go"}},
+		}
+		c := &emit.Constant{
+			BaseEmit: emit.BaseEmit{OriginNode: constOrigin},
+			Name:     "Pi", Package: "x",
+			Target: emit.Target{Filename: "consts_gen.go", Package: "x"},
+		}
+		e := &emit.Enum{
+			BaseEmit: emit.BaseEmit{OriginNode: enumOrigin},
+			Name:     "Status", Package: "x",
+			Target: emit.Target{Filename: "status_gen.go", Package: "x"},
+		}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(&routerGen{name: "rg", pkg: &emit.Package{
+				Name: "x", Path: "x",
+				Constants: []*emit.Constant{c},
+				Enums:     []*emit.Enum{e},
+			}}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context()))
+		if c.Target.Dir != "internal/x" {
+			t.Fatalf("Constant.Target.Dir = %q, want %q", c.Target.Dir, "internal/x")
+		}
+		if e.Target.Dir != "internal/x" {
+			t.Fatalf("Enum.Target.Dir = %q, want %q", e.Target.Dir, "internal/x")
+		}
+	})
+
+	t.Run("unroutable Interface emits a router error", func(t *testing.T) {
+		t.Parallel()
+		i := &emit.Interface{
+			Name: "Lost", Package: "boot",
+			Target: emit.Target{Filename: "lost.go", Package: "boot"},
+		}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(&routerGen{name: "rg", pkg: &emit.Package{
+				Name: "boot", Path: "boot",
+				Interfaces: []*emit.Interface{i},
+			}}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		runErr := p.Run(t.Context())
+		if !errors.Is(runErr, pipeline.ErrRunHadErrors) {
+			t.Fatalf("Run should return ErrRunHadErrors; got %v", runErr)
+		}
+	})
+
+	t.Run("unroutable Function / Struct / Constant / Enum / Alias all error", func(t *testing.T) {
+		t.Parallel()
+		// Bundle every routable kind without an Origin and without an
+		// explicit Target.Dir so the router emits an error per kind.
+		fn := &emit.Function{Name: "F", Package: "x", Target: emit.Target{Filename: "f.go", Package: "x"}}
+		st := &emit.Struct{Name: "S", Package: "x", Target: emit.Target{Filename: "s.go", Package: "x"}}
+		c := &emit.Constant{Name: "C", Package: "x", Target: emit.Target{Filename: "c.go", Package: "x"}}
+		e := &emit.Enum{Name: "E", Package: "x", Target: emit.Target{Filename: "e.go", Package: "x"}}
+		a := &emit.Alias{Name: "A", Package: "x", Target: emit.Builtin("int"), File: emit.Target{Filename: "a.go", Package: "x"}}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(&routerGen{name: "rg", pkg: &emit.Package{
+				Name: "x", Path: "x",
+				Functions: []*emit.Function{fn},
+				Structs:   []*emit.Struct{st},
+				Constants: []*emit.Constant{c},
+				Enums:     []*emit.Enum{e},
+				Aliases:   []*emit.Alias{a},
+			}}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		runErr := p.Run(t.Context())
+		if !errors.Is(runErr, pipeline.ErrRunHadErrors) {
+			t.Fatalf("Run should return ErrRunHadErrors; got %v", runErr)
+		}
+	})
+}
+
 // TestOutDirective_RegisteredInCoreSet covers the core-directive
 // registration: every pipeline.Build() ends up with "out" in the
 // directive registry, regardless of whether the consumer also

@@ -60,26 +60,30 @@ func TestFunctionBuilder_ParamsAndReturns(t *testing.T) {
 func TestFunctionBuilder_Accessors(t *testing.T) {
 	t.Parallel()
 
-	t.Run("Pos / Docs / Directive / Target / TypeParam / Body thread through", func(t *testing.T) {
+	t.Run("Pos / Docs / Directive / Target / TypeParam / Body / Origin thread through", func(t *testing.T) {
 		t.Parallel()
 		c := builder.For("test", defaultTarget)
 		other := otherTarget()
 		d := fixtureDirective()
 		pos := fixturePos()
+		origin := fixtureOrigin()
 		body := emit.NewRawStmt(`return nil`)
-		var node *emit.Function
+		var n *emit.Function
 		c.Package("p", "p").
 			Function("F", func(b *builder.FunctionBuilder) {
-				node = b.Node()
+				n = b.Node()
 				b.Pos(pos).Docs("docs").Directive(d).Target(other).
-					TypeParam("T", nil).Body(body)
+					TypeParam("T", nil).Body(body).Origin(origin)
 			})
-		assertCommon(t, node.SourcePos, node.DocLines, node.DirectiveList, pos, d)
-		if node.Target != other {
+		assertCommon(t, n.SourcePos, n.DocLines, n.DirectiveList, pos, d)
+		if n.Target != other {
 			t.Fatalf("target override failed")
 		}
-		if len(node.TypeParams) != 1 || len(node.Body) != 1 {
-			t.Fatalf("type param / body mis-applied; %+v %+v", node.TypeParams, node.Body)
+		if len(n.TypeParams) != 1 || len(n.Body) != 1 {
+			t.Fatalf("type param / body mis-applied; %+v %+v", n.TypeParams, n.Body)
+		}
+		if n.Origin() != origin {
+			t.Fatalf("Origin not threaded; got %v, want %v", n.Origin(), origin)
 		}
 	})
 }

@@ -67,24 +67,28 @@ func TestStructBuilder_NestedShape(t *testing.T) {
 func TestStructBuilder_Accessors(t *testing.T) {
 	t.Parallel()
 
-	t.Run("Pos / Docs / Directive / Target / TypeParam thread through", func(t *testing.T) {
+	t.Run("Pos / Docs / Directive / Target / TypeParam / Origin thread through", func(t *testing.T) {
 		t.Parallel()
 		c := builder.For("test", defaultTarget)
 		other := otherTarget()
 		d := fixtureDirective()
 		pos := fixturePos()
-		var node *emit.Struct
+		origin := fixtureOrigin()
+		var n *emit.Struct
 		c.Package("p", "p").
 			Struct("S", func(b *builder.StructBuilder) {
-				node = b.Node()
-				b.Pos(pos).Docs("docs").Directive(d).Target(other).TypeParam("T", nil)
+				n = b.Node()
+				b.Pos(pos).Docs("docs").Directive(d).Target(other).TypeParam("T", nil).Origin(origin)
 			})
-		assertCommon(t, node.SourcePos, node.DocLines, node.DirectiveList, pos, d)
-		if node.Target != other {
-			t.Fatalf("target override failed; got %v", node.Target)
+		assertCommon(t, n.SourcePos, n.DocLines, n.DirectiveList, pos, d)
+		if n.Target != other {
+			t.Fatalf("target override failed; got %v", n.Target)
 		}
-		if len(node.TypeParams) != 1 || node.TypeParams[0].Name != "T" {
-			t.Fatalf("type param not appended; got %+v", node.TypeParams)
+		if len(n.TypeParams) != 1 || n.TypeParams[0].Name != "T" {
+			t.Fatalf("type param not appended; got %+v", n.TypeParams)
+		}
+		if n.Origin() != origin {
+			t.Fatalf("Origin not threaded; got %v, want %v", n.Origin(), origin)
 		}
 	})
 }

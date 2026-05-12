@@ -202,6 +202,73 @@ func TestImportSet_Imports(t *testing.T) {
 	})
 }
 
+func TestImportSet_SetSelf(t *testing.T) {
+	t.Parallel()
+
+	t.Run("no-op when both arguments are empty", func(t *testing.T) {
+		t.Parallel()
+		is := writer.NewImportSet(nil)
+		is.SetSelf("", "")
+		// Self-elision should not have activated: a regular import
+		// still gets its derived alias.
+		alias, err := is.Imp("context")
+		assertNoError(t, err)
+		if alias != "context" {
+			t.Fatalf("Imp(\"context\") = %q, want context", alias)
+		}
+	})
+
+	t.Run("path-only SetSelf enables same-package elision", func(t *testing.T) {
+		t.Parallel()
+		is := writer.NewImportSet(nil)
+		is.SetSelf("example.com/foo", "")
+		// Imp for the self path returns the empty alias and does
+		// not register an import.
+		alias, err := is.Imp("example.com/foo")
+		assertNoError(t, err)
+		if alias != "" {
+			t.Fatalf("Imp(self) = %q, want empty alias for elision", alias)
+		}
+		if is.Len() != 0 {
+			t.Fatalf("self-path Imp should not register an import; Len=%d", is.Len())
+		}
+	})
+
+	t.Run("name-only SetSelf reserves the short name from collisions", func(t *testing.T) {
+		t.Parallel()
+		is := writer.NewImportSet(nil)
+		is.SetSelf("", "foo")
+		// A cross-package import whose derived alias would collide
+		// with the reserved short name falls back to a suffixed alias.
+		alias, err := is.Imp("example.com/bar/foo")
+		assertNoError(t, err)
+		if alias == "foo" {
+			t.Fatalf("Imp should not steal the reserved short name; got %q", alias)
+		}
+		if alias != "foo2" {
+			t.Fatalf("Imp = %q, want foo2 (first collision suffix)", alias)
+		}
+	})
+
+	t.Run("both arguments wire elision + reservation in one call", func(t *testing.T) {
+		t.Parallel()
+		is := writer.NewImportSet(nil)
+		is.SetSelf("example.com/foo", "foo")
+		// Self-path elides.
+		alias, err := is.Imp("example.com/foo")
+		assertNoError(t, err)
+		if alias != "" {
+			t.Fatalf("self elision failed; got %q", alias)
+		}
+		// Cross-package collision avoids the reserved name.
+		alias, err = is.Imp("example.com/other/foo")
+		assertNoError(t, err)
+		if alias == "foo" {
+			t.Fatalf("collision should not produce reserved %q", alias)
+		}
+	})
+}
+
 func TestImportSet_ConcurrentImp(t *testing.T) {
 	t.Parallel()
 

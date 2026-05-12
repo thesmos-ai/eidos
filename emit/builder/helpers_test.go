@@ -9,6 +9,7 @@ import (
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/node"
 )
 
 // defaultTarget is the canonical target every test fixture writes
@@ -56,6 +57,13 @@ func fixtureDirective() *directive.Directive {
 // by per-builder Target / File override tests.
 func otherTarget() emit.Target {
 	return emit.Target{Dir: "other", Filename: "other.go", Package: "other"}
+}
+
+// fixtureOrigin returns a [node.Node] every per-builder accessor test
+// passes to the Origin fluent setter. Using a node.Struct keeps the
+// fixture concrete; any node.Node satisfies the interface.
+func fixtureOrigin() node.Node {
+	return &node.Struct{Name: "Origin"}
 }
 
 // fieldNames returns the names of fields contributed to a struct's

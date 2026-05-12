@@ -10,6 +10,7 @@ import (
 
 	"go.thesmos.sh/eidos/core/diag"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/emit/builder"
 	"go.thesmos.sh/eidos/manifest"
 	"go.thesmos.sh/eidos/pipeline"
 	"go.thesmos.sh/eidos/plugin"
@@ -119,6 +120,55 @@ func TestManifest_RecordsBackendWrites(t *testing.T) {
 		assertNoError(t, err)
 		if len(m.Outputs) != 0 {
 			t.Fatalf("expected zero outputs (failing inner sink); got %+v", m.Outputs)
+		}
+	})
+
+	t.Run("per-output Plugins lists only the contributing plugin when entities are attributed", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		manifestPath := filepath.Join(root, "manifest.json")
+		target := emit.Target{Dir: "a", Filename: "x.go", Package: "x"}
+		// A generator that adds an emit struct stamped with the
+		// plugin's SetBy via the builder. The recording sink walks
+		// the store at manifest-write time and reads SetBy to
+		// attribute outputs.
+		gen := &recGen{name: "attrgen", generate: func(ctx *plugin.GeneratorContext) {
+			c := builder.For("attrgen", target)
+			pkg := c.Package("x", "example.com/x")
+			pkg.Struct("X", func(b *builder.StructBuilder) {
+				b.Target(target)
+			})
+			out, err := pkg.Build()
+			if err != nil {
+				t.Fatalf("pkg.Build: %v", err)
+			}
+			if err := ctx.Store.Emit().AddPackage(out); err != nil {
+				t.Fatalf("AddPackage: %v", err)
+			}
+		}}
+		be := &recBE{
+			name: "be", lang: "stub",
+			render: func(ctx *plugin.BackendContext) {
+				_ = ctx.Sink.Write(target, []byte("body"))
+			},
+		}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(gen).
+			WithBackend(be).
+			WithSink(sink.NewMemory()).
+			WithManifestPath(manifestPath).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context()))
+		m, err := manifest.Read(manifestPath)
+		assertNoError(t, err)
+		if len(m.Outputs) != 1 {
+			t.Fatalf("expected 1 output; got %d", len(m.Outputs))
+		}
+		got := m.Outputs[0].Plugins
+		if len(got) != 1 || got[0] != "attrgen" {
+			t.Fatalf("Plugins = %v, want [attrgen] (only contributing plugin)", got)
 		}
 	})
 

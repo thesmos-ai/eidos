@@ -42,26 +42,30 @@ func TestEnumBuilder_VariantsCarryOwner(t *testing.T) {
 func TestEnumBuilder_Accessors(t *testing.T) {
 	t.Parallel()
 
-	t.Run("Pos / Docs / Directive / Target thread through; nested Variant accessors", func(t *testing.T) {
+	t.Run("Pos / Docs / Directive / Target / Origin thread through; nested Variant accessors", func(t *testing.T) {
 		t.Parallel()
 		c := builder.For("test", defaultTarget)
 		other := otherTarget()
 		d := fixtureDirective()
 		pos := fixturePos()
-		var node *emit.Enum
+		origin := fixtureOrigin()
+		var n *emit.Enum
 		c.Package("p", "p").
 			Enum("E", emit.Builtin("int"), func(b *builder.EnumBuilder) {
-				node = b.Node()
-				b.Pos(pos).Docs("docs").Directive(d).Target(other).
+				n = b.Node()
+				b.Pos(pos).Docs("docs").Directive(d).Target(other).Origin(origin).
 					Variant("V", nil, func(vb *builder.EnumVariantBuilder) {
 						vb.Pos(pos).Docs("vd").Directive(d)
 					})
 			})
-		assertCommon(t, node.SourcePos, node.DocLines, node.DirectiveList, pos, d)
-		if node.Target != other {
+		assertCommon(t, n.SourcePos, n.DocLines, n.DirectiveList, pos, d)
+		if n.Target != other {
 			t.Fatalf("enum target override failed")
 		}
-		v := node.Variants[0]
+		if n.Origin() != origin {
+			t.Fatalf("Origin not threaded; got %v, want %v", n.Origin(), origin)
+		}
+		v := n.Variants[0]
 		assertCommon(t, v.SourcePos, v.DocLines, v.DirectiveList, pos, d)
 	})
 }

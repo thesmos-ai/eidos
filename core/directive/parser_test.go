@@ -200,6 +200,18 @@ func TestParser_Parse(t *testing.T) {
 			t.Fatalf("Name = %q, want mock", d.Name)
 		}
 	})
+
+	t.Run("rejects a whitespace-only input as malformed", func(t *testing.T) {
+		t.Parallel()
+		// The lexer trims leading whitespace and immediately hits
+		// EOF; the loop exits with no directive collected, so Parse
+		// surfaces ErrMalformedDirective rather than returning an
+		// empty slice.
+		_, err := parser.Parse("   \t  ", pos)
+		if !errors.Is(err, directive.ErrMalformedDirective) {
+			t.Fatalf("err = %v, want ErrMalformedDirective", err)
+		}
+	})
 }
 
 // TestParser_Parse_MultiDirective covers the greedy multi-directive
@@ -393,6 +405,17 @@ func TestParser_ParseComment(t *testing.T) {
 		assertNoError(t, err, "ParseComment")
 		if len(ds) != 2 {
 			t.Fatalf("expected 2 directives; got %d (%+v)", len(ds), ds)
+		}
+	})
+
+	t.Run("recognises the -gen: negated prefix in a comment", func(t *testing.T) {
+		t.Parallel()
+		d := parseFirstComment(t, parser, "// -gen:mock", pos)
+		if d.Name != "mock" {
+			t.Fatalf("Name = %q, want mock", d.Name)
+		}
+		if !d.Negated {
+			t.Fatalf("Negated should be true for the -gen: comment form")
 		}
 	})
 }

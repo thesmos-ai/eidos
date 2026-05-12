@@ -10,6 +10,7 @@ import (
 	"sync"
 	"testing"
 
+	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/sink"
 )
 
@@ -121,6 +122,30 @@ func TestDisk_Write(t *testing.T) {
 		err := d.Write(targetAt("a", "x.go"), []byte("body"))
 		if err == nil {
 			t.Fatalf("Write should fail when Rename collides with an existing directory")
+		}
+	})
+
+	t.Run("absolute target.Dir bypasses root", func(t *testing.T) {
+		t.Parallel()
+		// A root-anchored target picks up the disk root; an
+		// absolute-dir target writes directly to that path without
+		// re-rooting. The router resolves Dir from a source file's
+		// absolute path in alongside-source layouts and the sink
+		// must honour the path as-is.
+		root := t.TempDir()
+		dest := t.TempDir()
+		d := sink.NewDisk(root)
+		assertNoError(t, d.Write(emit.Target{Dir: dest, Filename: "abs.go"}, []byte("absolute")))
+		got, err := os.ReadFile(filepath.Join(dest, "abs.go"))
+		assertNoError(t, err)
+		if string(got) != "absolute" {
+			t.Fatalf("absolute-dir write mismatch: %q", got)
+		}
+		// And the root tree stays empty — no `dest`-shaped subtree leaks in.
+		entries, err := os.ReadDir(root)
+		assertNoError(t, err)
+		if len(entries) != 0 {
+			t.Fatalf("absolute-dir write must not touch root; got %d entries", len(entries))
 		}
 	})
 }

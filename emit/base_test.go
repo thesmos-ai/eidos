@@ -183,3 +183,23 @@ func TestBaseEmit_Origin(t *testing.T) {
 		}
 	})
 }
+
+func TestBaseEmit_SetBy(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns the SetByName field", func(t *testing.T) {
+		t.Parallel()
+		b := &emit.BaseEmit{SetByName: "repogen"}
+		if got := b.SetBy(); got != "repogen" {
+			t.Fatalf("SetBy = %q, want %q", got, "repogen")
+		}
+	})
+
+	t.Run("returns the empty string for unattributed entities", func(t *testing.T) {
+		t.Parallel()
+		var b emit.BaseEmit
+		if got := b.SetBy(); got != "" {
+			t.Fatalf("zero-value SetBy = %q, want \"\"", got)
+		}
+	})
+}

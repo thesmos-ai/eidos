@@ -46,31 +46,36 @@ func TestMethodBuilder_ParamCallbackAndNamedReturn(t *testing.T) {
 func TestMethodBuilder_Accessors(t *testing.T) {
 	t.Parallel()
 
-	t.Run("Pos / Docs / Directive / TypeParam / Body / Receiver thread through", func(t *testing.T) {
+	t.Run("Pos / Docs / Directive / TypeParam / Body / Receiver / Origin thread through", func(t *testing.T) {
 		t.Parallel()
 		c := builder.For("test", defaultTarget)
 		d := fixtureDirective()
 		pos := fixturePos()
+		origin := fixtureOrigin()
 		body := emit.NewRawStmt(`return nil`)
-		var node *emit.Method
+		var n *emit.Method
 		c.Package("p", "p").
 			Struct("S", func(sb *builder.StructBuilder) {
 				sb.Method("M", func(b *builder.MethodBuilder) {
-					node = b.Node()
+					n = b.Node()
 					b.Pos(pos).
 						Docs("docs").
 						Directive(d).
 						Receiver("r", emit.Builtin("R")).
 						TypeParam("T", nil).
-						Body(body)
+						Body(body).
+						Origin(origin)
 				})
 			})
-		assertCommon(t, node.SourcePos, node.DocLines, node.DirectiveList, pos, d)
-		if len(node.TypeParams) != 1 || len(node.Body) != 1 {
+		assertCommon(t, n.SourcePos, n.DocLines, n.DirectiveList, pos, d)
+		if len(n.TypeParams) != 1 || len(n.Body) != 1 {
 			t.Fatalf("method type param / body mis-applied")
 		}
-		if node.ReceiverName != "r" || node.Receiver == nil {
-			t.Fatalf("receiver not threaded; got name=%q type=%v", node.ReceiverName, node.Receiver)
+		if n.ReceiverName != "r" || n.Receiver == nil {
+			t.Fatalf("receiver not threaded; got name=%q type=%v", n.ReceiverName, n.Receiver)
+		}
+		if n.Origin() != origin {
+			t.Fatalf("Origin not threaded; got %v, want %v", n.Origin(), origin)
 		}
 	})
 }

@@ -455,6 +455,95 @@ func TestEmitView_ByTarget(t *testing.T) {
 	})
 }
 
+func TestEmitView_RebuildByTarget(t *testing.T) {
+	t.Parallel()
+
+	t.Run("post-Router mutations to entity Targets surface through ByTarget", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		assertNoError(t, s.Emit().AddPackage(makeUserEmitPackage()))
+
+		original := emit.Target{Dir: "internal/users", Filename: "user_gen.go", Package: "users"}
+		// Sanity check: ByTarget initially indexes under the
+		// AddPackage-time target.
+		if len(s.Emit().ByTarget().Get(original)) == 0 {
+			t.Fatalf("expected entries for the original target before mutation")
+		}
+
+		// Simulate the pipeline router rewriting an entity's Target
+		// — the alongside-source flow where the router fills Dir
+		// after generation.
+		rerouted := emit.Target{Dir: "alongside", Filename: "user_gen.go", Package: "users"}
+		s.Emit().Structs().Range(func(st *emit.Struct) bool {
+			st.Target = rerouted
+			return true
+		})
+		s.Emit().Interfaces().Range(func(i *emit.Interface) bool {
+			i.Target = rerouted
+			return true
+		})
+		s.Emit().Functions().Range(func(f *emit.Function) bool {
+			f.Target = rerouted
+			return true
+		})
+		s.Emit().Variables().Range(func(v *emit.Variable) bool {
+			v.Target = rerouted
+			return true
+		})
+		s.Emit().Constants().Range(func(c *emit.Constant) bool {
+			c.Target = rerouted
+			return true
+		})
+		s.Emit().Enums().Range(func(e *emit.Enum) bool {
+			e.Target = rerouted
+			return true
+		})
+		s.Emit().Aliases().Range(func(a *emit.Alias) bool {
+			a.File = rerouted
+			return true
+		})
+
+		// Before RebuildByTarget: the index still reflects the
+		// original targets because the index was populated at
+		// AddPackage time.
+		if len(s.Emit().ByTarget().Get(rerouted)) != 0 {
+			t.Fatalf("ByTarget should not yet see the rerouted target before rebuild")
+		}
+
+		s.Emit().RebuildByTarget()
+
+		// After rebuild: decls land under their current Target. The
+		// original target retains only the [emit.File] entry —
+		// Files keep their AddPackage-time Target unless an
+		// explicit caller rewrites their Dir / Name / Package
+		// fields too.
+		if len(s.Emit().ByTarget().Get(rerouted)) == 0 {
+			t.Fatalf("ByTarget should surface decls under the rerouted target after rebuild")
+		}
+		residual := s.Emit().ByTarget().Get(original)
+		for _, n := range residual {
+			if _, ok := n.(*emit.File); !ok {
+				t.Fatalf("only File entries should remain at the original target; got %T", n)
+			}
+		}
+	})
+
+	t.Run("Files re-index against their own Target", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		// Create a File via FileFor so the file lives in the
+		// internal files bucket; RebuildByTarget should re-add it
+		// to byTarget under its current Target.
+		target := emit.Target{Dir: "internal/users", Filename: "init.go", Package: "users"}
+		_, err := s.Emit().FileFor(target)
+		assertNoError(t, err)
+		s.Emit().RebuildByTarget()
+		if len(s.Emit().ByTarget().Get(target)) == 0 {
+			t.Fatalf("ByTarget should include the File entry under its Target after rebuild")
+		}
+	})
+}
+
 func TestEmitView_Freeze(t *testing.T) {
 	t.Parallel()
 
