@@ -401,6 +401,81 @@ func TestLayout_OutputFilename_PathAware(t *testing.T) {
 	})
 }
 
+// TestLayout_OutputPackageOverride_ConsolidatesImportPath pins the
+// bugfix for the silent-output-loss case the `-o` + `-p` combo
+// previously triggered: when two plugins emit decls anchored to the
+// same source origin but each builds its own `emit.Package`
+// (mockgen's test-package mode produces `<srcPkg>_test`), the
+// Layout-phase ImportPath used to diverge even though Dir +
+// Filename + Package matched. The recording sink keyed by the full
+// Target then captured two manifest entries for the same on-disk
+// path, and the backend's last write silently overwrote the first.
+//
+// Under the fix, `-p generated` resets ImportPath to the source
+// package's path (or empty when no source package resolves), so
+// every decl landing in the same composed (Dir, Filename, Package)
+// shares one Target.
+func TestLayout_OutputPackageOverride_ConsolidatesImportPath(t *testing.T) {
+	t.Parallel()
+
+	t.Run(
+		"two emit.Package paths collapse to one Target when policy.Package overrides",
+		func(t *testing.T) {
+			t.Parallel()
+			origin := &node.Struct{
+				BaseNode: node.BaseNode{SourcePos: position.Pos{File: "x/x.go"}},
+				Name:     "X", Package: "example.com/x",
+			}
+			nodePkg := &node.Package{
+				Name: "x", Path: "example.com/x",
+				Structs: []*node.Struct{origin},
+			}
+			pkgA := &emit.Package{
+				Name: "x", Path: "example.com/x",
+				Structs: []*emit.Struct{
+					{
+						BaseEmit: emit.BaseEmit{OriginNode: origin},
+						Name:     "FromA", Package: "x",
+					},
+				},
+			}
+			pkgB := &emit.Package{
+				Name: "x_test", Path: "example.com/x_test",
+				Structs: []*emit.Struct{
+					{
+						BaseEmit: emit.BaseEmit{OriginNode: origin},
+						Name:     "FromB", Package: "x_test",
+					},
+				},
+			}
+			genA := &layoutGen{name: "a", suffix: "_gen.go", pkg: pkgA}
+			genB := &layoutGen{name: "b", suffix: "_gen.go", pkg: pkgB}
+			p, err := pipeline.New().
+				WithFrontend(&nodePackageFE{name: "fe", pkg: nodePkg}).
+				WithGenerator(genA).
+				WithGenerator(genB).
+				WithBackend(&stubBE{name: "be"}).
+				WithSink(sink.NewMemory()).
+				WithOutputPackage("generated").
+				Build()
+			assertNoError(t, err)
+			assertNoError(t, p.Run(t.Context(), "x"))
+			aTarget := pkgA.Structs[0].Target
+			bTarget := pkgB.Structs[0].Target
+			if aTarget != bTarget {
+				t.Fatalf("Targets diverged: a=%+v b=%+v", aTarget, bTarget)
+			}
+			if aTarget.ImportPath != "example.com/x" {
+				t.Fatalf(
+					"ImportPath = %q, want %q (source package, not plugin emit.Package)",
+					aTarget.ImportPath,
+					"example.com/x",
+				)
+			}
+		},
+	)
+}
+
 // TestLayout_OutputPackageOverride verifies CLI -p
 // ([Builder.WithOutputPackage]) pins Target.Package under
 // alongside-source layout while leaving Target.Dir derived from
@@ -1444,6 +1519,82 @@ func TestLayout_OutDirective_MixedDirectives(t *testing.T) {
 		assertNoError(t, p.Run(t.Context(), "x"))
 		if got, want := s.Target.Filename, "pinned.go"; got != want {
 			t.Fatalf("Target.Filename = %q, want %q (mixed-directive find)", got, want)
+		}
+	})
+}
+
+// TestLayout_TargetDirRelativeToSourceRoot pins the bugfix that
+// kept the manifest from storing absolute paths in `Target.Dir`.
+// Absolute paths broke prune (path-doubling under
+// `filepath.Join(workdir, absoluteDir, …)`) and made the manifest
+// non-portable across machines / working directories.
+//
+// Under the fix, alongside-source routing strips the configured
+// SourceRoot prefix from the origin's source-position directory
+// when present, so Target.Dir is the path relative to the project
+// root.
+func TestLayout_TargetDirRelativeToSourceRoot(t *testing.T) {
+	t.Parallel()
+
+	t.Run("absolute origin Pos.File under SourceRoot yields relative Target.Dir", func(t *testing.T) {
+		t.Parallel()
+		// Absolute origin path that lives under "/var/repo/proj".
+		// SourceRoot configured to that same prefix collapses to
+		// "internal/x" — every machine that clones the project sees
+		// the same Target regardless of where the checkout lives.
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "/var/repo/proj/internal/x/x.go"}},
+			Name:     "X", Package: "example.com/x",
+		}
+		s := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin},
+			Name:     "X", Package: "x",
+		}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(&layoutGen{name: "rg", suffix: "_gen.go", pkg: &emit.Package{
+				Name: "x", Path: "example.com/x",
+				Structs: []*emit.Struct{s},
+			}}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			WithSourceRoot("/var/repo/proj").
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "x"))
+		if got, want := s.Target.Dir, "internal/x"; got != want {
+			t.Fatalf("Target.Dir = %q, want %q (relative to SourceRoot)", got, want)
+		}
+	})
+
+	t.Run("origin outside SourceRoot retains the absolute Pos.File directory", func(t *testing.T) {
+		t.Parallel()
+		// SourceRoot at "/a/b" but origin lives at "/c/d" — the
+		// helper returns the original absolute path so attribution
+		// stays correct even when a fixture sits outside the project
+		// tree (rare, but the contract holds).
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "/c/d/file.go"}},
+			Name:     "X", Package: "example.com/x",
+		}
+		s := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin},
+			Name:     "X", Package: "x",
+		}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(&layoutGen{name: "rg", suffix: "_gen.go", pkg: &emit.Package{
+				Name: "x", Path: "example.com/x",
+				Structs: []*emit.Struct{s},
+			}}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			WithSourceRoot("/a/b").
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "x"))
+		if got, want := s.Target.Dir, "/c/d"; got != want {
+			t.Fatalf("Target.Dir = %q, want %q (absolute fallback)", got, want)
 		}
 	})
 }

@@ -97,15 +97,7 @@ func sourcesFor(ctx *plugin.BackendContext, entities []emit.Node) []string {
 	}
 	set := map[string]struct{}{}
 	for _, n := range entities {
-		origin := n.Origin()
-		if origin == nil {
-			continue
-		}
-		file := origin.Pos().File
-		if file == "" {
-			continue
-		}
-		set[normalisedSourcePath(file, ctx.SourceRoot)] = struct{}{}
+		collectOriginPaths(n, ctx.SourceRoot, set)
 	}
 	if len(set) == 0 {
 		if len(entities) == 0 {
@@ -120,6 +112,44 @@ func sourcesFor(ctx *plugin.BackendContext, entities []emit.Node) []string {
 	slices.Sort(out)
 	return out
 }
+
+// collectOriginPaths records every source-file path attributable to
+// n in set. n's own Origin lands first; for [emit.File] entities the
+// helper also walks the documented per-file slots (top, bottom, init,
+// imports) so a file composed entirely from origin-anchored slot
+// contributions (registrygen's per-init Registration is the canonical
+// case) still surfaces the contributing source paths in the rendered
+// Source: header line.
+func collectOriginPaths(n emit.Node, root string, set map[string]struct{}) {
+	if n == nil {
+		return
+	}
+	if origin := n.Origin(); origin != nil {
+		if file := origin.Pos().File; file != "" {
+			set[normalisedSourcePath(file, root)] = struct{}{}
+		}
+	}
+	file, ok := n.(*emit.File)
+	if !ok {
+		return
+	}
+	for _, name := range fileSourceWalkSlots {
+		slot := file.Slot(name)
+		if slot == nil {
+			continue
+		}
+		for _, item := range slot.Items {
+			collectOriginPaths(item, root, set)
+		}
+	}
+}
+
+// fileSourceWalkSlots is the documented set of [emit.File] slots
+// the Source: header attribution walks. Plugin-defined slot names
+// are out of scope — they don't currently carry Origin-bearing items
+// the framework knows how to walk, and Source: attribution is
+// observability rather than a routing input.
+var fileSourceWalkSlots = []string{"top", "bottom", "init", "imports"}
 
 // normalisedSourcePath returns file rewritten for stable rendering:
 // when root is set, the path is made relative to it; either way the

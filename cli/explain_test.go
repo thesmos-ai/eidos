@@ -4,15 +4,36 @@
 package cli_test
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"strings"
 	"testing"
 
 	"go.thesmos.sh/eidos/cli"
+	"go.thesmos.sh/eidos/core/meta"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/plugin"
 )
+
+// explainMetaKey is the bool meta key used by the RawMessage
+// regression test below. Declared at package scope so the global
+// registry registers it once.
+var explainMetaKey = meta.NewKey("cli.explain.test.meta", meta.BoolParser)
+
+// sourceFrontend is a [plugin.Frontend] that adds a fixed
+// [*node.Package] to the store on Load. Source-side Explain tests
+// use it to seed the node graph the source-resolution path walks.
+type sourceFrontend struct {
+	name string
+	pkg  *node.Package
+}
+
+func (f sourceFrontend) Name() string { return f.name }
+func (f sourceFrontend) Load(ctx *plugin.FrontendContext) error {
+	return ctx.Store.Nodes().AddPackage(f.pkg)
+}
 
 // emittingGenerator is a [plugin.Generator] that adds a single
 // fixture package to the store on Generate. Used by Explain tests
@@ -80,6 +101,60 @@ func TestExplainCommand_EntitySelector(t *testing.T) {
 			t.Fatalf("expected not-found diagnostic; got %q", stderr.String())
 		}
 	})
+}
+
+// TestExplainCommand_MetaJSONRawMessage pins the bugfix that
+// surfaced when meta values arrive from the frontend cache as
+// [json.RawMessage] payloads rather than typed Go values.
+// Pre-fix, `%v` formatted a RawMessage as a decimal byte slice
+// (`[116 114 117 101]` for "true"); the fix's formatMetaValue
+// helper detects the wire form and JSON-decodes it before
+// rendering, so the Metadata: section in `eidos explain` shows
+// the original value regardless of whether the bag was cached.
+func TestExplainCommand_MetaJSONRawMessage(t *testing.T) {
+	t.Parallel()
+
+	t.Run(
+		"explain renders RawMessage-wrapped bool meta as 'true', not as bytes",
+		func(t *testing.T) {
+			t.Parallel()
+			env, stdout, _ := freshEnv(t, "eidos")
+			src := &node.Struct{Name: "User", Package: "users"}
+			explainMetaKey.Set(src.Meta(), true, "fixture")
+			// Round-trip the Bag through JSON so its stored values
+			// become json.RawMessage — the cache path the bug fix
+			// exercises in production.
+			raw, err := json.Marshal(src.Meta())
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			src.MetaBag = nil
+			if err := json.Unmarshal(raw, src.Meta()); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			pkg := &node.Package{
+				Name: "users", Path: "users",
+				Structs: []*node.Struct{src},
+			}
+			cmd := &cli.ExplainCommand{Config: cli.ExplainConfig{
+				Plugins: []plugin.Plugin{
+					sourceFrontend{name: "fe", pkg: pkg},
+					stubBackend{name: "be", lang: "stub"},
+				},
+				Selector: "users.User",
+			}}
+			if code := cmd.Execute(t.Context(), env); code != cli.ExitOK {
+				t.Fatalf("Execute = %d, want ExitOK", code)
+			}
+			out := stdout.String()
+			if !strings.Contains(out, "cli.explain.test.meta = true") {
+				t.Fatalf("expected bool meta rendered as 'true'; got:\n%s", out)
+			}
+			if strings.Contains(out, "[116 114 117 101]") {
+				t.Fatalf("RawMessage leaked as raw bytes; got:\n%s", out)
+			}
+		},
+	)
 }
 
 // TestExplainCommand_SlotSelector covers the slot form: anchor

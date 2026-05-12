@@ -5,6 +5,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -19,6 +20,28 @@ import (
 	"go.thesmos.sh/eidos/sink"
 	"go.thesmos.sh/eidos/store"
 )
+
+// formatMetaValue renders v in a human-readable form for the
+// Metadata: section of `eidos explain`. A meta.Bag that has gone
+// through JSON round-trip (via the frontend cache, manifest, etc.)
+// holds its values as [json.RawMessage] rather than the typed Go
+// value the Setter originally supplied — the Bag is type-erased on
+// the wire and the typed [meta.Key.Get] path is the one that re-
+// hydrates each value. The explain command works against an arbitrary
+// key set without static type information, so this helper decodes a
+// json.RawMessage payload back into a Go any value before formatting.
+// Non-RawMessage values format directly via `%v`.
+func formatMetaValue(v any) string {
+	raw, ok := v.(json.RawMessage)
+	if !ok {
+		return fmt.Sprintf("%v", v)
+	}
+	var decoded any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return string(raw)
+	}
+	return fmt.Sprintf("%v", decoded)
+}
 
 // ExplainConfig holds the inputs for [ExplainCommand]. The
 // selector identifies the entity, slot, or meta key the command
@@ -330,7 +353,7 @@ func (*ExplainCommand) reportSourceMember(env *Env, s *store.Store, parent, memb
 			fmt.Fprintln(w, "Metadata:")
 			for _, name := range names {
 				if v, ok := meta.RawValue(name); ok {
-					fmt.Fprintf(w, "  %s = %v\n", name, v)
+					fmt.Fprintf(w, "  %s = %s\n", name, formatMetaValue(v))
 				}
 			}
 		}
@@ -809,7 +832,7 @@ func (*ExplainCommand) reportSourceEntity(env *Env, s *store.Store, n node.Node)
 			fmt.Fprintln(w, "Metadata:")
 			for _, name := range names {
 				if v, ok := meta.RawValue(name); ok {
-					fmt.Fprintf(w, "  %s = %v\n", name, v)
+					fmt.Fprintf(w, "  %s = %s\n", name, formatMetaValue(v))
 				}
 			}
 		}
@@ -881,7 +904,7 @@ func (*ExplainCommand) reportSourceMeta(env *Env, n node.Node, key string) int {
 		writeErr(env, "explain: meta key %q is unset on %s", key, sourceQName(n))
 		return ExitUserError
 	}
-	fmt.Fprintf(env.Stdout, "Meta %q = %v\n", key, v)
+	fmt.Fprintf(env.Stdout, "Meta %q = %s\n", key, formatMetaValue(v))
 	return ExitOK
 }
 
@@ -1161,6 +1184,6 @@ func (*ExplainCommand) reportMeta(env *Env, n emit.Node, key string) int {
 		writeErr(env, "explain: meta key %q is unset on %s", key, n.Kind())
 		return ExitUserError
 	}
-	fmt.Fprintf(env.Stdout, "Meta %q = %v\n", key, v)
+	fmt.Fprintf(env.Stdout, "Meta %q = %s\n", key, formatMetaValue(v))
 	return ExitOK
 }

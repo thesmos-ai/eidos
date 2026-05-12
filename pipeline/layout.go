@@ -176,7 +176,7 @@ func composeTarget(
 	policy := p.LayoutPolicyFor(pluginName)
 	srcPkg := originSourcePackage(s, origin)
 	emitPkg := emitPackageByPath(s, emitPkgPath)
-	srcDir, basename := originSourceDirBasename(origin)
+	srcDir, basename := originSourceDirBasename(origin, p.sourceRoot)
 
 	var t emit.Target
 	rl := manifest.ResolvedLayout{
@@ -237,9 +237,25 @@ func composeTarget(
 		// A non-empty policy.Package under alongside-source pins
 		// the package without changing the directory. Attribution
 		// follows the layer that supplied the Package value.
+		//
+		// ImportPath has to follow Package: the plugin-chosen
+		// emitPkg.Path (`<src>_test`, etc.) is no longer accurate
+		// once the package identity is overridden. The policy
+		// override doesn't know the canonical import path for the
+		// new package, so ImportPath collapses to the source
+		// package's path — every decl that lands in this routed
+		// Target (regardless of which plugin's emit.Package it
+		// came from) shares the same ImportPath, keeping the
+		// recordingSink's Target-keyed map single-entry per
+		// rendered file.
 		if policy.Package != "" {
 			t.Package = policy.Package
 			rl.ResolvedFrom["package"] = policy.PackageFrom
+			if srcPkg != nil {
+				t.ImportPath = srcPkg.Path
+			} else {
+				t.ImportPath = ""
+			}
 		}
 	default:
 		p.diag.Internalf(position.Pos{},
@@ -587,7 +603,16 @@ func originPackagePath(n node.Node) string {
 // origin's source position carries no file — synthetic origins fall
 // back to that case and the resulting Target needs an alternative
 // filename source (CLI -o, +gen:out) to be routable.
-func originSourceDirBasename(origin node.Node) (dir, basename string) {
+//
+// When sourceRoot is non-empty and the origin's source file lives
+// under it, the returned directory is normalised relative to the
+// root so [emit.Target.Dir] stays portable across machines — the
+// manifest's stored Target is the canonical record consumed by
+// `eidos prune` and `eidos check`, and an absolute path in there
+// breaks both. Files outside sourceRoot fall back to the absolute
+// path so attribution remains correct even when a fixture sits
+// outside the working directory.
+func originSourceDirBasename(origin node.Node, sourceRoot string) (dir, basename string) {
 	pos := origin.Pos()
 	if pos.File == "" {
 		return "", ""
@@ -597,6 +622,11 @@ func originSourceDirBasename(origin node.Node) (dir, basename string) {
 		base = base[:len(base)-len(ext)]
 	}
 	d := filepath.Dir(pos.File)
+	if sourceRoot != "" && filepath.IsAbs(d) {
+		if rel, err := filepath.Rel(sourceRoot, d); err == nil && !strings.HasPrefix(rel, "..") {
+			d = rel
+		}
+	}
 	if d == "." {
 		d = ""
 	}

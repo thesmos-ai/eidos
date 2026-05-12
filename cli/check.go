@@ -19,6 +19,7 @@ import (
 	"go.thesmos.sh/eidos/pipeline"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/sink"
+	"go.thesmos.sh/eidos/writer"
 )
 
 // CheckConfig holds the inputs for [CheckCommand]. The command
@@ -154,16 +155,6 @@ func resolveTargetPath(workdir string, t emit.Target) string {
 	return filepath.Join(workdir, t.Dir, t.Filename)
 }
 
-// provenanceMarker is the brand-agnostic infix every backend
-// renders into the per-file trailer: `<prefix><brand>:provenance
-// <hash>`. Drift detection extracts the hash after the marker
-// and compares the two files at the hash level rather than
-// byte-equal: the provenance hash is over body bytes only
-// (header and footer excluded), so identical bodies hash the
-// same even when run-derived header fields (Command, Plugins)
-// differ between `eidos run` and `eidos check`.
-const provenanceMarker = ":provenance "
-
 // sameProvenance reports whether the disk file's content matches
 // what the pipeline rendered in-memory under the provenance
 // model:
@@ -211,31 +202,23 @@ func sameProvenance(disk, current []byte) bool {
 // drift even though the stamped hash and the body hash both
 // remain coherent.
 func trailerHasTrailingContent(file []byte, hash string) bool {
-	idx := bytes.LastIndex(file, []byte(provenanceMarker+hash))
+	idx := bytes.LastIndex(file, []byte(writer.ProvenanceMarker+hash))
 	if idx < 0 {
 		return false
 	}
-	tail := file[idx+len(provenanceMarker)+len(hash):]
+	tail := file[idx+len(writer.ProvenanceMarker)+len(hash):]
 	for len(tail) > 0 && (tail[0] == '\n' || tail[0] == '\r') {
 		tail = tail[1:]
 	}
 	return len(tail) > 0
 }
 
-// extractProvenance returns the hash stamped in the file's
-// `<prefix><brand>:provenance <hash>` trailer, or false when the
-// marker is absent.
+// extractProvenance returns the hash recorded in body's
+// provenance trailer, or false when no trailer is present. Thin
+// wrapper around [writer.ExtractProvenance] so the package-local
+// callers don't have to import the writer package directly.
 func extractProvenance(body []byte) (string, bool) {
-	idx := bytes.LastIndex(body, []byte(provenanceMarker))
-	if idx < 0 {
-		return "", false
-	}
-	rest := body[idx+len(provenanceMarker):]
-	end := bytes.IndexAny(rest, "\r\n")
-	if end < 0 {
-		end = len(rest)
-	}
-	return string(rest[:end]), true
+	return writer.ExtractProvenance(body)
 }
 
 // extractBody returns the body region of a rendered file — the

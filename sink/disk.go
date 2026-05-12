@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/writer"
 )
 
 // Disk is a [Sink] that writes to the filesystem under a configured
@@ -71,13 +72,18 @@ func (d *Disk) Write(target emit.Target, body []byte) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	// Skip the write when the destination already carries identical
-	// bytes — the rename-into-place pattern below would refresh
-	// mtime and trigger downstream rebuild watchers even though the
-	// file's content is unchanged. Idempotency is a load-bearing
+	// Skip the write when the destination's body matches what we
+	// would write. Plain byte-equality catches the simple case;
+	// when that fails we compare the provenance trailer the
+	// backend stamps over body bytes alone, which lets the
+	// short-circuit survive header-only differences (the Command
+	// line varies between invocations: `eidos run ./blog/...`
+	// versus `eidos run ./...` produce identical bodies but
+	// different Command stamps). Idempotency is a load-bearing
 	// property: re-running the pipeline against unchanged inputs
-	// must not touch the disk.
-	if existing, err := os.ReadFile(full); err == nil && bytes.Equal(existing, body) {
+	// must not touch the disk regardless of how the user phrased
+	// the invocation.
+	if existing, err := os.ReadFile(full); err == nil && bodiesMatch(existing, body) {
 		return nil
 	}
 
@@ -93,4 +99,27 @@ func (d *Disk) Write(target emit.Target, body []byte) error {
 		return fmt.Errorf("sink: rename %s -> %s: %w", tmpPath, full, err)
 	}
 	return nil
+}
+
+// bodiesMatch reports whether two rendered file blobs encode the
+// same content. The check tries byte-equality first (fast path,
+// covers non-generated files and runs with identical headers)
+// then falls back to comparing the provenance trailer's stamped
+// hash (the brand-stamped digest is over body bytes alone, so
+// header-only deltas — Command lines, source-path normalisation
+// — don't surface as drift). Files missing the trailer fall
+// through to the byte-equal verdict.
+func bodiesMatch(a, b []byte) bool {
+	if bytes.Equal(a, b) {
+		return true
+	}
+	ah, aOK := writer.ExtractProvenance(a)
+	if !aOK {
+		return false
+	}
+	bh, bOK := writer.ExtractProvenance(b)
+	if !bOK {
+		return false
+	}
+	return ah == bh
 }

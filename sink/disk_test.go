@@ -88,6 +88,33 @@ func TestDisk_Write(t *testing.T) {
 		}
 	})
 
+	t.Run("skips the write when only the header differs but the provenance hash matches", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		d := sink.NewDisk(root)
+		// First write: a generated-style file with a Command line
+		// matching the user's first invocation.
+		bodyA := generatedBlob("eidos run ./blog/...", "package x\n", "deadbeef")
+		assertNoError(t, d.Write(targetAt("a", "b.go"), bodyA))
+		path := filepath.Join(root, "a", "b.go")
+		first, err := os.Stat(path)
+		assertNoError(t, err)
+		// Second write: same body, different Command line (mirrors
+		// a follow-up `eidos run ./...` invocation). The provenance
+		// hash is identical so the sink must short-circuit.
+		bodyB := generatedBlob("eidos run ./...", "package x\n", "deadbeef")
+		time.Sleep(1100 * time.Millisecond)
+		assertNoError(t, d.Write(targetAt("a", "b.go"), bodyB))
+		second, err := os.Stat(path)
+		assertNoError(t, err)
+		if !first.ModTime().Equal(second.ModTime()) {
+			t.Fatalf(
+				"header-only delta with matching provenance hash must not rewrite; first=%v second=%v",
+				first.ModTime(), second.ModTime(),
+			)
+		}
+	})
+
 	t.Run("does not leave temporary files behind on success", func(t *testing.T) {
 		t.Parallel()
 		root := t.TempDir()

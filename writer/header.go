@@ -4,6 +4,7 @@
 package writer
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -93,6 +94,32 @@ func (h Header) Render(commentPrefix string) string {
 func Footer(body []byte, commentPrefix string) string {
 	sum := sha256.Sum256(body)
 	return fmt.Sprintf("%seidos:provenance sha256:%s\n", commentPrefix, hex.EncodeToString(sum[:]))
+}
+
+// ProvenanceMarker is the brand-agnostic infix every backend stamps
+// into its trailer — `<prefix><brand>:provenance <hash>`. Tools
+// that consume the trailer (drift detection, idempotent re-write
+// short-circuits) scan for this substring and read the hash that
+// follows.
+const ProvenanceMarker = ":provenance "
+
+// ExtractProvenance returns the hash recorded in body's provenance
+// trailer, or false when no trailer is present. The hash format
+// is the backend's choice (Go stamps `sha256:<hex>`; future
+// backends may stamp a different scheme) so callers compare
+// hashes as opaque strings — two calls return equal values iff
+// the underlying body bytes were equal at stamp time.
+func ExtractProvenance(body []byte) (string, bool) {
+	idx := bytes.LastIndex(body, []byte(ProvenanceMarker))
+	if idx < 0 {
+		return "", false
+	}
+	rest := body[idx+len(ProvenanceMarker):]
+	end := bytes.IndexAny(rest, "\r\n")
+	if end < 0 {
+		end = len(rest)
+	}
+	return string(rest[:end]), true
 }
 
 // sortedCopy returns a sorted copy of in. nil and empty in return

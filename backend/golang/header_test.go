@@ -161,6 +161,36 @@ func TestHeader_SourcesFromOrigin(t *testing.T) {
 		}
 	})
 
+	t.Run("File slot items contribute Source attribution", func(t *testing.T) {
+		t.Parallel()
+		// A file with no per-decl entities — only origin-anchored
+		// slot contributions in the `init` slot (the registrygen
+		// pattern). The Source: header line walks the file's slots
+		// and collects every slot item's Origin so the file's
+		// Source attribution surfaces even when the file is
+		// composed entirely from slot contributions.
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{
+				SourcePos: position.Pos{File: "x/origin.go"},
+			},
+			Name: "Origin", Package: "x",
+		}
+		file := &emit.File{Name: "x.go", Dir: "x", Package: "x"}
+		_ = file.Init().Append(&emit.Stmt{
+			BaseEmit: emit.BaseEmit{OriginNode: origin},
+		}, emit.Provenance{SetBy: "registrygen"})
+		addEmitPackage(t, ctx, &emit.Package{
+			Name: "x", Path: "x", Dir: "x",
+			Files: []*emit.File{file},
+		})
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		if !strings.Contains(string(body), "// Source:    x/origin.go\n") {
+			t.Fatalf("Source line should aggregate slot-item Origins; got:\n%s", body)
+		}
+	})
+
 	t.Run("empty SourceRoot leaves the path unchanged", func(t *testing.T) {
 		t.Parallel()
 		ctx, mem, d := newBackendContext(t)
