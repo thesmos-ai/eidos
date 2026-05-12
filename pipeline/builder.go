@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"slices"
 
 	"go.thesmos.sh/eidos/cache"
@@ -39,6 +40,8 @@ type Builder struct {
 	parallel        map[Phase]bool
 	manifestPath    string
 	options         map[string]map[string]string
+	command         string
+	sourceRoot      string
 }
 
 // New returns an empty Builder ready to accept plugins.
@@ -67,6 +70,38 @@ func (b *Builder) WithParallel(phases ...Phase) *Builder {
 // hashed. Empty path (the default) disables manifest writing.
 func (b *Builder) WithManifestPath(path string) *Builder {
 	b.manifestPath = path
+	return b
+}
+
+// WithCommand sets the literal string the backend stamps into the
+// "Command:" header line of every rendered file. Library and test
+// callers set a stable value (e.g. "(library)", a synthetic CLI
+// rendering) so the header stays byte-identical across runs and
+// across machines. Empty falls back to the pipeline's automatic
+// rendering of `os.Args[1:]` — the right answer for real CLI
+// invocations but a determinism leak under `go test`, where the
+// runner injects absolute paths into the flag set.
+func (b *Builder) WithCommand(cmd string) *Builder {
+	b.command = cmd
+	return b
+}
+
+// WithSourceRoot sets the base directory the backend renders source
+// paths relative to in the "Source:" header line. Each entity's
+// origin file path is stripped of this prefix and normalised to
+// forward slashes so the rendered output stays byte-identical
+// across machines, OSes, and project-root layouts.
+//
+// When the option is not set, [Builder.Build] resolves the
+// SourceRoot from [os.Getwd] at construction time — the value is
+// pinned then, not at render time, so [os.Chdir] mid-run does not
+// drift the headers. A Getwd failure (rare) leaves the SourceRoot
+// empty and the backend falls through to rendering origin paths
+// verbatim. The CLI threads [cli.Env.Workdir]; library embedders
+// override when their project root differs from the working
+// directory.
+func (b *Builder) WithSourceRoot(root string) *Builder {
+	b.sourceRoot = root
 	return b
 }
 
@@ -243,10 +278,32 @@ func (b *Builder) Build() (*Pipeline, error) {
 		verbose:      b.verbose,
 		parallel:     b.parallel,
 		manifestPath: b.manifestPath,
+		command:      b.command,
+		sourceRoot:   b.resolveSourceRoot(),
 		plan:         plan,
 		registry:     registry,
 		parser:       parser,
 	}, nil
+}
+
+// resolveSourceRoot returns the SourceRoot the constructed Pipeline
+// stamps onto every BackendContext. A caller-supplied value wins
+// outright. Otherwise the resolver falls back to [os.Getwd] at
+// Build time so the value is pinned at construction rather than
+// being CWD-coupled at render time — long-running consumers that
+// [os.Chdir] mid-run still observe stable headers. A Getwd failure
+// (rare) falls through to the empty string; the backend then
+// renders origin paths verbatim, preserving the previous behaviour
+// rather than surfacing a transient os error.
+func (b *Builder) resolveSourceRoot() string {
+	if b.sourceRoot != "" {
+		return b.sourceRoot
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return wd
 }
 
 // buildDirectiveParser constructs the [directive.Parser] the

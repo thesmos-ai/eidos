@@ -126,6 +126,57 @@ func TestHeader_SourcesFromOrigin(t *testing.T) {
 			t.Fatalf("Source line should carry 'unknown' when no origins exist; got:\n%s", body)
 		}
 	})
+
+	t.Run("SourceRoot relativises absolute origin paths and forward-slashes them", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		ctx.SourceRoot = "/home/dev/proj"
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		addEmitPackage(t, ctx, emitPackage(
+			"x",
+			structWithOrigin("X", "x", target, "/home/dev/proj/internal/users/user.go"),
+		))
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		if !strings.Contains(string(body), "// Source:    internal/users/user.go\n") {
+			t.Fatalf("SourceRoot should produce repo-relative paths; got:\n%s", body)
+		}
+	})
+
+	t.Run("SourceRoot leaves out-of-root paths verbatim rather than dropping attribution", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		ctx.SourceRoot = "/home/dev/proj"
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		// File outside the root — filepath.Rel would produce a path
+		// starting with `..`, signalling the file lives outside the
+		// project. The renderer keeps the original path so attribution
+		// is preserved.
+		addEmitPackage(t, ctx, emitPackage(
+			"x",
+			structWithOrigin("X", "x", target, "/var/cache/external.go"),
+		))
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		if !strings.Contains(string(body), "// Source:    /var/cache/external.go\n") {
+			t.Fatalf("out-of-root path should render verbatim; got:\n%s", body)
+		}
+	})
+
+	t.Run("empty SourceRoot leaves the path unchanged", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		// Forward-slashed input — already in the canonical form so
+		// no rewriting is expected. The assertion pins the empty-
+		// SourceRoot pass-through path.
+		addEmitPackage(t, ctx, emitPackage(
+			"x",
+			structWithOrigin("X", "x", target, "/home/dev/proj/internal/users/user.go"),
+		))
+		body := assertRenderSucceeds(t, ctx, mem, d, target)
+		if !strings.Contains(string(body), "// Source:    /home/dev/proj/internal/users/user.go\n") {
+			t.Fatalf("empty SourceRoot should pass paths through verbatim; got:\n%s", body)
+		}
+	})
 }
 
 // TestHeader_Plugins covers the Plugins: line — registered-order,

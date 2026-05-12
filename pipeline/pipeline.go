@@ -34,6 +34,8 @@ type Pipeline struct {
 	verbose      bool
 	parallel     map[Phase]bool
 	manifestPath string
+	command      string
+	sourceRoot   string
 	plan         *Plan
 	registry     *directive.Registry
 	parser       *directive.Parser

@@ -236,6 +236,92 @@ func TestPipeline_Run_BackendPhase(t *testing.T) {
 			t.Fatalf("Run should return ErrRunHadErrors; got %v", got)
 		}
 	})
+
+	t.Run("WithCommand pins the BackendContext.Command field", func(t *testing.T) {
+		t.Parallel()
+		var seenCtx *plugin.BackendContext
+		be := &recBE{
+			name: "be", lang: "stub",
+			render: func(ctx *plugin.BackendContext) { seenCtx = ctx },
+		}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithBackend(be).
+			WithSink(sink.NewMemory()).
+			WithCommand("(library)").
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context()))
+		if seenCtx.Command != "(library)" {
+			t.Fatalf("BackendContext.Command = %q, want %q", seenCtx.Command, "(library)")
+		}
+	})
+
+	t.Run("WithSourceRoot pins the BackendContext.SourceRoot field", func(t *testing.T) {
+		t.Parallel()
+		var seenCtx *plugin.BackendContext
+		be := &recBE{
+			name: "be", lang: "stub",
+			render: func(ctx *plugin.BackendContext) { seenCtx = ctx },
+		}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithBackend(be).
+			WithSink(sink.NewMemory()).
+			WithSourceRoot("/home/dev/proj").
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context()))
+		if seenCtx.SourceRoot != "/home/dev/proj" {
+			t.Fatalf("BackendContext.SourceRoot = %q, want %q", seenCtx.SourceRoot, "/home/dev/proj")
+		}
+	})
+
+	t.Run("unset WithSourceRoot resolves to os.Getwd at Build time", func(t *testing.T) {
+		t.Parallel()
+		var seenCtx *plugin.BackendContext
+		be := &recBE{
+			name: "be", lang: "stub",
+			render: func(ctx *plugin.BackendContext) { seenCtx = ctx },
+		}
+		wd, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("os.Getwd: %v", err)
+		}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithBackend(be).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context()))
+		if seenCtx.SourceRoot != wd {
+			t.Fatalf("unset SourceRoot should resolve to os.Getwd at Build time; got %q, want %q", seenCtx.SourceRoot, wd)
+		}
+	})
+
+	t.Run("empty WithCommand falls back to commandLine derivation", func(t *testing.T) {
+		t.Parallel()
+		var seenCtx *plugin.BackendContext
+		be := &recBE{
+			name: "be", lang: "stub",
+			render: func(ctx *plugin.BackendContext) { seenCtx = ctx },
+		}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithBackend(be).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context()))
+		// Empty WithCommand → pipeline falls back to commandLine().
+		// commandLine() returns either the joined os.Args[1:] or
+		// "(library)"; either way the value is non-empty so the
+		// fallback path is exercised.
+		if seenCtx.Command == "" {
+			t.Fatalf("Command fallback should produce a non-empty value; got empty string")
+		}
+	})
 }
 
 func TestPipeline_Run_EndToEnd(t *testing.T) {

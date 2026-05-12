@@ -390,3 +390,33 @@ func TestBuilder_WithManifestPath(t *testing.T) {
 		}
 	})
 }
+
+// TestBuilder_WithCommand verifies the receiver chaining contract;
+// behavioural coverage (the value reaches the BackendContext) is
+// pinned in TestPipeline_Run_CommandOverride.
+func TestBuilder_WithCommand(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns the receiver for chaining", func(t *testing.T) {
+		t.Parallel()
+		b := pipeline.New()
+		if out := b.WithCommand("(library)"); out != b {
+			t.Fatalf("WithCommand should return the receiver")
+		}
+	})
+}
+
+// TestBuilder_WithSourceRoot verifies the receiver chaining
+// contract; behavioural coverage (the value reaches the
+// BackendContext) is pinned in TestPipeline_Run_SourceRootOverride.
+func TestBuilder_WithSourceRoot(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns the receiver for chaining", func(t *testing.T) {
+		t.Parallel()
+		b := pipeline.New()
+		if out := b.WithSourceRoot("/home/dev/proj"); out != b {
+			t.Fatalf("WithSourceRoot should return the receiver")
+		}
+	})
+}

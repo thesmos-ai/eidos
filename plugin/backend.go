@@ -125,4 +125,17 @@ type BackendContext struct {
 	// Brand keeps the file detectable by `gofmt`, linters, and
 	// `go generate`-aware tooling.
 	Brand string
+
+	// SourceRoot is the base directory paths in the "Source:" header
+	// line are made relative to. The renderer strips this prefix
+	// from each entity's origin file path and normalises the result
+	// to forward slashes — the output stays byte-identical regardless
+	// of where on disk the project lives or which OS produced it.
+	//
+	// [pipeline.Builder.Build] populates this from
+	// [pipeline.Builder.WithSourceRoot] when set, otherwise from
+	// [os.Getwd] at construction time. The field is rarely empty in
+	// practice; the backend falls through to verbatim rendering if it
+	// is (Getwd failure, or a caller assembling the context directly).
+	SourceRoot string
 }

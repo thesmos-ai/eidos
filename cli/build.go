@@ -72,6 +72,13 @@ func buildPipeline(
 	if cfg.Verbose || override.Verbose {
 		b.WithVerbose(true)
 	}
+	if env.Workdir != "" {
+		// SourceRoot determines how the backend renders origin paths
+		// in the rendered "Source:" header line. The CLI defaults it
+		// to the working directory so generated headers are
+		// repository-relative and byte-stable across machines.
+		b.WithSourceRoot(env.Workdir)
+	}
 	p, err := b.Build()
 	if err != nil {
 		return nil, fmt.Errorf("cli: build pipeline: %w", err)

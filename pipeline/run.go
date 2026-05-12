@@ -315,14 +315,15 @@ func (p *Pipeline) runBackend(s *store.Store, dst sink.Sink) {
 	defer diag.RecoverAs(ps, position.Pos{})
 	r := store.NewReader(s)
 	ctx := &plugin.BackendContext{
-		Store:   s,
-		Reader:  r,
-		Diag:    p.diag,
-		Sink:    dst,
-		Lang:    p.backend.Language(),
-		Plugins: p.registeredPlugins(),
-		Ordered: p.orderedPlugins(),
-		Command: commandLine(),
+		Store:      s,
+		Reader:     r,
+		Diag:       p.diag,
+		Sink:       dst,
+		Lang:       p.backend.Language(),
+		Plugins:    p.registeredPlugins(),
+		Ordered:    p.orderedPlugins(),
+		Command:    p.commandHeader(),
+		SourceRoot: p.sourceRoot,
 	}
 	if err := p.backend.Render(ctx); err != nil {
 		p.reportPluginError(ps, p.backend.Name(), "backend", err)
@@ -330,13 +331,30 @@ func (p *Pipeline) runBackend(s *store.Store, dst sink.Sink) {
 	p.recordCacheKey(p.backend.Name(), r)
 }
 
+// commandHeader returns the literal string to stamp into the
+// "Command:" header line of every rendered file. A caller-supplied
+// value through [Builder.WithCommand] wins — letting tests and
+// library embedders pin a stable value. Empty falls back to
+// [commandLine], which renders `os.Args[1:]` for real CLI runs and
+// "(library)" when no positional arguments are present.
+func (p *Pipeline) commandHeader() string {
+	if p.command != "" {
+		return p.command
+	}
+	return commandLine()
+}
+
 // commandLine returns the CLI-style rendering of the current
-// process's arguments, used to populate
-// [plugin.BackendContext.Command] for generated-file headers. When
-// the host has no positional arguments (typically library / test
-// invocations), returns "(library)" — a stable marker that signals
-// programmatic use without leaking test-runner flags into the
-// generated output.
+// process's arguments, used as the [plugin.BackendContext.Command]
+// default. When the host has no positional arguments (typically
+// library / test invocations), returns "(library)" — a stable
+// marker that signals programmatic use without leaking
+// test-runner flags into the generated output.
+//
+// Test-runner invocations populate os.Args with per-machine paths
+// (`-test.testlogfile=/var/folders/.../testlog.txt`) — a
+// determinism leak the [Builder.WithCommand] override exists to
+// neutralise.
 func commandLine() string {
 	if len(os.Args) <= 1 {
 		return "(library)"

@@ -5,6 +5,7 @@ package golang
 
 import (
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -104,7 +105,7 @@ func sourcesFor(ctx *plugin.BackendContext, entities []emit.Node) []string {
 		if file == "" {
 			continue
 		}
-		set[file] = struct{}{}
+		set[normalisedSourcePath(file, ctx.SourceRoot)] = struct{}{}
 	}
 	if len(set) == 0 {
 		if len(entities) == 0 {
@@ -118,6 +119,25 @@ func sourcesFor(ctx *plugin.BackendContext, entities []emit.Node) []string {
 	}
 	slices.Sort(out)
 	return out
+}
+
+// normalisedSourcePath returns file rewritten for stable rendering:
+// when root is set, the path is made relative to it; either way the
+// result is normalised to forward slashes so the rendered "Source:"
+// header line stays byte-identical across machines, operating
+// systems, and project-root layouts.
+//
+// A file that lives outside root (filepath.Rel returns an error, or
+// the result starts with "..") falls back to the original path so
+// the rendered header still attributes the source — losing path
+// portability rather than silently dropping the attribution.
+func normalisedSourcePath(file, root string) string {
+	if root != "" {
+		if rel, err := filepath.Rel(root, file); err == nil && !strings.HasPrefix(rel, "..") {
+			file = rel
+		}
+	}
+	return filepath.ToSlash(file)
 }
 
 // unknownSource is the synthetic placeholder the Source: header
