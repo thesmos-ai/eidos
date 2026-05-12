@@ -10,6 +10,7 @@ import (
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/node"
 )
 
 // ErrAliasMethodForbidden is recorded by [AliasBuilder.Method] when
@@ -77,6 +78,13 @@ func (b *PackageBuilder) appendAlias(
 
 // Node returns the underlying [emit.Alias].
 func (b *AliasBuilder) Node() *emit.Alias { return b.a }
+
+// Origin records the source [node.Node] this emit alias was
+// derived from. Pass nil to clear an existing origin.
+func (b *AliasBuilder) Origin(n node.Node) *AliasBuilder {
+	b.a.OriginNode = n
+	return b
+}
 
 // Pos overrides the alias's source position.
 func (b *AliasBuilder) Pos(p position.Pos) *AliasBuilder {

@@ -7,6 +7,7 @@ import (
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/node"
 )
 
 // VariableBuilder configures an [emit.Variable] as part of a
@@ -55,6 +56,13 @@ func (b *VariableBuilder) Target(t emit.Target) *VariableBuilder {
 // Pos overrides the variable's source position.
 func (b *VariableBuilder) Pos(p position.Pos) *VariableBuilder {
 	b.v.SourcePos = p
+	return b
+}
+
+// Origin records the source [node.Node] this emit variable was
+// derived from. Pass nil to clear an existing origin.
+func (b *VariableBuilder) Origin(n node.Node) *VariableBuilder {
+	b.v.OriginNode = n
 	return b
 }
 

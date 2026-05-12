@@ -7,6 +7,7 @@ import (
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/node"
 )
 
 // EnumBuilder configures an [emit.Enum] as part of a
@@ -53,6 +54,13 @@ func (b *EnumBuilder) Target(t emit.Target) *EnumBuilder {
 // Pos overrides the enum's source position.
 func (b *EnumBuilder) Pos(p position.Pos) *EnumBuilder {
 	b.e.SourcePos = p
+	return b
+}
+
+// Origin records the source [node.Node] this emit enum was
+// derived from. Pass nil to clear an existing origin.
+func (b *EnumBuilder) Origin(n node.Node) *EnumBuilder {
+	b.e.OriginNode = n
 	return b
 }
 

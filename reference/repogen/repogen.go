@@ -33,12 +33,12 @@ import (
 
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/opt"
+	"go.thesmos.sh/eidos/core/srcfile"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/emit/builder"
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/priority"
-	"go.thesmos.sh/eidos/reference/internal/srcfile"
 )
 
 // Name is the plugin's stable identifier surfaced through
@@ -278,7 +278,7 @@ func (p *Plugin) emitOne(pkg *builder.PackageBuilder, src *node.Struct, target e
 
 	pkg.Interface(ifaceName, func(i *builder.InterfaceBuilder) {
 		i.Target(target)
-		i.Node().OriginNode = src
+		i.Origin(src)
 		i.Docs(ifaceName + " stores and retrieves " + src.Name + " values.")
 		i.Method(p.identifier("Get"), func(m *builder.MethodBuilder) {
 			m.Param("ctx", emit.External("context", "Context"))
@@ -305,7 +305,7 @@ func (p *Plugin) emitOne(pkg *builder.PackageBuilder, src *node.Struct, target e
 
 	pkg.Struct(structName, func(st *builder.StructBuilder) {
 		st.Target(target)
-		st.Node().OriginNode = src
+		st.Origin(src)
 		st.Docs(structName + " is the default in-memory implementation of " + ifaceName + ".")
 		st.Method(p.identifier("Get"), func(m *builder.MethodBuilder) {
 			m.Receiver("r", emit.Ptr(emit.Internal(st.Node())))

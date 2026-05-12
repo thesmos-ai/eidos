@@ -41,13 +41,13 @@ import (
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/opt"
 	"go.thesmos.sh/eidos/core/position"
+	"go.thesmos.sh/eidos/core/srcfile"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/emit/builder"
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/priority"
 	"go.thesmos.sh/eidos/reference/internal/refconv"
-	"go.thesmos.sh/eidos/reference/internal/srcfile"
 )
 
 // Name is the plugin's stable identifier surfaced through
@@ -475,7 +475,7 @@ func (p *Plugin) emitForEmitInterface(pkg *builder.PackageBuilder, i *emit.Inter
 		sigs = append(sigs, methodSig{name: m.Name, params: params, returns: returns})
 	}
 	tps := emitTypeParamsFromEmit(i.TypeParams)
-	typeArgs := typeArgsFromEmitParams(i.TypeParams)
+	typeArgs := builder.TypeArgsFromEmitParams(i.TypeParams)
 	p.emitMock(pkg, i.Name, emit.Internal(i, typeArgs...), target, i.Origin(), tps, sigs)
 }
 
@@ -511,8 +511,8 @@ func (p *Plugin) emitForSourceInterface(
 		sigs = append(sigs, methodSig{name: m.Name, params: params, returns: returns})
 	}
 	tps := emitTypeParamsFromNode(i.TypeParams)
-	typeArgs := typeArgsFromNodeParams(i.TypeParams)
-	p.emitMock(pkg, i.Name, applyIfaceTypeArgs(ifaceRef, typeArgs), target, i, tps, sigs)
+	typeArgs := builder.TypeArgsFromNodeParams(i.TypeParams)
+	p.emitMock(pkg, i.Name, builder.ApplyTypeArgs(ifaceRef, typeArgs), target, i, tps, sigs)
 }
 
 // emitMock appends one Mock struct decl carrying the func-valued
@@ -537,7 +537,7 @@ func (p *Plugin) emitMock(
 
 	pkg.Struct(mockName, func(b *builder.StructBuilder) {
 		b.Target(target)
-		b.Node().OriginNode = origin
+		b.Origin(origin)
 		b.Docs(mockName + " is a func-valued mock implementation of " + ifaceName + ".")
 		for _, tp := range typeParams {
 			b.TypeParam(tp.Name, tp.Constraint)
@@ -604,32 +604,13 @@ func emitTypeParamsFromEmit(params []*emit.TypeParam) []emitTypeParamSpec {
 	return out
 }
 
-// typeArgsFromNodeParams / typeArgsFromEmitParams / typeArgsFromSpecs
-// produce the parallel bare-name [emit.Ref] list that callers pass
-// as the variadic typeArgs to [emit.Internal] / [emit.External] when
-// instantiating a generic host with its own type parameters.
-func typeArgsFromNodeParams(params []*node.TypeParam) []emit.Ref {
-	if len(params) == 0 {
-		return nil
-	}
-	out := make([]emit.Ref, 0, len(params))
-	for _, tp := range params {
-		out = append(out, emit.Builtin(tp.Name))
-	}
-	return out
-}
-
-func typeArgsFromEmitParams(params []*emit.TypeParam) []emit.Ref {
-	if len(params) == 0 {
-		return nil
-	}
-	out := make([]emit.Ref, 0, len(params))
-	for _, tp := range params {
-		out = append(out, emit.Builtin(tp.Name))
-	}
-	return out
-}
-
+// typeArgsFromSpecs lifts the local [emitTypeParamSpec] slice (the
+// normalised intermediate the source-side and emit-side paths
+// converge on) into the parallel bare-name [emit.Ref] list a
+// generic host's receiver references take as their type arguments.
+// The two layer-specific lifters live in [builder.TypeArgsFromNodeParams]
+// / [builder.TypeArgsFromEmitParams]; this helper stays mockgen-local
+// because [emitTypeParamSpec] is private to the package.
 func typeArgsFromSpecs(specs []emitTypeParamSpec) []emit.Ref {
 	if len(specs) == 0 {
 		return nil
@@ -639,21 +620,6 @@ func typeArgsFromSpecs(specs []emitTypeParamSpec) []emit.Ref {
 		out = append(out, emit.Builtin(s.Name))
 	}
 	return out
-}
-
-// applyIfaceTypeArgs adapts the supplied source-interface reference
-// to carry the mock's type arguments when the source is generic.
-// Mirrors buildergen's applySrcTypeArgs — recognises [emit.ExternalRef]
-// (the canonical reference plugins emit for source interfaces) and
-// passes any other Ref variant through verbatim.
-func applyIfaceTypeArgs(ifaceRef emit.Ref, typeArgs []emit.Ref) emit.Ref {
-	if len(typeArgs) == 0 {
-		return ifaceRef
-	}
-	if e, ok := ifaceRef.(*emit.ExternalRef); ok {
-		return emit.External(e.Package, e.Name, typeArgs...)
-	}
-	return ifaceRef
 }
 
 // funcRefFor builds the `func(<params>) <returns>` type for the

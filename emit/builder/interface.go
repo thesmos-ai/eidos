@@ -7,6 +7,7 @@ import (
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/node"
 )
 
 // InterfaceBuilder configures an [emit.Interface] as part of a
@@ -53,6 +54,16 @@ func (b *InterfaceBuilder) Target(t emit.Target) *InterfaceBuilder {
 // Pos overrides the interface's source position.
 func (b *InterfaceBuilder) Pos(p position.Pos) *InterfaceBuilder {
 	b.i.SourcePos = p
+	return b
+}
+
+// Origin records the source [node.Node] this emit interface was
+// derived from. The pipeline router reads the origin to resolve
+// alongside-source [emit.Target.Dir]; the manifest sink reads it
+// for per-target plugin attribution. Pass nil to clear an
+// existing origin.
+func (b *InterfaceBuilder) Origin(n node.Node) *InterfaceBuilder {
+	b.i.OriginNode = n
 	return b
 }
 

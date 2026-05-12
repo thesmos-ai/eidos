@@ -7,6 +7,7 @@ import (
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/node"
 )
 
 // ConstantBuilder configures an [emit.Constant] as part of a
@@ -48,6 +49,13 @@ func (b *ConstantBuilder) Node() *emit.Constant { return b.c }
 // Target overrides the constant's [emit.Target].
 func (b *ConstantBuilder) Target(t emit.Target) *ConstantBuilder {
 	b.c.Target = t
+	return b
+}
+
+// Origin records the source [node.Node] this emit constant was
+// derived from. Pass nil to clear an existing origin.
+func (b *ConstantBuilder) Origin(n node.Node) *ConstantBuilder {
+	b.c.OriginNode = n
 	return b
 }
 

@@ -7,6 +7,7 @@ import (
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/node"
 )
 
 // FunctionBuilder configures an [emit.Function] as part of a
@@ -50,6 +51,13 @@ func (b *FunctionBuilder) Target(t emit.Target) *FunctionBuilder {
 // Pos overrides the function's source position.
 func (b *FunctionBuilder) Pos(p position.Pos) *FunctionBuilder {
 	b.f.SourcePos = p
+	return b
+}
+
+// Origin records the source [node.Node] this emit function was
+// derived from. Pass nil to clear an existing origin.
+func (b *FunctionBuilder) Origin(n node.Node) *FunctionBuilder {
+	b.f.OriginNode = n
 	return b
 }
 

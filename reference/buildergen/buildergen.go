@@ -33,13 +33,13 @@ import (
 
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/opt"
+	"go.thesmos.sh/eidos/core/srcfile"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/emit/builder"
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/priority"
 	"go.thesmos.sh/eidos/reference/internal/refconv"
-	"go.thesmos.sh/eidos/reference/internal/srcfile"
 )
 
 // Name is the plugin's stable identifier surfaced through
@@ -261,12 +261,12 @@ func (*Plugin) shouldEmit(s *node.Struct) bool {
 func (p *Plugin) emitOne(pkg *builder.PackageBuilder, src *node.Struct, target emit.Target, srcRefBase emit.Ref) {
 	builderName := src.Name + p.opts.Suffix
 	exported := exportedFields(src)
-	typeArgs := typeArgsFromParams(src.TypeParams)
-	srcRef := applySrcTypeArgs(srcRefBase, typeArgs)
+	typeArgs := builder.TypeArgsFromNodeParams(src.TypeParams)
+	srcRef := builder.ApplyTypeArgs(srcRefBase, typeArgs)
 
 	pkg.Struct(builderName, func(b *builder.StructBuilder) {
 		b.Target(target)
-		b.Node().OriginNode = src
+		b.Origin(src)
 		b.Docs(
 			builderName + " accumulates field values for " + src.Name +
 				" and produces the populated value via " + builderName + ".Build.",
@@ -301,38 +301,6 @@ func (p *Plugin) emitOne(pkg *builder.PackageBuilder, src *node.Struct, target e
 			m.Body(emit.NewReturn(emit.NewAddr(buildComposite(srcRef, exported))))
 		})
 	})
-}
-
-// typeArgsFromParams projects a source struct's [node.TypeParam]
-// list into a parallel slice of bare-name [emit.Ref] values
-// suitable for passing as the trailing typeArgs to [emit.External]
-// / [emit.Internal]. An empty list returns nil so callers can pass
-// it through variadic spreads without conditional plumbing.
-func typeArgsFromParams(params []*node.TypeParam) []emit.Ref {
-	if len(params) == 0 {
-		return nil
-	}
-	out := make([]emit.Ref, 0, len(params))
-	for _, tp := range params {
-		out = append(out, emit.Builtin(tp.Name))
-	}
-	return out
-}
-
-// applySrcTypeArgs adapts the supplied source reference to carry
-// the builder's type arguments when the source is generic. For
-// non-generic sources (empty typeArgs), the reference passes through
-// unchanged. The function understands [emit.ExternalRef] (the
-// alongside-source / centralised layouts both pass these) and
-// returns the input verbatim for any other Ref variant.
-func applySrcTypeArgs(srcRef emit.Ref, typeArgs []emit.Ref) emit.Ref {
-	if len(typeArgs) == 0 {
-		return srcRef
-	}
-	if e, ok := srcRef.(*emit.ExternalRef); ok {
-		return emit.External(e.Package, e.Name, typeArgs...)
-	}
-	return srcRef
 }
 
 // fieldIdent returns the unexported identifier the builder uses for

@@ -7,6 +7,7 @@ import (
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/node"
 )
 
 // StructBuilder configures an [emit.Struct] as part of a
@@ -65,6 +66,16 @@ func (b *StructBuilder) Target(t emit.Target) *StructBuilder {
 // generation) use this helper.
 func (b *StructBuilder) Pos(p position.Pos) *StructBuilder {
 	b.s.SourcePos = p
+	return b
+}
+
+// Origin records the source [node.Node] this emit struct was
+// derived from. The pipeline router reads the origin to resolve
+// alongside-source [emit.Target.Dir]; the manifest sink reads it
+// for per-target plugin attribution. Pass nil to clear an
+// existing origin.
+func (b *StructBuilder) Origin(n node.Node) *StructBuilder {
+	b.s.OriginNode = n
 	return b
 }
 

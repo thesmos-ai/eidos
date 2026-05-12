@@ -7,6 +7,7 @@ import (
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/node"
 )
 
 // MethodBuilder configures an [emit.Method] as part of a host's
@@ -29,6 +30,15 @@ func (b *MethodBuilder) Node() *emit.Method { return b.m }
 // Pos overrides the method's source position.
 func (b *MethodBuilder) Pos(p position.Pos) *MethodBuilder {
 	b.m.SourcePos = p
+	return b
+}
+
+// Origin records the source [node.Node] this emit method was
+// derived from — typically the source-side method or the source
+// struct/interface whose surface the rendered method shadows.
+// Pass nil to clear an existing origin.
+func (b *MethodBuilder) Origin(n node.Node) *MethodBuilder {
+	b.m.OriginNode = n
 	return b
 }
 
