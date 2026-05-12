@@ -53,9 +53,26 @@ qualifiers, and any same-package elision must apply per-element.
 
 ### `+gen:out` filename override
 
-`domain.Product` carries `+gen:out=product_codegen.go`. The router
-honours the directive and the builder file lands at that name
-rather than the conventional `product_builder.go`.
+`domain.Product` carries two `+gen:out` directives:
+
+- `+gen:out product_codegen.go` — applies to every plugin that
+  emits decls for Product. repogen / buildergen / registrygen
+  compose into one rendered file.
+- `+gen:out product_mock_test.go plugin=mockgen` — plugin-scoped
+  variant that overrides only mockgen's filename. mockgen's
+  test-package mode (`package <src>_test`) is incompatible with
+  the domain-package output sharing a filename — the
+  one-file-one-package invariant fires when both target the same
+  on-disk path with different package clauses. The scoped form
+  routes mockgen's output separately so both layouts coexist
+  cleanly.
+
+`+gen:out` accepts a positional filename and two optional
+key=value modifiers:
+
+- `plugin=<name>` scopes the override to one plugin's output.
+- `pkg=<name>` pins the rendered package clause along with the
+  filename.
 
 ### Generated test-file output
 

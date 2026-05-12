@@ -127,30 +127,48 @@ type pipelineOverride struct {
 	Routing RoutingFlags
 }
 
-// filterEnabledPlugins returns the subset of plugins enabled per the
-// config. A plugin named in the config but missing from the slice
-// is a user error (the consumer's binary doesn't statically import
-// it). When the config has no `plugins:` block at all, every plugin
-// in the slice is treated as enabled.
+// filterEnabledPlugins returns the subset of plugins enabled per
+// the config. The config's `plugins:` block is an overlay onto
+// the consumer's static plugin slice, not an allow-list:
+//
+//   - A plugin not mentioned in cfg.Plugins is enabled by default
+//     (the consumer compiled it in; the absence of a config entry
+//     leaves it on).
+//   - A plugin mentioned with `enabled: false` is disabled.
+//   - A plugin mentioned with no `enabled` field, or `enabled: true`,
+//     stays enabled; the config entry exists to attach options or
+//     per-plugin output overrides.
+//   - A plugin named in cfg.Plugins but missing from the static
+//     slice surfaces a [*ConfigError] — the consumer's binary
+//     doesn't statically import that plugin.
+//
+// Preserves the order of the static slice, which the resolver and
+// the rendered file's `Plugins:` header observe.
 func filterEnabledPlugins(cfg *Config, plugins []plugin.Plugin) ([]plugin.Plugin, error) {
-	if len(cfg.Plugins) == 0 {
-		return plugins, nil
-	}
-	available := make(map[string]plugin.Plugin, len(plugins))
-	for _, p := range plugins {
-		available[p.Name()] = p
-	}
-	out := make([]plugin.Plugin, 0, len(cfg.Plugins))
+	overlay := make(map[string]ConfigPlugin, len(cfg.Plugins))
 	for _, entry := range cfg.Plugins {
-		p, ok := available[entry.Name]
-		if !ok {
+		overlay[entry.Name] = entry
+	}
+	available := make(map[string]struct{}, len(plugins))
+	for _, p := range plugins {
+		available[p.Name()] = struct{}{}
+	}
+	for name := range overlay {
+		if _, ok := available[name]; !ok {
 			return nil, &ConfigError{
-				Reason: fmt.Sprintf("plugins[%q]: not registered in the consumer's static plugin slice", entry.Name),
+				Reason: fmt.Sprintf(
+					"plugins[%q]: not registered in the consumer's static plugin slice",
+					name,
+				),
 			}
 		}
-		if entry.IsEnabled() {
-			out = append(out, p)
+	}
+	out := make([]plugin.Plugin, 0, len(plugins))
+	for _, p := range plugins {
+		if entry, ok := overlay[p.Name()]; ok && !entry.IsEnabled() {
+			continue
 		}
+		out = append(out, p)
 	}
 	return out, nil
 }

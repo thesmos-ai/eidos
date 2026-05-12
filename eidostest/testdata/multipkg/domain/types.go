@@ -63,13 +63,27 @@ type OrderItem struct {
 // `+gen:out product_codegen.go` directive renames the rendered
 // builder file from the conventional `types_builder.go` to
 // demonstrate the [pipeline.OutDirective] override path. The
-// directive's `filename` parameter is positional (space-separated),
-// not key=value, per the directive schema.
+// directive's `filename` parameter is positional (space-separated);
+// `plugin=<name>` and `pkg=<name>` are optional key=value
+// modifiers per the directive schema.
+//
+// Two directives are stamped:
+//
+//   - The unscoped `+gen:out product_codegen.go` pins the filename
+//     for repogen / buildergen / registrygen — they share the
+//     domain package and compose into one rendered file.
+//
+//   - The scoped `+gen:out product_mock_test.go plugin=mockgen`
+//     pins mockgen separately because mockgen's test-package
+//     mode lands in `package <src>_test` and would otherwise
+//     trigger the one-file-one-package invariant if it shared
+//     a filename with the domain-package output.
 //
 // +gen:repo
 // +gen:builder
 // +gen:register
 // +gen:out product_codegen.go
+// +gen:out product_mock_test.go plugin=mockgen
 type Product struct {
 	ID    ID
 	Name  string

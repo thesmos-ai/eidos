@@ -278,6 +278,84 @@ func TestLayout_OutDirective_PluginScope(t *testing.T) {
 	})
 }
 
+// TestLayout_OutDirective_PluginScopeWithUnscopedFallback pins the
+// canonical two-directive shape for resolving the one-file-one-package
+// conflict that a plain `+gen:out filename.go` triggers when one
+// plugin (mockgen's test-package mode) lands in a different package
+// than the rest. An unscoped `+gen:out shared.go` applies to every
+// plugin no scoped directive targets; a `plugin=<name>` scoped
+// `+gen:out custom.go` overrides only the named plugin's output.
+// The two land in distinct rendered files, side-stepping the
+// invariant.
+func TestLayout_OutDirective_PluginScopeWithUnscopedFallback(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unscoped + plugin-scoped routes split into two filenames", func(t *testing.T) {
+		t.Parallel()
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{
+				SourcePos: position.Pos{File: "x/x.go"},
+				DirectiveList: []*directive.Directive{
+					{
+						Name: pipeline.OutDirective,
+						Args: []string{"shared.go"},
+					},
+					{
+						Name: pipeline.OutDirective,
+						Args: []string{"custom.go"},
+						KV:   map[string]string{"plugin": "mg"},
+					},
+				},
+			},
+			Name: "X", Package: "example.com/x",
+		}
+		repogenEmit := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin},
+			Name:     "XRepo", Package: "x",
+		}
+		buildergenEmit := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin},
+			Name:     "XBuilder", Package: "x",
+		}
+		mockgenEmit := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin},
+			Name:     "XMock", Package: "x",
+		}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(&layoutGen{name: "rg", suffix: "_repo.go", pkg: &emit.Package{
+				Name: "x", Path: "example.com/x",
+				Structs: []*emit.Struct{repogenEmit},
+			}}).
+			WithGenerator(&layoutGen{name: "bg", suffix: "_builder.go", pkg: &emit.Package{
+				Name: "x", Path: "example.com/x",
+				Structs: []*emit.Struct{buildergenEmit},
+			}}).
+			WithGenerator(&layoutGen{name: "mg", suffix: "_mock.go", pkg: &emit.Package{
+				Name: "x", Path: "example.com/x",
+				Structs: []*emit.Struct{mockgenEmit},
+			}}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "x"))
+		if got, want := repogenEmit.Target.Filename, "shared.go"; got != want {
+			t.Errorf("repogen filename = %q, want %q (unscoped +gen:out fallback)", got, want)
+		}
+		if got, want := buildergenEmit.Target.Filename, "shared.go"; got != want {
+			t.Errorf("buildergen filename = %q, want %q (unscoped +gen:out fallback)", got, want)
+		}
+		if got, want := mockgenEmit.Target.Filename, "custom.go"; got != want {
+			t.Errorf(
+				"mockgen filename = %q, want %q (plugin-scoped +gen:out wins over unscoped)",
+				got,
+				want,
+			)
+		}
+	})
+}
+
 // TestLayout_OutDirective_PkgOverride pins the pkg=<name> arg on
 // +gen:out: the supplied package overrides Target.Package and
 // Target.ImportPath at directive layer (5), winning over the

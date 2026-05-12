@@ -711,3 +711,86 @@ plugins:
 		}
 	})
 }
+
+// TestBuildPipeline_PluginOverlay pins the overlay semantics for
+// the config's `plugins:` block: plugins not mentioned stay enabled
+// (the consumer's static slice is the default-enabled universe);
+// only entries with `enabled: false` disable a plugin. This lets a
+// user attach per-plugin options or output overrides without
+// implicitly disabling every other statically-compiled plugin.
+func TestBuildPipeline_PluginOverlay(t *testing.T) {
+	t.Parallel()
+
+	t.Run(
+		"per-plugin output override leaves unlisted plugins enabled",
+		func(t *testing.T) {
+			t.Parallel()
+			env, _, _ := freshEnv(t, "eidos")
+			cfg := cli.DefaultConfig()
+			// The config only mentions one plugin — attaching an output
+			// override. Other registered plugins should remain enabled.
+			cfg.Plugins = []cli.ConfigPlugin{
+				{Name: "mockgen", Output: &cli.ConfigOutput{
+					Layout: pipeline.LayoutCentralised, Package: "mocks",
+				}},
+			}
+			p, err := cli.BuildPipeline(env, cfg, []plugin.Plugin{
+				stubFrontend{name: "fe"},
+				stubGenerator{name: "repogen"},
+				stubGenerator{name: "mockgen"},
+				stubBackend{name: "be", lang: "stub"},
+			})
+			if err != nil {
+				t.Fatalf("BuildPipeline: %v", err)
+			}
+			gens := p.Generators()
+			names := make([]string, 0, len(gens))
+			for _, g := range gens {
+				names = append(names, g.Name())
+			}
+			wantSet := map[string]bool{"repogen": true, "mockgen": true}
+			for _, n := range names {
+				if !wantSet[n] {
+					t.Errorf("unexpected generator enabled: %q", n)
+				}
+				delete(wantSet, n)
+			}
+			if len(wantSet) != 0 {
+				t.Fatalf("generators not enabled under overlay: %v (got %v)", wantSet, names)
+			}
+		},
+	)
+
+	t.Run("enabled:false disables a plugin while others stay on", func(t *testing.T) {
+		t.Parallel()
+		env, _, _ := freshEnv(t, "eidos")
+		cfg := cli.DefaultConfig()
+		off := false
+		cfg.Plugins = []cli.ConfigPlugin{
+			{Name: "mockgen", Enabled: &off},
+		}
+		p, err := cli.BuildPipeline(env, cfg, []plugin.Plugin{
+			stubFrontend{name: "fe"},
+			stubGenerator{name: "repogen"},
+			stubGenerator{name: "mockgen"},
+			stubBackend{name: "be", lang: "stub"},
+		})
+		if err != nil {
+			t.Fatalf("BuildPipeline: %v", err)
+		}
+		for _, g := range p.Generators() {
+			if g.Name() == "mockgen" {
+				t.Fatalf("mockgen should be disabled by enabled:false; found in Generators")
+			}
+		}
+		var sawRepogen bool
+		for _, g := range p.Generators() {
+			if g.Name() == "repogen" {
+				sawRepogen = true
+			}
+		}
+		if !sawRepogen {
+			t.Fatalf("repogen should stay enabled (not mentioned in config)")
+		}
+	})
+}
