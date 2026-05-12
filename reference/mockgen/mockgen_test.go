@@ -15,6 +15,7 @@ import (
 	"go.thesmos.sh/eidos/eidostest/demopipe"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/node"
+	"go.thesmos.sh/eidos/pipeline"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/reference/mockgen"
 	"go.thesmos.sh/eidos/reference/repogen"
@@ -94,12 +95,10 @@ func TestGenerate_EndToEnd(t *testing.T) {
 	t.Parallel()
 
 	result := demopipe.Run(t, demopipe.RunOptions{
-		Generators: []plugin.Generator{repogen.New(), mockgen.New()},
-		Backend:    backend_golang.New(),
-		PluginOptions: map[string]map[string]string{
-			repogen.Name: {"output_package": outputPackage},
-			mockgen.Name: {"output_package": outputPackage},
-		},
+		Generators:    []plugin.Generator{repogen.New(), mockgen.New()},
+		Backend:       backend_golang.New(),
+		Layout:        pipeline.LayoutCentralised,
+		OutputPackage: outputPackage,
 	})
 	if result.Diag.HasErrors() {
 		t.Fatalf("expected no error diagnostics; got %+v", result.Diag.Diagnostics())
@@ -126,7 +125,7 @@ func TestGenerate_EndToEnd(t *testing.T) {
 
 	t.Run("rendered Searcher mock carries Func fields plus dispatch methods", func(t *testing.T) {
 		t.Parallel()
-		body := sinkBody(t, result.Sink, "searcher.go")
+		body := sinkBody(t, result.Sink, "searcher"+mockgen.FilenameSuffix)
 		// Go's func-type rendering omits parameter names, so the
 		// field types appear as `func(context.Context, string)` —
 		// the dispatching method signatures preserve names. Both
@@ -148,7 +147,14 @@ func TestGenerate_EndToEnd(t *testing.T) {
 
 	t.Run("rendered ArticleRepository mock dispatches the canonical CRUD methods", func(t *testing.T) {
 		t.Parallel()
-		body := sinkBody(t, result.Sink, "article.go")
+		// Repogen emits ArticleRepository to article<_repo.go>; mockgen
+		// emits the *Mock* interface implementations for source
+		// interfaces, which lands in the same file when repogen and
+		// mockgen share an output target. Under centralised layout
+		// both plugins compose to the source basename + their suffix;
+		// the ArticleRepositoryMock decl lands in article<_mock.go>
+		// since it derives from the article-anchored interface.
+		body := sinkBody(t, result.Sink, "article"+mockgen.FilenameSuffix)
 		// Field-type alignment is gofmt-managed (extra whitespace
 		// between identifier and type) so the field assertions
 		// match on the rendered func-type alone.
@@ -316,7 +322,7 @@ func TestGenerate_DispatchBodyZeroReturn(t *testing.T) {
 	if err := p.Generate(ctx); err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
-	mock, ok := s.Emit().Structs().ByQName(mockgen.Name + ":" + outputPackage + ".NotifierMock")
+	mock, ok := s.Emit().Structs().ByQName(outputPackage + ".NotifierMock")
 	if !ok {
 		t.Fatalf("emit store missing NotifierMock; got %+v", s.Emit().Structs().Items())
 	}
@@ -365,7 +371,7 @@ func TestGenerate_AnonymousParamsGetNames(t *testing.T) {
 	if err := p.Generate(ctx); err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
-	mock, ok := s.Emit().Structs().ByQName(mockgen.Name + ":" + outputPackage + ".AnonProbeMock")
+	mock, ok := s.Emit().Structs().ByQName(outputPackage + ".AnonProbeMock")
 	if !ok {
 		t.Fatalf("emit store missing AnonProbeMock")
 	}
@@ -418,9 +424,9 @@ func TestGenerate_AlongsideSourceLayout(t *testing.T) {
 		if pkgs.Len() != 1 {
 			t.Fatalf("expected one emit.Package; got %d", pkgs.Len())
 		}
-		emitPkg, _ := pkgs.ByQName(mockgen.Name + ":src:" + srcPkg.Path)
+		emitPkg, _ := pkgs.ByQName(srcPkg.Path)
 		if emitPkg == nil {
-			t.Fatalf("expected emit.Package keyed by plugin-namespaced source path; got %v", pkgs)
+			t.Fatalf("expected emit.Package keyed by source path %q; got %v", srcPkg.Path, pkgs)
 		}
 		if emitPkg.Name != srcPkg.Name {
 			t.Fatalf("emit.Package.Name = %q, want %q", emitPkg.Name, srcPkg.Name)

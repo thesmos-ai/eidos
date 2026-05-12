@@ -12,6 +12,7 @@ import (
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/eidostest/demopipe"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/pipeline"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/reference/auditweaver"
 	"go.thesmos.sh/eidos/reference/debugweaver"
@@ -69,10 +70,11 @@ func TestGenerate_WeavesAuditRecord(t *testing.T) {
 	t.Parallel()
 
 	result := demopipe.Run(t, demopipe.RunOptions{
-		Generators: []plugin.Generator{repogen.New(), auditweaver.New()},
-		Backend:    backend_golang.New(),
+		Generators:    []plugin.Generator{repogen.New(), auditweaver.New()},
+		Backend:       backend_golang.New(),
+		Layout:        pipeline.LayoutCentralised,
+		OutputPackage: outputPackage,
 		PluginOptions: map[string]map[string]string{
-			repogen.Name: {"output_package": outputPackage},
 			auditweaver.Name: {
 				"package": "audit",
 				"func":    "Record",
@@ -87,7 +89,7 @@ func TestGenerate_WeavesAuditRecord(t *testing.T) {
 		t.Fatalf("pipeline Run: %v", result.RunErr)
 	}
 
-	body := sinkBody(t, result.Sink, "article.go")
+	body := sinkBody(t, result.Sink, "article"+repogen.FilenameSuffix)
 	for _, want := range []string{
 		`audit.Record("%s", "ArticleRepo.Get")`,
 		`audit.Record("%s", "ArticleRepo.List")`,
@@ -95,7 +97,7 @@ func TestGenerate_WeavesAuditRecord(t *testing.T) {
 		`audit.Record("%s", "ArticleRepo.Delete")`,
 	} {
 		if !strings.Contains(body, want) {
-			t.Fatalf("article.go missing audit record %q; got:\n%s", want, body)
+			t.Fatalf("rendered file missing audit record %q; got:\n%s", want, body)
 		}
 	}
 }
@@ -110,10 +112,11 @@ func TestGenerate_OrdersAfterTrace(t *testing.T) {
 	t.Parallel()
 
 	result := demopipe.Run(t, demopipe.RunOptions{
-		Generators: []plugin.Generator{repogen.New(), auditweaver.New(), debugweaver.New()},
-		Backend:    backend_golang.New(),
+		Generators:    []plugin.Generator{repogen.New(), auditweaver.New(), debugweaver.New()},
+		Backend:       backend_golang.New(),
+		Layout:        pipeline.LayoutCentralised,
+		OutputPackage: outputPackage,
 		PluginOptions: map[string]map[string]string{
-			repogen.Name: {"output_package": outputPackage},
 			auditweaver.Name: {
 				"package": "audit",
 				"func":    "Record",
@@ -128,11 +131,11 @@ func TestGenerate_OrdersAfterTrace(t *testing.T) {
 		t.Fatalf("pipeline Run: %v", result.RunErr)
 	}
 
-	body := sinkBody(t, result.Sink, "article.go")
+	body := sinkBody(t, result.Sink, "article"+repogen.FilenameSuffix)
 	debugIdx := strings.Index(body, `log.Printf("debug: %s entered", "ArticleRepo.Get")`)
 	auditIdx := strings.Index(body, `audit.Record("%s", "ArticleRepo.Get")`)
 	if debugIdx < 0 || auditIdx < 0 {
-		t.Fatalf("article.go missing one of the prebody contributions: debug=%d audit=%d", debugIdx, auditIdx)
+		t.Fatalf("rendered file missing one of the prebody contributions: debug=%d audit=%d", debugIdx, auditIdx)
 	}
 	if debugIdx >= auditIdx {
 		t.Fatalf("debug trace must render before audit record; got debug=%d audit=%d", debugIdx, auditIdx)

@@ -67,8 +67,8 @@ func (p *Pipeline) Run(ctx context.Context, patterns ...string) error {
 	p.runAnnotators(s)
 	p.runDirectiveOverride(s)
 	p.runGenerators(s)
-	p.runRouter(s)    // resolve Target.Dir / Target.Filename before structure freeze
-	s.Emit().Freeze() // post-generator + post-router: emit structure is frozen
+	p.runLayout(s)    // compose Target on every emit entity before structure freeze
+	s.Emit().Freeze() // post-generator + post-layout: emit structure is frozen
 	p.runBackend(s, recorder)
 	p.writeManifest(recorder, s)
 	p.logRunSummary()
@@ -220,7 +220,7 @@ func (p *Pipeline) runAnnotators(s *store.Store) {
 func (p *Pipeline) invokeAnnotator(ann plugin.Annotator, s *store.Store) {
 	ps := p.diag.For(ann.Name())
 	defer diag.RecoverAs(ps, position.Pos{})
-	r := store.NewReader(s)
+	r := p.newReader(s)
 	ctx := &plugin.AnnotatorContext{
 		Store:  s,
 		Reader: r,
@@ -278,7 +278,7 @@ func allNodesOnly(plugins []plugin.Generator) bool {
 func (p *Pipeline) invokeGenerator(gen plugin.Generator, s *store.Store) {
 	ps := p.diag.For(gen.Name())
 	defer diag.RecoverAs(ps, position.Pos{})
-	r := store.NewReader(s)
+	r := p.newReader(s)
 	ctx := &plugin.GeneratorContext{
 		Store:  s,
 		Reader: r,
@@ -313,7 +313,7 @@ func (p *Pipeline) runBackend(s *store.Store, dst sink.Sink) {
 	p.logPhaseStart("backend", "lang=%s", p.backend.Language())
 	ps := p.diag.For(p.backend.Name())
 	defer diag.RecoverAs(ps, position.Pos{})
-	r := store.NewReader(s)
+	r := p.newReader(s)
 	ctx := &plugin.BackendContext{
 		Store:      s,
 		Reader:     r,
@@ -329,6 +329,19 @@ func (p *Pipeline) runBackend(s *store.Store, dst sink.Sink) {
 		p.reportPluginError(ps, p.backend.Name(), "backend", err)
 	}
 	p.recordCacheKey(p.backend.Name(), r)
+}
+
+// newReader constructs the per-plugin [store.Reader] every plugin
+// phase hands to a plugin. When the pipeline carries a scope
+// predicate (set via [Builder.WithTargetSymbol]) the returned
+// reader pre-filters node-side range queries to in-scope nodes
+// transparently; an unconfigured pipeline returns a vanilla
+// unscoped reader.
+func (p *Pipeline) newReader(s *store.Store) *store.Reader {
+	if p.scope == nil {
+		return store.NewReader(s)
+	}
+	return store.NewScopedReader(s, p.scope)
 }
 
 // commandHeader returns the literal string to stamp into the

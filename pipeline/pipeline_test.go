@@ -7,8 +7,11 @@ import (
 	"testing"
 
 	"go.thesmos.sh/eidos/cache"
+	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/pipeline"
+	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/sink"
+	"go.thesmos.sh/eidos/store"
 )
 
 func buildBasic(t *testing.T) *pipeline.Pipeline {
@@ -266,6 +269,184 @@ func TestPipeline_Store(t *testing.T) {
 		second := p.Store()
 		if first == second {
 			t.Fatalf("re-running should replace the cached store; got identical pointers")
+		}
+	})
+}
+
+// TestPipeline_LayoutPolicyFor pins the resolved-policy accessor:
+// the default policy is alongside-source with empty package/dir;
+// the With* overrides populate the corresponding fields; the
+// accessor returns the same policy regardless of plugin name in
+// this phase (per-plugin merge layers arrive later).
+func TestPipeline_LayoutPolicyFor(t *testing.T) {
+	t.Parallel()
+
+	t.Run("default policy is alongside-source with empty package and dir", func(t *testing.T) {
+		t.Parallel()
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		got := p.LayoutPolicyFor("any-plugin")
+		if got.Layout != pipeline.LayoutAlongsideSource {
+			t.Fatalf("default Layout = %q, want %q", got.Layout, pipeline.LayoutAlongsideSource)
+		}
+		if got.Package != "" || got.Dir != "" {
+			t.Fatalf("default Package/Dir should be empty; got %+v", got)
+		}
+	})
+
+	t.Run("With* overrides populate the resolved policy", func(t *testing.T) {
+		t.Parallel()
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			WithOutputLayout(pipeline.LayoutCentralised).
+			WithOutputPackage("gen").
+			WithOutputDir("internal/gen").
+			Build()
+		assertNoError(t, err)
+		got := p.LayoutPolicyFor("repogen")
+		want := pipeline.LayoutPolicy{
+			Layout:  pipeline.LayoutCentralised,
+			Package: "gen",
+			Dir:     "internal/gen",
+		}
+		if got != want {
+			t.Fatalf("LayoutPolicyFor = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("accessor returns the same policy across plugin names in this phase", func(t *testing.T) {
+		t.Parallel()
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			WithOutputPackage("gen").
+			Build()
+		assertNoError(t, err)
+		if p.LayoutPolicyFor("repogen") != p.LayoutPolicyFor("buildergen") {
+			t.Fatalf("Phase 2 should resolve identically across plugins")
+		}
+	})
+}
+
+// TestPipeline_OutputFilename pins the CLI `-o` accessor: empty
+// when not configured, the literal value when set.
+func TestPipeline_OutputFilename(t *testing.T) {
+	t.Parallel()
+
+	t.Run("default OutputFilename is the empty string", func(t *testing.T) {
+		t.Parallel()
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		if got := p.OutputFilename(); got != "" {
+			t.Fatalf("default OutputFilename = %q, want empty", got)
+		}
+	})
+
+	t.Run("WithOutputFilename threads to the Pipeline accessor", func(t *testing.T) {
+		t.Parallel()
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			WithOutputFilename("gen.go").
+			Build()
+		assertNoError(t, err)
+		if got := p.OutputFilename(); got != "gen.go" {
+			t.Fatalf("OutputFilename = %q, want %q", got, "gen.go")
+		}
+	})
+}
+
+// TestPipeline_TargetSymbolAndScope pins the scope-filter accessor
+// pair: empty symbol → empty TargetSymbol + nil Scope; non-empty
+// symbol → literal TargetSymbol + non-nil Scope that matches the
+// directly-named source decl.
+func TestPipeline_TargetSymbolAndScope(t *testing.T) {
+	t.Parallel()
+
+	t.Run("default TargetSymbol is empty and Scope is nil", func(t *testing.T) {
+		t.Parallel()
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		if got := p.TargetSymbol(); got != "" {
+			t.Fatalf("default TargetSymbol = %q, want empty", got)
+		}
+		if p.Scope() != nil {
+			t.Fatalf("default Scope should be nil")
+		}
+	})
+
+	t.Run("WithTargetSymbol pins TargetSymbol and produces a matching predicate", func(t *testing.T) {
+		t.Parallel()
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			WithTargetSymbol("Article").
+			Build()
+		assertNoError(t, err)
+		if got := p.TargetSymbol(); got != "Article" {
+			t.Fatalf("TargetSymbol = %q, want %q", got, "Article")
+		}
+		scope := p.Scope()
+		if scope == nil {
+			t.Fatalf("non-empty target symbol should yield a non-nil Scope")
+		}
+		if !scope(&node.Struct{Name: "Article"}) {
+			t.Fatalf("scope should match a Struct named Article")
+		}
+		if scope(&node.Struct{Name: "Other"}) {
+			t.Fatalf("scope should not match a Struct named Other")
+		}
+	})
+
+	t.Run("scope reaches plugin contexts via the per-plugin Reader", func(t *testing.T) {
+		t.Parallel()
+		var seenStructs int
+		fe := &recFE{
+			name: "fe",
+			loadFn: func(s *store.Store) {
+				_ = s.Nodes().AddPackage(&node.Package{
+					Name: "users", Path: "example.com/users",
+					Structs: []*node.Struct{
+						{Name: "Article", Package: "example.com/users"},
+						{Name: "Other", Package: "example.com/users"},
+					},
+				})
+			},
+		}
+		gen := &recGen{
+			name: "rec",
+			generate: func(ctx *plugin.GeneratorContext) {
+				seenStructs = len(ctx.Reader.Structs().Slice())
+			},
+		}
+		p, err := pipeline.New().
+			WithFrontend(fe).
+			WithGenerator(gen).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			WithTargetSymbol("Article").
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "x"))
+		if seenStructs != 1 {
+			t.Fatalf("scoped generator should see 1 struct (Article only); got %d", seenStructs)
 		}
 	})
 }

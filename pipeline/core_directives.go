@@ -6,7 +6,7 @@ package pipeline
 import "go.thesmos.sh/eidos/core/directive"
 
 // OutDirective is the name of the canonical `out` directive — the
-// per-source filename override the [Router] phase consumes. Source
+// per-source filename override the Layout phase consumes. Source
 // authors annotate an entity with `+gen:out filename.go` (or
 // whatever prefix the directive parser is configured with) to pin
 // the rendered filename for whatever the plugins emit from that
@@ -16,15 +16,15 @@ const OutDirective directive.Name = "out"
 
 // coreDirectives returns the directive schemas the pipeline registers
 // unconditionally, before any builder-supplied or plugin-supplied
-// schemas. These are framework-level directives the [Router] phase
+// schemas. These are framework-level directives the Layout phase
 // and other internal subsystems depend on; reserving them centrally
 // prevents accidental collisions with plugin-defined directives.
 //
 // Currently:
 //
 //   - `out`: one positional arg (the filename). Applies to any node
-//     kind. The Router reads it off the originating node and stamps
-//     [emit.Target.Filename]. Source-side use:
+//     kind. The Layout phase reads it off the originating node and
+//     stamps [emit.Target.Filename]. Source-side use:
 //
 //     //+gen:out user_repo_mock.go
 //     type UserRepo interface { ... }

@@ -11,6 +11,7 @@ import (
 
 	"go.thesmos.sh/eidos/cache"
 	"go.thesmos.sh/eidos/core/diag"
+	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/pipeline"
@@ -296,7 +297,10 @@ func TestPipeline_Run_BackendPhase(t *testing.T) {
 		assertNoError(t, err)
 		assertNoError(t, p.Run(t.Context()))
 		if seenCtx.SourceRoot != wd {
-			t.Fatalf("unset SourceRoot should resolve to os.Getwd at Build time; got %q, want %q", seenCtx.SourceRoot, wd)
+			t.Fatalf(
+				"unset SourceRoot should resolve to os.Getwd at Build time; got %q, want %q",
+				seenCtx.SourceRoot, wd,
+			)
 		}
 	})
 
@@ -330,25 +334,39 @@ func TestPipeline_Run_EndToEnd(t *testing.T) {
 	t.Run("frontend -> annotator -> generator -> backend pipes data through the store and sink", func(t *testing.T) {
 		t.Parallel()
 		mem := sink.NewMemory()
-		// Frontend populates one struct on every Load call.
+		// Frontend populates a node.Package with one struct stamped
+		// at a deterministic source position; the Layout phase
+		// derives Target.Dir from that position and Target.Package
+		// from the package lookup. The emit-side hook below pins
+		// the same struct via the OriginNode field so Layout knows
+		// where to route its output.
+		srcStruct := &node.Struct{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "x/user.go"}},
+			Name:     "User", Package: "x",
+		}
 		fe := &recFE{
 			name: "fe",
 			loadFn: func(s *store.Store) {
 				_ = s.Nodes().AddPackage(&node.Package{
 					Name: "x", Path: "x",
-					Structs: []*node.Struct{{Name: "User", Package: "x"}},
+					Structs: []*node.Struct{srcStruct},
 				})
 			},
 		}
-		// Generator emits one struct.
+		// Generator emits one struct whose Origin is the loaded
+		// source struct. Target stamping is left to the Layout
+		// phase — composeTarget produces
+		// {Dir: "x", Filename: "user_gen.go", Package: "x",
+		// ImportPath: "x"} from the source position + the
+		// generator's "_gen.go" suffix.
 		gen := &recGen{
 			name: "gen",
 			generate: func(ctx *plugin.GeneratorContext) {
 				_ = ctx.Store.Emit().AddPackage(&emit.Package{
-					Name: "x", Path: "x", Dir: "out",
+					Name: "x", Path: "x", Dir: "x",
 					Structs: []*emit.Struct{{
-						Name: "User", Package: "x",
-						Target: emit.Target{Dir: "out", Filename: "user_gen.go", Package: "x"},
+						BaseEmit: emit.BaseEmit{OriginNode: srcStruct, SetByName: "gen"},
+						Name:     "User", Package: "x",
 					}},
 				})
 			},
@@ -370,7 +388,9 @@ func TestPipeline_Run_EndToEnd(t *testing.T) {
 			Build()
 		assertNoError(t, err)
 		assertNoError(t, p.Run(t.Context(), "x"))
-		got, ok := mem.Get(emit.Target{Dir: "out", Filename: "user_gen.go", Package: "x"})
+		got, ok := mem.Get(emit.Target{
+			Dir: "x", Filename: "user_gen.go", Package: "x", ImportPath: "x",
+		})
 		if !ok || string(got) != "rendered:User" {
 			t.Fatalf("end-to-end output mismatch: %q ok=%v", got, ok)
 		}

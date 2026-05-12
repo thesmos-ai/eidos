@@ -11,6 +11,7 @@ import (
 	"go.thesmos.sh/eidos/core/meta"
 	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/store"
 )
 
@@ -148,12 +149,50 @@ func TestEmitView_AddPackage(t *testing.T) {
 func TestEmitView_AddPackage_DuplicateDetection(t *testing.T) {
 	t.Parallel()
 
-	t.Run("rejects duplicate package paths", func(t *testing.T) {
+	t.Run("merges duplicate package paths into the existing emit.Package", func(t *testing.T) {
 		t.Parallel()
 		s := store.New()
-		assertNoError(t, s.Emit().AddPackage(makeUserEmitPackage()))
-		if err := s.Emit().AddPackage(makeUserEmitPackage()); !errors.Is(err, store.ErrDuplicateQName) {
-			t.Fatalf("got %v, want ErrDuplicateQName", err)
+		// First contribution: one struct.
+		first := &emit.Package{
+			Name: "users", Path: "example.com/users",
+			Structs: []*emit.Struct{{Name: "User", Package: "example.com/users"}},
+		}
+		assertNoError(t, s.Emit().AddPackage(first))
+		// Second contribution targeting the same Path adds a sibling
+		// struct rather than colliding on path.
+		second := &emit.Package{
+			Name: "users", Path: "example.com/users",
+			Structs: []*emit.Struct{{Name: "Repo", Package: "example.com/users"}},
+		}
+		assertNoError(t, s.Emit().AddPackage(second))
+		if pkgs := s.Emit().Packages(); pkgs.Len() != 1 {
+			t.Fatalf("merged contribution should leave one emit.Package; got %d", pkgs.Len())
+		}
+		host, _ := s.Emit().Packages().ByQName("example.com/users")
+		if host == nil || host != first {
+			t.Fatalf("merge should preserve the first-AddPackage identity; got %p, want %p", host, first)
+		}
+		if len(host.Structs) != 2 {
+			t.Fatalf("merged Structs slice should hold both contributions; got %d", len(host.Structs))
+		}
+	})
+
+	t.Run("merge preserves per-kind QName uniqueness", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		first := &emit.Package{
+			Name: "x", Path: "x",
+			Structs: []*emit.Struct{{Name: "A", Package: "x"}},
+		}
+		assertNoError(t, s.Emit().AddPackage(first))
+		// Same Name + Package across two AddPackage calls — should
+		// still surface ErrDuplicateQName from the per-kind bucket.
+		dup := &emit.Package{
+			Name: "x", Path: "x",
+			Structs: []*emit.Struct{{Name: "A", Package: "x"}},
+		}
+		if err := s.Emit().AddPackage(dup); !errors.Is(err, store.ErrDuplicateQName) {
+			t.Fatalf("merged AddPackage should still enforce per-kind QName uniqueness; got %v", err)
 		}
 	})
 
@@ -619,6 +658,110 @@ func TestEmitView_FileFor(t *testing.T) {
 		assertNoError(t, err)
 		if first != second {
 			t.Fatalf("post-freeze lookup should return the existing File")
+		}
+	})
+}
+
+// TestEmitView_AppendOriginSlot covers the origin-anchored slot
+// primitive: synchronous validation rejects nil / empty inputs,
+// valid contributions queue in registration order, snapshots are
+// detached from the live list, and post-freeze appends are
+// rejected.
+func TestEmitView_AppendOriginSlot(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil origin returns ErrNilEntry without queueing", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		err := s.Emit().AppendOriginSlot(nil, "init", &emit.Stmt{}, emit.Provenance{})
+		if !errors.Is(err, store.ErrNilEntry) {
+			t.Fatalf("got %v, want ErrNilEntry", err)
+		}
+		if got := s.Emit().PendingOriginSlots(); len(got) != 0 {
+			t.Fatalf("validation failure must not queue; got %d entries", len(got))
+		}
+	})
+
+	t.Run("nil item returns ErrNilEntry without queueing", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		err := s.Emit().AppendOriginSlot(&node.Struct{Name: "Probe"}, "init", nil, emit.Provenance{})
+		if !errors.Is(err, store.ErrNilEntry) {
+			t.Fatalf("got %v, want ErrNilEntry", err)
+		}
+		if got := s.Emit().PendingOriginSlots(); len(got) != 0 {
+			t.Fatalf("validation failure must not queue; got %d entries", len(got))
+		}
+	})
+
+	t.Run("empty slot name returns ErrUnknownSlotName without queueing", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		err := s.Emit().AppendOriginSlot(
+			&node.Struct{Name: "Probe"}, "", &emit.Stmt{}, emit.Provenance{},
+		)
+		if !errors.Is(err, store.ErrUnknownSlotName) {
+			t.Fatalf("got %v, want ErrUnknownSlotName", err)
+		}
+		if got := s.Emit().PendingOriginSlots(); len(got) != 0 {
+			t.Fatalf("validation failure must not queue; got %d entries", len(got))
+		}
+	})
+
+	t.Run("documented File slots and plugin-defined names are both accepted", func(t *testing.T) {
+		t.Parallel()
+		// The framework's File.Slot(name) accepts any name; the
+		// origin-anchored primitive matches that contract.
+		for _, name := range []string{"top", "bottom", "init", "imports", "registry"} {
+			s := store.New()
+			err := s.Emit().AppendOriginSlot(
+				&node.Struct{Name: "Probe"}, name, &emit.Stmt{}, emit.Provenance{SetBy: "stub"},
+			)
+			if err != nil {
+				t.Fatalf("slot %q should be accepted; got %v", name, err)
+			}
+		}
+	})
+
+	t.Run("registrations queue in FIFO order", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		origin := &node.Struct{Name: "Probe"}
+		assertNoError(t, s.Emit().AppendOriginSlot(origin, "init", &emit.Stmt{}, emit.Provenance{SetBy: "first"}))
+		assertNoError(t, s.Emit().AppendOriginSlot(origin, "init", &emit.Stmt{}, emit.Provenance{SetBy: "second"}))
+		entries := s.Emit().PendingOriginSlots()
+		if len(entries) != 2 {
+			t.Fatalf("expected 2 queued contributions; got %d", len(entries))
+		}
+		if entries[0].Prov.SetBy != "first" || entries[1].Prov.SetBy != "second" {
+			t.Fatalf("registration order not preserved: %+v", entries)
+		}
+	})
+
+	t.Run("PendingOriginSlots returns a snapshot detached from later appends", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		assertNoError(t, s.Emit().AppendOriginSlot(
+			&node.Struct{Name: "Probe"}, "init", &emit.Stmt{}, emit.Provenance{SetBy: "first"},
+		))
+		snapshot := s.Emit().PendingOriginSlots()
+		assertNoError(t, s.Emit().AppendOriginSlot(
+			&node.Struct{Name: "Probe2"}, "init", &emit.Stmt{}, emit.Provenance{SetBy: "second"},
+		))
+		if len(snapshot) != 1 {
+			t.Fatalf("snapshot should be unaffected by later appends; got %d entries", len(snapshot))
+		}
+	})
+
+	t.Run("frozen view rejects further contributions with ErrFrozen", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		s.Emit().Freeze()
+		err := s.Emit().AppendOriginSlot(
+			&node.Struct{Name: "Probe"}, "init", &emit.Stmt{}, emit.Provenance{},
+		)
+		if !errors.Is(err, store.ErrFrozen) {
+			t.Fatalf("got %v, want ErrFrozen", err)
 		}
 	})
 }

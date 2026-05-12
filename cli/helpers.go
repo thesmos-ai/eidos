@@ -64,3 +64,22 @@ func patternsFromConfig(cfg *Config) []string {
 	}
 	return out
 }
+
+// DefaultPattern is the source pattern subcommands fall back to
+// when neither the CLI flags nor the config file supply explicit
+// patterns. Matches the Go-frontend convention for "every package
+// rooted at the working directory" — the obvious default when the
+// user is running from a module root.
+const DefaultPattern = "./..."
+
+// patternsOrDefault returns the configured patterns or a single
+// [DefaultPattern] entry when none are configured. Subcommands
+// that drive the pipeline against a working directory (explain,
+// check, prune) use this so a no-config invocation still resolves
+// real source rather than running against an empty input set.
+func patternsOrDefault(cfg *Config) []string {
+	if p := patternsFromConfig(cfg); len(p) > 0 {
+		return p
+	}
+	return []string{DefaultPattern}
+}

@@ -12,6 +12,7 @@ import (
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/eidostest/demopipe"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/pipeline"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/reference/debugweaver"
 	"go.thesmos.sh/eidos/reference/repogen"
@@ -65,11 +66,10 @@ func TestGenerate_WeavesEveryEmitMethod(t *testing.T) {
 	t.Parallel()
 
 	result := demopipe.Run(t, demopipe.RunOptions{
-		Generators: []plugin.Generator{repogen.New(), debugweaver.New()},
-		Backend:    backend_golang.New(),
-		PluginOptions: map[string]map[string]string{
-			repogen.Name: {"output_package": outputPackage},
-		},
+		Generators:    []plugin.Generator{repogen.New(), debugweaver.New()},
+		Backend:       backend_golang.New(),
+		Layout:        pipeline.LayoutCentralised,
+		OutputPackage: outputPackage,
 	})
 	if result.Diag.HasErrors() {
 		t.Fatalf("expected no error diagnostics; got %+v", result.Diag.Diagnostics())
@@ -78,7 +78,7 @@ func TestGenerate_WeavesEveryEmitMethod(t *testing.T) {
 		t.Fatalf("pipeline Run: %v", result.RunErr)
 	}
 
-	body := sinkBody(t, result.Sink, "article.go")
+	body := sinkBody(t, result.Sink, "article"+repogen.FilenameSuffix)
 	for _, want := range []string{
 		`log.Printf("debug: %s entered", "ArticleRepo.Get")`,
 		`log.Printf("debug: %s entered", "ArticleRepo.List")`,
@@ -86,7 +86,7 @@ func TestGenerate_WeavesEveryEmitMethod(t *testing.T) {
 		`log.Printf("debug: %s entered", "ArticleRepo.Delete")`,
 	} {
 		if !strings.Contains(body, want) {
-			t.Fatalf("article.go missing entry trace %q; got:\n%s", want, body)
+			t.Fatalf("rendered file missing entry trace %q; got:\n%s", want, body)
 		}
 	}
 }

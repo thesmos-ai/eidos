@@ -15,6 +15,7 @@ import (
 	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/eidostest/demopipe"
 	"go.thesmos.sh/eidos/node"
+	"go.thesmos.sh/eidos/pipeline"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/reference/buildergen"
 	"go.thesmos.sh/eidos/sink"
@@ -105,7 +106,7 @@ func TestGenerate_EndToEnd(t *testing.T) {
 
 	t.Run("rendered Article builder carries setters for every exported field plus Build", func(t *testing.T) {
 		t.Parallel()
-		body := sinkBody(t, result.Sink, "article.go")
+		body := sinkBody(t, result.Sink, "article"+buildergen.FilenameSuffix)
 		for _, want := range []string{
 			"type ArticleBuilder struct",
 			"func (b *ArticleBuilder) WithID(value [16]byte) *ArticleBuilder",
@@ -124,7 +125,7 @@ func TestGenerate_EndToEnd(t *testing.T) {
 
 	t.Run("Comment builder exposes its exported fields including the generic Box embed", func(t *testing.T) {
 		t.Parallel()
-		body := sinkBody(t, result.Sink, "comment.go")
+		body := sinkBody(t, result.Sink, "comment"+buildergen.FilenameSuffix)
 		for _, want := range []string{
 			"type CommentBuilder struct",
 			"func (b *CommentBuilder) Build() *blog.Comment",
@@ -229,7 +230,7 @@ func TestGenerate_FieldTypeCoverage(t *testing.T) {
 		t.Fatalf("Generate: %v", err)
 	}
 
-	probe, ok := s.Emit().Structs().ByQName(buildergen.Name + ":" + outputPackage + ".ProbeBuilder")
+	probe, ok := s.Emit().Structs().ByQName(outputPackage + ".ProbeBuilder")
 	if !ok {
 		t.Fatalf("emit store missing ProbeBuilder; got %+v", s.Emit().Structs().Items())
 	}
@@ -301,7 +302,7 @@ func TestGenerate_AlongsideSourceLayout(t *testing.T) {
 		if pkgs.Len() != 1 {
 			t.Fatalf("expected one emit.Package; got %d", pkgs.Len())
 		}
-		emitPkg, _ := pkgs.ByQName(buildergen.Name + ":" + srcPkg.Path)
+		emitPkg, _ := pkgs.ByQName(srcPkg.Path)
 		if emitPkg == nil {
 			t.Fatalf("expected emit.Package keyed by plugin-namespaced source path; got %v", pkgs)
 		}
@@ -325,16 +326,23 @@ func TestGenerate_AlongsideSourceLayout(t *testing.T) {
 }
 
 // runFixture builds the demopipe harness with buildergen engaged
-// and the supplied option overrides applied.
+// and the supplied option overrides applied. Centralised layout +
+// the shared output package are pinned via the routing-layer
+// surface.
 func runFixture(t *testing.T, extraOpts map[string]string) demopipe.Result {
 	t.Helper()
-	opts := map[string]string{"output_package": outputPackage}
+	opts := map[string]string{}
 	maps.Copy(opts, extraOpts)
-	return demopipe.Run(t, demopipe.RunOptions{
+	runOpts := demopipe.RunOptions{
 		Generators:    []plugin.Generator{buildergen.New()},
 		Backend:       backend_golang.New(),
-		PluginOptions: map[string]map[string]string{buildergen.Name: opts},
-	})
+		Layout:        pipeline.LayoutCentralised,
+		OutputPackage: outputPackage,
+	}
+	if len(opts) > 0 {
+		runOpts.PluginOptions = map[string]map[string]string{buildergen.Name: opts}
+	}
+	return demopipe.Run(t, runOpts)
 }
 
 // configuredPlugin returns a fresh buildergen plugin with the

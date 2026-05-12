@@ -105,7 +105,8 @@ func TestGeneratedFileFilter_LiveFrontend(t *testing.T) {
 
 	t.Run("SkipGeneratedFiles=false includes the file", func(t *testing.T) {
 		t.Parallel()
-		pkg := requirePackageOpts(t,
+		pkg := requirePackageOpts(
+			t,
 			map[string]string{"probe.go": src},
 			map[string]string{"skip_generated_files": "false"},
 		)

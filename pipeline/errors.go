@@ -88,3 +88,20 @@ var ErrIncompatibleEmitVersion = errors.New("pipeline: incompatible emit version
 // wrapping error chain preserves [directive.ErrInvalidPrefix] so
 // callers can match on it via [errors.Is].
 var ErrInvalidDirectivePrefix = errors.New("pipeline: invalid directive prefix")
+
+// ErrMissingFilenameProvider is surfaced by the Layout phase when a
+// plugin emits a routable decl or a File-level slot contribution
+// but does not implement [plugin.FilenameProvider]. The Layout
+// phase wraps the sentinel with the offending plugin's name and
+// the kind that triggered the lookup; consumers compare with
+// [errors.Is].
+//
+// The check fires at Layout-phase runtime rather than at
+// [Builder.Build] time because routability is data-dependent —
+// the framework cannot statically tell which generators will
+// emit. Plugins that legitimately emit nothing routable (method-
+// slot weavers contributing only to other plugins' decls) do not
+// trigger the check and need not implement the capability.
+var ErrMissingFilenameProvider = errors.New(
+	"pipeline: plugin emitted routable output without declaring a filename suffix",
+)

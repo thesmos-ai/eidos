@@ -14,6 +14,34 @@ import (
 	"go.thesmos.sh/eidos/store"
 )
 
+// LayoutAlongsideSource selects the alongside-source layout
+// policy: rendered files land in the directory of the originating
+// source file, declaring the source package's name. This is the
+// framework default.
+const LayoutAlongsideSource = "alongside-source"
+
+// LayoutCentralised selects the centralised layout policy:
+// rendered files land in a configured shared directory under a
+// configured package name, regardless of origin location.
+const LayoutCentralised = "centralised"
+
+// LayoutPolicy is the resolved routing policy for one plugin in
+// one pipeline run. The pipeline composes it by merging the
+// framework default with the project [output] config, the
+// per-plugin override, and CLI overrides — field by field, later
+// layers winning. The Layout phase reads the policy through
+// [Pipeline.LayoutPolicyFor] when composing each decl's Target.
+//
+// Layout is one of [LayoutAlongsideSource] or [LayoutCentralised].
+// Package and Dir are meaningful only under centralised layout;
+// alongside-source layout derives them from origin and ignores
+// these fields at routing time.
+type LayoutPolicy struct {
+	Layout  string
+	Package string
+	Dir     string
+}
+
 // Pipeline is the validated, ready-to-run artifact returned by
 // [Builder.Build]. It holds the participating plugins grouped by
 // role plus the shared sink, cache, and diagnostic sink supplied
@@ -36,6 +64,10 @@ type Pipeline struct {
 	manifestPath string
 	command      string
 	sourceRoot   string
+	policy       LayoutPolicy
+	outFilename  string
+	scope        store.ScopePredicate
+	targetSym    string
 	plan         *Plan
 	registry     *directive.Registry
 	parser       *directive.Parser
@@ -105,6 +137,39 @@ func (p *Pipeline) Verbose() bool { return p.verbose }
 // each bucket. "eidos explain plan" tooling reads this to display
 // the resolved ordering without running the pipeline.
 func (p *Pipeline) Plan() *Plan { return p.plan }
+
+// LayoutPolicyFor returns the resolved [LayoutPolicy] for the
+// named plugin. The result is composed by merging framework
+// default + project config + per-plugin override + CLI overrides
+// field by field. Until the project / per-plugin config consumer
+// arrives, the resolved policy is run-wide and returned uniformly
+// regardless of pluginName — the accessor's signature is stable
+// so per-plugin merge layers slot in without consumer changes.
+//
+// The accessor is stable across repeated calls for the same
+// pluginName on the same pipeline instance; the policy is pinned
+// at [Builder.Build] time.
+func (p *Pipeline) LayoutPolicyFor(_ string) LayoutPolicy {
+	return p.policy
+}
+
+// OutputFilename returns the literal filename pinned by
+// [Builder.WithOutputFilename] (or the CLI `-o` flag). Empty
+// means no override is in effect and each decl resolves Filename
+// from its origin basename + the contributing plugin's filename
+// suffix.
+func (p *Pipeline) OutputFilename() string { return p.outFilename }
+
+// TargetSymbol returns the symbol name pinned by
+// [Builder.WithTargetSymbol] (or the CLI `-target` flag). Empty
+// means no scope filter is active; every source decl participates.
+func (p *Pipeline) TargetSymbol() string { return p.targetSym }
+
+// Scope returns the [store.ScopePredicate] every per-plugin
+// Reader is constructed with, or nil when no scope filter is
+// configured. Nil means range queries through the Reader
+// observe every source node — the framework default.
+func (p *Pipeline) Scope() store.ScopePredicate { return p.scope }
 
 // DirectiveRegistry returns the [directive.Registry] populated at
 // Build time from every schema supplied via [Builder.WithDirective].

@@ -6,6 +6,7 @@ package store_test
 import (
 	"testing"
 
+	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/store"
 )
 
@@ -115,6 +116,93 @@ func TestReader_EmitQueries(t *testing.T) {
 			if !r.ReadSet().Has(k) {
 				t.Fatalf("ReadSet missing key %q", k)
 			}
+		}
+	})
+}
+
+// TestNewScopedReader covers the scope-filter contract: node-side
+// range queries pre-filter to nodes matching the predicate; direct
+// bucket access bypasses the predicate; emit-side queries are
+// unfiltered.
+func TestNewScopedReader(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil scope is equivalent to NewReader (no filter)", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		assertNoError(t, s.Nodes().AddPackage(makeUserPackage()))
+		r := store.NewScopedReader(s, nil)
+		if got := r.Structs().Slice(); len(got) != 2 {
+			t.Fatalf("nil scope should yield every struct; got %d", len(got))
+		}
+	})
+
+	t.Run("scope predicate filters node-side range queries", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		assertNoError(t, s.Nodes().AddPackage(makeUserPackage()))
+		// Match only the User struct.
+		r := store.NewScopedReader(s, func(n node.Node) bool {
+			st, ok := n.(*node.Struct)
+			return ok && st.Name == "User"
+		})
+		got := r.Structs().Slice()
+		if len(got) != 1 || got[0].Name != "User" {
+			t.Fatalf("scope should yield only User; got %+v", got)
+		}
+	})
+
+	t.Run("scope applies to every node-side accessor uniformly", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		assertNoError(t, s.Nodes().AddPackage(makeUserPackage()))
+		// Reject every node — every range query should be empty.
+		r := store.NewScopedReader(s, func(node.Node) bool { return false })
+		queries := map[string]int{
+			"packages":      len(r.Packages().Slice()),
+			"files":         len(r.Files().Slice()),
+			"imports":       len(r.Imports().Slice()),
+			"structs":       len(r.Structs().Slice()),
+			"interfaces":    len(r.Interfaces().Slice()),
+			"methods":       len(r.Methods().Slice()),
+			"fields":        len(r.Fields().Slice()),
+			"functions":     len(r.Functions().Slice()),
+			"variables":     len(r.Variables().Slice()),
+			"constants":     len(r.Constants().Slice()),
+			"enums":         len(r.Enums().Slice()),
+			"enum_variants": len(r.EnumVariants().Slice()),
+			"aliases":       len(r.Aliases().Slice()),
+		}
+		for kind, count := range queries {
+			if count != 0 {
+				t.Fatalf("reject-all scope should empty %q query; got %d entries", kind, count)
+			}
+		}
+	})
+
+	t.Run("direct bucket access bypasses the scope filter", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		assertNoError(t, s.Nodes().AddPackage(makeUserPackage()))
+		// Reader rejects everything, but the underlying bucket is
+		// untouched — callers needing exact-name lookup must still
+		// reach them.
+		r := store.NewScopedReader(s, func(node.Node) bool { return false })
+		if got := r.Structs().Slice(); len(got) != 0 {
+			t.Fatalf("scoped reader should hide structs; got %d", len(got))
+		}
+		if got := r.Store().Nodes().Structs().Items(); len(got) == 0 {
+			t.Fatalf("direct bucket access should bypass scope and yield the underlying entities")
+		}
+	})
+
+	t.Run("emit-side queries are unfiltered regardless of scope", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		assertNoError(t, s.Emit().AddPackage(makeUserEmitPackage()))
+		r := store.NewScopedReader(s, func(node.Node) bool { return false })
+		if got := r.EmitStructs().Slice(); len(got) == 0 {
+			t.Fatalf("emit-side range queries should ignore scope; got 0 entries")
 		}
 	})
 }

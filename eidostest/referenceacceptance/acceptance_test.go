@@ -13,6 +13,7 @@ import (
 	backend_golang "go.thesmos.sh/eidos/backend/golang"
 	"go.thesmos.sh/eidos/eidostest/demopipe"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/pipeline"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/reference/auditweaver"
 	"go.thesmos.sh/eidos/reference/buildergen"
@@ -48,38 +49,46 @@ func TestEndToEnd(t *testing.T) {
 
 	t.Run("repogen-emitted methods carry debug-then-audit prebody", func(t *testing.T) {
 		t.Parallel()
-		article := sinkBodyFromResult(t, result, "article.go")
-		// Both contributions must appear inside the same method's
-		// body and in the canonical order.
-		debugIdx := strings.Index(article, `log.Printf("debug: %s entered", "ArticleRepo.Get")`)
-		auditIdx := strings.Index(article, `audit.Record("%s", "ArticleRepo.Get")`)
+		// Under the centralised layout each plugin composes
+		// `<source-basename><plugin-suffix>` for its rendered file,
+		// so repogen's ArticleRepository body lands in
+		// `article<_repo.go>`. Both prebody contributions render
+		// into that file in capability-topo order (debug then audit).
+		body := sinkBodyFromResult(t, result, "article"+repogen.FilenameSuffix)
+		debugIdx := strings.Index(body, `log.Printf("debug: %s entered", "ArticleRepo.Get")`)
+		auditIdx := strings.Index(body, `audit.Record("%s", "ArticleRepo.Get")`)
 		if debugIdx < 0 || auditIdx < 0 {
-			t.Fatalf("article.go missing prebody contributions: debug=%d audit=%d", debugIdx, auditIdx)
+			t.Fatalf("rendered file missing prebody contributions: debug=%d audit=%d", debugIdx, auditIdx)
 		}
 		if debugIdx >= auditIdx {
 			t.Fatalf("debug must render before audit; got debug=%d audit=%d", debugIdx, auditIdx)
 		}
 	})
 
-	t.Run("buildergen + repogen compose into the same article.go", func(t *testing.T) {
+	t.Run("buildergen + repogen each render into per-suffix files", func(t *testing.T) {
 		t.Parallel()
-		article := sinkBodyFromResult(t, result, "article.go")
-		for _, want := range []string{"type ArticleRepository interface", "type ArticleBuilder struct"} {
-			if !strings.Contains(article, want) {
-				t.Fatalf("article.go missing %q; got:\n%s", want, article)
-			}
+		repo := sinkBodyFromResult(t, result, "article"+repogen.FilenameSuffix)
+		bld := sinkBodyFromResult(t, result, "article"+buildergen.FilenameSuffix)
+		if !strings.Contains(repo, "type ArticleRepository interface") {
+			t.Fatalf("repo file missing ArticleRepository; got:\n%s", repo)
+		}
+		if !strings.Contains(bld, "type ArticleBuilder struct") {
+			t.Fatalf("builder file missing ArticleBuilder; got:\n%s", bld)
 		}
 	})
 
 	t.Run("mockgen produces a mock per emit interface plus the +gen:mock source interface", func(t *testing.T) {
 		t.Parallel()
-		article := sinkBodyFromResult(t, result, "article.go")
-		searcher := sinkBodyFromResult(t, result, "searcher.go")
+		// Mockgen composes its mock files from the upstream
+		// interface's origin (Article struct → article_mock.go;
+		// Searcher interface → searcher_mock.go).
+		article := sinkBodyFromResult(t, result, "article"+mockgen.FilenameSuffix)
+		searcher := sinkBodyFromResult(t, result, "searcher"+mockgen.FilenameSuffix)
 		if !strings.Contains(article, "type ArticleRepositoryMock struct") {
-			t.Fatalf("article.go missing ArticleRepositoryMock; got:\n%s", article)
+			t.Fatalf("mock file missing ArticleRepositoryMock; got:\n%s", article)
 		}
 		if !strings.Contains(searcher, "type SearcherMock struct") {
-			t.Fatalf("searcher.go missing SearcherMock; got:\n%s", searcher)
+			t.Fatalf("mock file missing SearcherMock; got:\n%s", searcher)
 		}
 	})
 
@@ -137,8 +146,9 @@ func TestEndToEnd_ByteStable(t *testing.T) {
 }
 
 // runAllPlugins wires every reference plugin against the
-// demoproject fixture with each plugin pointed at the shared
-// outputPackage so they compose into one rendered tree.
+// demoproject fixture with the centralised layout selected through
+// the routing-layer surface so foundation + composition +
+// cross-cutting contributions all share an output directory.
 func runAllPlugins(t *testing.T) demopipe.Result {
 	t.Helper()
 	return demopipe.Run(t, demopipe.RunOptions{
@@ -151,11 +161,16 @@ func runAllPlugins(t *testing.T) demopipe.Result {
 			auditweaver.New(),
 			registrygen.New(),
 		},
-		Backend: backend_golang.New(),
+		Backend:       backend_golang.New(),
+		Layout:        pipeline.LayoutCentralised,
+		OutputPackage: outputPackage,
 		PluginOptions: map[string]map[string]string{
-			repogen.Name:    {"output_package": outputPackage},
-			buildergen.Name: {"output_package": outputPackage},
-			mockgen.Name:    {"output_package": outputPackage},
+			// registrygen synthesises an emit.File via FileFor at
+			// generator time; the Layout phase does not re-route
+			// pre-built Files because they carry no source Origin.
+			// Until the plugin migrates to origin-anchored slot
+			// attachment, its plugin-level output_package option
+			// is the path that drives centralised routing.
 			registrygen.Name: {
 				"output_package":   outputPackage,
 				"register_package": "registry",

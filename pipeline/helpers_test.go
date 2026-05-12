@@ -212,16 +212,27 @@ func (a *recAnn) Annotate(ctx *plugin.AnnotatorContext) error {
 
 // recGen is a recording generator. Mirrors recAnn for the generator
 // phase and exposes a generate hook for tests that want to populate
-// emit before the backend runs.
+// emit before the backend runs. The generator advertises a default
+// filename suffix so the Layout phase can route every emit decl it
+// produces; tests that need a specific suffix set the [recGen.suffix]
+// field directly.
 type recGen struct {
 	mu       sync.Mutex
 	name     string
 	calls    int
 	err      error
+	suffix   string
 	generate func(ctx *plugin.GeneratorContext)
 }
 
 func (g *recGen) Name() string { return g.name }
+func (g *recGen) FilenameSuffix() string {
+	if g.suffix == "" {
+		return "_gen.go"
+	}
+	return g.suffix
+}
+
 func (g *recGen) Generate(ctx *plugin.GeneratorContext) error {
 	g.mu.Lock()
 	g.calls++
@@ -437,3 +448,140 @@ func (f *failingSink) Write(emit.Target, []byte) error { return f.err }
 
 // errFailingSink is the sentinel returned by [failingSink].
 var errFailingSink = errors.New("pipeline: failing sink (test)")
+
+// layoutGen is a one-shot generator used by Layout-phase tests. It
+// implements [plugin.FilenameProvider] so the Layout phase has a
+// suffix to consult, and adds a pre-built [emit.Package] to the
+// store on Generate. Before AddPackage runs the helper stamps
+// SetByName on every routable decl so the Layout phase resolves
+// each decl's SetBy → suffix lookup without ambiguity.
+//
+// Tests construct the supplied package with controlled
+// Origin / Target / Package state on each decl so the Layout
+// algorithm can be exercised independently of plugin builder
+// machinery.
+type layoutGen struct {
+	name   string
+	suffix string
+	pkg    *emit.Package
+}
+
+func (g *layoutGen) Name() string           { return g.name }
+func (g *layoutGen) FilenameSuffix() string { return g.suffix }
+func (g *layoutGen) Generate(ctx *plugin.GeneratorContext) error {
+	stampSetByOnEmitPackage(g.pkg, g.name)
+	return ctx.Store.Emit().AddPackage(g.pkg)
+}
+
+// layoutGenNoSuffix is the [layoutGen] counterpart used to exercise
+// the Layout phase's [pipeline.ErrMissingFilenameProvider] path: it
+// emits routable decls without implementing
+// [plugin.FilenameProvider], so the Layout phase has no suffix to
+// resolve and surfaces the typed error per decl.
+type layoutGenNoSuffix struct {
+	name string
+	pkg  *emit.Package
+}
+
+func (g *layoutGenNoSuffix) Name() string { return g.name }
+func (g *layoutGenNoSuffix) Generate(ctx *plugin.GeneratorContext) error {
+	stampSetByOnEmitPackage(g.pkg, g.name)
+	return ctx.Store.Emit().AddPackage(g.pkg)
+}
+
+// stampSetByOnEmitPackage walks pkg and stamps SetByName = name on
+// every routable decl in the package. Tests that hand-build emit
+// packages (bypassing the builder constructors that normally stamp
+// SetByName) call this so the Layout phase's plugin attribution
+// lookup succeeds.
+func stampSetByOnEmitPackage(pkg *emit.Package, name string) {
+	for _, s := range pkg.Structs {
+		s.SetByName = name
+	}
+	for _, i := range pkg.Interfaces {
+		i.SetByName = name
+	}
+	for _, f := range pkg.Functions {
+		f.SetByName = name
+	}
+	for _, vd := range pkg.Variables {
+		vd.SetByName = name
+	}
+	for _, c := range pkg.Constants {
+		c.SetByName = name
+	}
+	for _, e := range pkg.Enums {
+		e.SetByName = name
+	}
+	for _, a := range pkg.Aliases {
+		a.SetByName = name
+	}
+}
+
+// nodePackageFE is a frontend that adds a single [*node.Package] to
+// the store on Load. Layout-phase tests use it to seed the
+// alongside-source package lookup so Target.Package and
+// Target.ImportPath resolve to the configured values.
+type nodePackageFE struct {
+	name string
+	pkg  *node.Package
+}
+
+func (f *nodePackageFE) Name() string { return f.name }
+func (f *nodePackageFE) Load(ctx *plugin.FrontendContext) error {
+	return ctx.Store.Nodes().AddPackage(f.pkg)
+}
+
+// multiNodePackageFE is a frontend that adds multiple
+// [*node.Package] values to the store on Load. Used by Layout-phase
+// tests whose alongside-source resolution needs to distinguish two
+// origins by their source-package paths.
+type multiNodePackageFE struct {
+	name string
+	pkgs []*node.Package
+}
+
+func (f *multiNodePackageFE) Name() string { return f.name }
+func (f *multiNodePackageFE) Load(ctx *plugin.FrontendContext) error {
+	for _, p := range f.pkgs {
+		if err := ctx.Store.Nodes().AddPackage(p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// slotContributingGen is a generator that calls a caller-supplied
+// hook from Generate. Used by Layout-phase tests that exercise the
+// origin-anchored slot-attachment path: the hook calls
+// [store.EmitView.AppendOriginSlot] to queue a contribution and the
+// Layout phase materialises it into the resolved File's named
+// slot. The plugin implements [plugin.FilenameProvider] so the
+// Layout phase has a suffix to compose with.
+type slotContributingGen struct {
+	name       string
+	suffix     string
+	contribute func(ctx *plugin.GeneratorContext) error
+}
+
+func (g *slotContributingGen) Name() string           { return g.name }
+func (g *slotContributingGen) FilenameSuffix() string { return g.suffix }
+func (g *slotContributingGen) Generate(ctx *plugin.GeneratorContext) error {
+	if g.contribute == nil {
+		return nil
+	}
+	return g.contribute(ctx)
+}
+
+// hasDiagContaining reports whether any diagnostic in d carries
+// substr in its message or detail. Used by Layout-phase tests to
+// verify the typed error surfaces in the expected diagnostic
+// without coupling to its precise formatting.
+func hasDiagContaining(d *diag.Sink, substr string) bool {
+	for _, e := range d.Diagnostics() {
+		if strings.Contains(e.Message, substr) || strings.Contains(e.Detail, substr) {
+			return true
+		}
+	}
+	return false
+}

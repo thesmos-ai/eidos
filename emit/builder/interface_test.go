@@ -46,33 +46,34 @@ func TestInterfaceBuilder_MethodsAndEmbeds(t *testing.T) {
 func TestInterfaceBuilder_Accessors(t *testing.T) {
 	t.Parallel()
 
-	t.Run("Pos / Docs / Directive / Target / TypeParam / Origin thread through; nested Embed accessors", func(t *testing.T) {
-		t.Parallel()
-		c := builder.For("test", defaultTarget)
-		other := otherTarget()
-		d := fixtureDirective()
-		pos := fixturePos()
-		origin := fixtureOrigin()
-		var n *emit.Interface
-		c.Package("p", "p").
-			Interface("I", func(b *builder.InterfaceBuilder) {
-				n = b.Node()
-				b.Pos(pos).Docs("docs").Directive(d).Target(other).TypeParam("T", nil).Origin(origin).
-					Embed(emit.Builtin("Reader"), func(eb *builder.EmbedBuilder) {
-						eb.Pos(pos).Docs("embed").Directive(d)
-					})
-			})
-		assertCommon(t, n.SourcePos, n.DocLines, n.DirectiveList, pos, d)
-		if n.Target != other {
-			t.Fatalf("target override failed; got %v", n.Target)
-		}
-		if len(n.TypeParams) != 1 {
-			t.Fatalf("type param not appended")
-		}
-		if n.Origin() != origin {
-			t.Fatalf("Origin not threaded; got %v, want %v", n.Origin(), origin)
-		}
-		emb := n.Embeds[0]
-		assertCommon(t, emb.SourcePos, emb.DocLines, emb.DirectiveList, pos, d)
-	})
+	t.Run("Pos / Docs / Directive / Target / TypeParam / Origin thread through; nested Embed accessors",
+		func(t *testing.T) {
+			t.Parallel()
+			c := builder.For("test", defaultTarget)
+			other := otherTarget()
+			d := fixtureDirective()
+			pos := fixturePos()
+			origin := fixtureOrigin()
+			var n *emit.Interface
+			c.Package("p", "p").
+				Interface("I", func(b *builder.InterfaceBuilder) {
+					n = b.Node()
+					b.Pos(pos).Docs("docs").Directive(d).Target(other).TypeParam("T", nil).Origin(origin).
+						Embed(emit.Builtin("Reader"), func(eb *builder.EmbedBuilder) {
+							eb.Pos(pos).Docs("embed").Directive(d)
+						})
+				})
+			assertCommon(t, n.SourcePos, n.DocLines, n.DirectiveList, pos, d)
+			if n.Target != other {
+				t.Fatalf("target override failed; got %v", n.Target)
+			}
+			if len(n.TypeParams) != 1 {
+				t.Fatalf("type param not appended")
+			}
+			if n.Origin() != origin {
+				t.Fatalf("Origin not threaded; got %v, want %v", n.Origin(), origin)
+			}
+			emb := n.Embeds[0]
+			assertCommon(t, emb.SourcePos, emb.DocLines, emb.DirectiveList, pos, d)
+		})
 }

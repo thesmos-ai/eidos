@@ -10,6 +10,7 @@ import (
 
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/node"
 )
 
 // EmitView is the output-side view onto the [Store]. Generators
@@ -43,6 +44,9 @@ type EmitView struct {
 	byDirective *MultiIndex[directive.Name, emit.Node]
 	byTarget    *MultiIndex[emit.Target, emit.Node]
 	byMetaKey   *MultiIndex[string, emit.Node]
+
+	pendingOriginSlots   []PendingOriginSlot
+	pendingOriginSlotsMu sync.Mutex
 
 	frozen    atomic.Bool
 	fileForMu sync.Mutex
@@ -503,4 +507,66 @@ func (v *EmitView) FileFor(target emit.Target) (*emit.File, error) {
 	_ = v.files.Add(key, f) //nolint:errcheck // serialised; duplicate impossible
 	v.indexCommon(f, target.Dir, f.Target())
 	return f, nil
+}
+
+// PendingOriginSlot is one queued contribution to a per-file slot
+// anchored to an origin node rather than to a concrete
+// [emit.Target]. The Layout phase resolves origin to a Target,
+// materialises the matching [emit.File], and appends [Item] to
+// the named slot. Until Layout runs, the contribution sits on the
+// view's pending list in registration order.
+type PendingOriginSlot struct {
+	Origin   node.Node
+	SlotName string
+	Item     emit.Node
+	Prov     emit.Provenance
+}
+
+// AppendOriginSlot queues item for materialisation into origin's
+// resolved [emit.File] under slotName during the Layout phase.
+// The call validates synchronously: a nil origin, a nil item, or
+// an empty slot name returns a typed error at call time without
+// queueing anything. Slot names beyond the documented File slot
+// set (top, bottom, init, imports) are accepted — plugin-defined
+// emit kinds may declare custom slot names through [emit.File.Slot].
+//
+// On success the contribution is appended to the pending list in
+// registration order; Layout drains the list in plugin-topo order
+// across plugins and FIFO of registration within each plugin.
+//
+// Returns [ErrNilEntry] for nil origin or item, [ErrUnknownSlotName]
+// for an empty slot name (wrapped with the offending value), and
+// [ErrFrozen] when the view is frozen post-Layout.
+func (v *EmitView) AppendOriginSlot(origin node.Node, slotName string, item emit.Node, prov emit.Provenance) error {
+	if origin == nil || item == nil {
+		return ErrNilEntry
+	}
+	if slotName == "" {
+		return fmt.Errorf("%w: %q", ErrUnknownSlotName, slotName)
+	}
+	if v.frozen.Load() {
+		return fmt.Errorf("%w: EmitView (post-layout phase)", ErrFrozen)
+	}
+	v.pendingOriginSlotsMu.Lock()
+	defer v.pendingOriginSlotsMu.Unlock()
+	v.pendingOriginSlots = append(v.pendingOriginSlots, PendingOriginSlot{
+		Origin:   origin,
+		SlotName: slotName,
+		Item:     item,
+		Prov:     prov,
+	})
+	return nil
+}
+
+// PendingOriginSlots returns a snapshot of every queued
+// origin-anchored slot contribution in registration order. The
+// returned slice is a copy; callers may iterate and mutate it
+// without affecting the view's pending list. Layout drains the
+// list via this accessor at routing time.
+func (v *EmitView) PendingOriginSlots() []PendingOriginSlot {
+	v.pendingOriginSlotsMu.Lock()
+	defer v.pendingOriginSlotsMu.Unlock()
+	out := make([]PendingOriginSlot, len(v.pendingOriginSlots))
+	copy(out, v.pendingOriginSlots)
+	return out
 }

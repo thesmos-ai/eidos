@@ -82,7 +82,7 @@ func (c *PruneCommand) Execute(ctx context.Context, env *Env) (exit int) {
 		writeErr(env, "%v", err)
 		return ExitUserError
 	}
-	runErr := p.Run(ctx, patternsFromConfig(cfg)...)
+	runErr := p.Run(ctx, patternsOrDefault(cfg)...)
 	rerr := RenderDiagnostics(env.Stderr, p.Diag(), c.Config.DiagFormat, c.Config.Verbose, c.Config.Quiet)
 	if rerr != nil {
 		writeErr(env, "%v", rerr)

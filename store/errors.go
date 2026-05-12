@@ -46,3 +46,11 @@ var ErrNilEntry = errors.New("store: nil entry")
 // the violation indicates a framework-contract bug in the plugin,
 // not a problem with the user's source code.
 var ErrFrozen = errors.New("store: view is frozen")
+
+// ErrUnknownSlotName is returned by [EmitView.AppendOriginSlot]
+// when slotName is not one of the documented slot names a
+// [emit.File] exposes (top, bottom, init, imports). Returned
+// synchronously at call time so a typo in plugin code surfaces
+// immediately rather than producing a silent no-op at Layout
+// time.
+var ErrUnknownSlotName = errors.New("store: unknown slot name")

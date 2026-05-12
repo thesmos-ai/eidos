@@ -154,6 +154,14 @@ func (*Plugin) Provides() []string { return []string{Capability} }
 // but the declared dependency carries documentary intent.
 func (*Plugin) Requires() []string { return []string{RequiresRepository} }
 
+// FilenameSuffix returns [FilenameSuffix] — the per-source filename
+// suffix the Layout phase appends to the source's basename when
+// composing the rendered output path for every decl this plugin
+// emits. Implements [plugin.FilenameProvider]. Test-mode mocks use
+// [TestFilenameSuffix] instead; the per-decl suffix override flows
+// through emit-meta when [Options.Test] is enabled.
+func (*Plugin) FilenameSuffix() string { return FilenameSuffix }
+
 // Directives declares the `+gen:mock` / `-gen:mock` schema. Positive
 // directives opt source-side interfaces in; negated directives skip
 // emit-side interfaces that would otherwise be mocked.
@@ -217,7 +225,7 @@ func (p *Plugin) generateTestPackage(ctx *plugin.GeneratorContext) error {
 		testPkgName := srcPkg.Name + TestPackageSuffix
 		testImportPath := srcPkg.Path + TestPackageSuffix
 		c := builder.For(Name, emit.Target{})
-		pkg := c.Package(testPkgName, Name+":test:"+srcPkg.Path)
+		pkg := c.Package(testPkgName, testImportPath)
 		for _, si := range matches {
 			target := emit.Target{
 				Filename:   srcfile.WithSuffix(si.Pos(), si.Name, TestFilenameSuffix),
@@ -253,7 +261,7 @@ func (p *Plugin) generateTestPackage(ctx *plugin.GeneratorContext) error {
 // so all generators targeting one source struct land in one file.
 func (p *Plugin) generateCentralised(ctx *plugin.GeneratorContext) error {
 	c := builder.For(Name, emit.Target{})
-	pkg := c.Package(p.opts.OutputPackage, Name+":"+p.opts.OutputPackage)
+	pkg := c.Package(p.opts.OutputPackage, p.opts.OutputPackage)
 	for _, ei := range ctx.Reader.EmitInterfaces().Slice() {
 		if ei.HasNegatedDirective(DirectiveName) {
 			continue
@@ -307,7 +315,7 @@ func (p *Plugin) emitSourceMocksPerPackage(ctx *plugin.GeneratorContext) error {
 			return
 		}
 		c := builder.For(Name, emit.Target{})
-		pkg := c.Package(srcPkg.Name, Name+":src:"+srcPkg.Path)
+		pkg := c.Package(srcPkg.Name, srcPkg.Path)
 		for _, si := range matches {
 			target := emit.Target{
 				Filename:   srcfile.WithSuffix(si.Pos(), si.Name, FilenameSuffix),
@@ -353,8 +361,17 @@ func (p *Plugin) emitInterfaceMocks(ctx *plugin.GeneratorContext) error {
 	for _, key := range keys {
 		ifaces := groups[key]
 		pkgName := ifaces[0].Target.Package
+		// Path identity for the emit.Package: the upstream
+		// interface's ImportPath when set (canonical), else the
+		// grouping key (Dir#Package) so distinct rendered packages
+		// stay in distinct emit.Packages. Store-side merging joins
+		// multi-plugin contributions into one package on collision.
+		path := ifaces[0].Target.ImportPath
+		if path == "" {
+			path = key
+		}
 		c := builder.For(Name, emit.Target{})
-		pkg := c.Package(pkgName, Name+":emit:"+key)
+		pkg := c.Package(pkgName, path)
 		for _, ei := range ifaces {
 			// Source-file basename comes from the upstream
 			// interface's Origin — the source struct (or interface)

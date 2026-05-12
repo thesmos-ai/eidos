@@ -15,6 +15,7 @@ import (
 	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/eidostest/demopipe"
 	"go.thesmos.sh/eidos/node"
+	"go.thesmos.sh/eidos/pipeline"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/reference/repogen"
 	"go.thesmos.sh/eidos/sink"
@@ -115,7 +116,7 @@ func TestGenerate_EndToEnd(t *testing.T) {
 
 	t.Run("rendered sink output contains the canonical CRUD method set", func(t *testing.T) {
 		t.Parallel()
-		article := sinkBody(t, result.Sink, "article.go")
+		article := sinkBody(t, result.Sink, "article"+repogen.FilenameSuffix)
 		for _, want := range []string{
 			"type ArticleRepository interface",
 			"Get(ctx context.Context, id string) (*blog.Article, error)",
@@ -142,7 +143,7 @@ func TestGenerate_NamingCamel(t *testing.T) {
 	if result.RunErr != nil {
 		t.Fatalf("pipeline Run: %v", result.RunErr)
 	}
-	article := sinkBody(t, result.Sink, "article.go")
+	article := sinkBody(t, result.Sink, "article"+repogen.FilenameSuffix)
 	for _, want := range []string{
 		"type articleRepository interface",
 		"type articleRepo struct",
@@ -251,9 +252,9 @@ func TestGenerate_AlongsideSourceLayout(t *testing.T) {
 		if pkgs.Len() != 1 {
 			t.Fatalf("expected one emit.Package; got %d", pkgs.Len())
 		}
-		emitPkg, _ := pkgs.ByQName(repogen.Name + ":" + srcPkg.Path)
+		emitPkg, _ := pkgs.ByQName(srcPkg.Path)
 		if emitPkg == nil {
-			t.Fatalf("expected emit.Package keyed by plugin-namespaced source path; got %v", pkgs)
+			t.Fatalf("expected emit.Package keyed by source path %q; got %v", srcPkg.Path, pkgs)
 		}
 		if emitPkg.Name != srcPkg.Name {
 			t.Fatalf("emit.Package.Name = %q, want %q (matches source pkg name)", emitPkg.Name, srcPkg.Name)
@@ -280,15 +281,26 @@ func TestGenerate_AlongsideSourceLayout(t *testing.T) {
 // runFixture builds the demopipe harness with repogen engaged and
 // the supplied option overrides applied. Returns the captured
 // pipeline result with sink + diag + store ready for assertions.
+//
+// The harness pins centralised layout + a shared output package via
+// the routing-layer surface ([pipeline.Builder.WithOutputLayout] /
+// [pipeline.Builder.WithOutputPackage]) so every rendered file
+// lands in the configured package directory regardless of source
+// location.
 func runFixture(t *testing.T, extraOpts map[string]string) demopipe.Result {
 	t.Helper()
-	opts := map[string]string{"output_package": outputPackage}
+	opts := map[string]string{}
 	maps.Copy(opts, extraOpts)
-	return demopipe.Run(t, demopipe.RunOptions{
+	runOpts := demopipe.RunOptions{
 		Generators:    []plugin.Generator{repogen.New()},
 		Backend:       backend_golang.New(),
-		PluginOptions: map[string]map[string]string{repogen.Name: opts},
-	})
+		Layout:        pipeline.LayoutCentralised,
+		OutputPackage: outputPackage,
+	}
+	if len(opts) > 0 {
+		runOpts.PluginOptions = map[string]map[string]string{repogen.Name: opts}
+	}
+	return demopipe.Run(t, runOpts)
 }
 
 // configuredPlugin returns a fresh repogen plugin with OutputPackage

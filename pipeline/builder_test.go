@@ -420,3 +420,34 @@ func TestBuilder_WithSourceRoot(t *testing.T) {
 		}
 	})
 }
+
+// TestBuilder_WithRoutingOverrides covers receiver chaining for
+// every routing-override With* method. Behavioural coverage (each
+// value reaches the constructed Pipeline) lives in
+// TestPipeline_RoutingPolicy.
+func TestBuilder_WithRoutingOverrides(t *testing.T) {
+	t.Parallel()
+
+	type setFunc func(*pipeline.Builder) *pipeline.Builder
+	cases := []struct {
+		name string
+		set  setFunc
+	}{
+		{"WithOutputFilename", func(b *pipeline.Builder) *pipeline.Builder { return b.WithOutputFilename("gen.go") }},
+		{"WithOutputPackage", func(b *pipeline.Builder) *pipeline.Builder { return b.WithOutputPackage("gen") }},
+		{"WithOutputLayout", func(b *pipeline.Builder) *pipeline.Builder {
+			return b.WithOutputLayout(pipeline.LayoutCentralised)
+		}},
+		{"WithOutputDir", func(b *pipeline.Builder) *pipeline.Builder { return b.WithOutputDir("internal/gen") }},
+		{"WithTargetSymbol", func(b *pipeline.Builder) *pipeline.Builder { return b.WithTargetSymbol("Article") }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name+" returns the receiver", func(t *testing.T) {
+			t.Parallel()
+			b := pipeline.New()
+			if got := tc.set(b); got != b {
+				t.Fatalf("%s should return the receiver", tc.name)
+			}
+		})
+	}
+}

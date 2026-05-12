@@ -18,6 +18,7 @@ import (
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/sink"
+	"go.thesmos.sh/eidos/store"
 )
 
 // Builder accumulates plugins, sinks, cache, and run options. Call
@@ -42,6 +43,11 @@ type Builder struct {
 	options         map[string]map[string]string
 	command         string
 	sourceRoot      string
+	outputFilename  string
+	outputPackage   string
+	outputLayout    string
+	outputDir       string
+	targetSymbol    string
 }
 
 // New returns an empty Builder ready to accept plugins.
@@ -102,6 +108,61 @@ func (b *Builder) WithCommand(cmd string) *Builder {
 // directory.
 func (b *Builder) WithSourceRoot(root string) *Builder {
 	b.sourceRoot = root
+	return b
+}
+
+// WithOutputFilename pins [emit.Target.Filename] for every emitted
+// decl in scope. Empty leaves the per-decl default in place — the
+// origin source basename combined with the contributing plugin's
+// declared filename suffix. Maps to the CLI's `-o` override.
+//
+// `-o` without a scope filter routes every emitted decl from every
+// plugin into one rendered file; the CLI rejects that combination
+// at flag-parse time, but library callers using this method
+// directly should pair it with [Builder.WithTargetSymbol] or risk
+// one-file-one-package violations from the Layout phase.
+func (b *Builder) WithOutputFilename(name string) *Builder {
+	b.outputFilename = name
+	return b
+}
+
+// WithOutputPackage pins [emit.Target.Package] for every emitted
+// decl in scope. Empty inherits the per-decl default (origin's
+// source package name under alongside-source layout, the resolved
+// policy's package under centralised). Maps to the CLI's `-p`
+// override.
+func (b *Builder) WithOutputPackage(pkg string) *Builder {
+	b.outputPackage = pkg
+	return b
+}
+
+// WithOutputLayout overrides the project-default layout for this
+// run. Accepts [LayoutAlongsideSource] (the framework default) or
+// [LayoutCentralised]. Empty falls back to the configured project
+// layout, or the framework default when no project layout is set.
+// Maps to the CLI's `-layout` flag.
+func (b *Builder) WithOutputLayout(layout string) *Builder {
+	b.outputLayout = layout
+	return b
+}
+
+// WithOutputDir sets the rendered output directory under centralised
+// layout. Ignored (with a configuration warning at validation time)
+// under alongside-source layout, which derives the directory from
+// origin. Maps to the CLI's `-output-dir` flag.
+func (b *Builder) WithOutputDir(dir string) *Builder {
+	b.outputDir = dir
+	return b
+}
+
+// WithTargetSymbol narrows the run to source decls whose unqualified
+// Name equals symbol. Empty disables the filter — every source decl
+// participates. The Layout phase consumes the resulting predicate
+// through the [store.Reader] each plugin receives, so plugins
+// iterate the scoped view transparently. Maps to the CLI's
+// `-target` flag.
+func (b *Builder) WithTargetSymbol(symbol string) *Builder {
+	b.targetSymbol = symbol
 	return b
 }
 
@@ -280,6 +341,10 @@ func (b *Builder) Build() (*Pipeline, error) {
 		manifestPath: b.manifestPath,
 		command:      b.command,
 		sourceRoot:   b.resolveSourceRoot(),
+		policy:       b.resolveLayoutPolicy(),
+		outFilename:  b.outputFilename,
+		scope:        b.resolveScope(),
+		targetSym:    b.targetSymbol,
 		plan:         plan,
 		registry:     registry,
 		parser:       parser,
@@ -304,6 +369,40 @@ func (b *Builder) resolveSourceRoot() string {
 		return ""
 	}
 	return wd
+}
+
+// resolveLayoutPolicy returns the [LayoutPolicy] the Pipeline
+// stamps onto every layout decision. The merge composes the
+// framework default with builder-supplied CLI overrides today;
+// project and per-plugin config layers slot in below the CLI
+// override when their consumer is ready.
+//
+// An empty outputLayout falls back to [LayoutAlongsideSource] so
+// the framework default is observable rather than an empty string.
+func (b *Builder) resolveLayoutPolicy() LayoutPolicy {
+	layout := b.outputLayout
+	if layout == "" {
+		layout = LayoutAlongsideSource
+	}
+	return LayoutPolicy{
+		Layout:  layout,
+		Package: b.outputPackage,
+		Dir:     b.outputDir,
+	}
+}
+
+// resolveScope returns the [store.ScopePredicate] the Pipeline
+// passes to every per-plugin Reader. An empty target symbol
+// returns nil — Readers run unfiltered. A non-empty symbol
+// produces a predicate matching every source node whose
+// unqualified Name equals symbol, walking method / field
+// receivers via their Owner chain so a `-target Article`
+// invocation also passes Article's methods and fields.
+func (b *Builder) resolveScope() store.ScopePredicate {
+	if b.targetSymbol == "" {
+		return nil
+	}
+	return scopeBySymbol(b.targetSymbol)
 }
 
 // buildDirectiveParser constructs the [directive.Parser] the

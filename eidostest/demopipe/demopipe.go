@@ -84,6 +84,23 @@ type RunOptions struct {
 	// [pipeline.Builder.WithPluginOptions]. Empty map runs every
 	// plugin with its built-in defaults.
 	PluginOptions map[string]map[string]string
+
+	// Layout selects the routing layout the pipeline uses for the
+	// run — either [pipeline.LayoutAlongsideSource] (the framework
+	// default; rendered files land beside the originating source)
+	// or [pipeline.LayoutCentralised] (rendered files land in a
+	// shared directory). Empty defers to the framework default.
+	Layout string
+
+	// OutputPackage pins [emit.Target.Package] for every emitted
+	// decl in scope and supplies the shared package name centralised
+	// layouts require. Empty leaves the per-decl default in place.
+	OutputPackage string
+
+	// OutputDir sets the rendered output directory under
+	// centralised layout. Ignored under alongside-source. Empty
+	// defers to [OutputPackage] when centralised is selected.
+	OutputDir string
 }
 
 // Result captures the outcome of a [Run] call. Tests assert
@@ -137,6 +154,15 @@ func Run(t *testing.T, opts RunOptions) Result {
 		WithBackend(opts.Backend).
 		WithSink(opts.Sink).
 		WithPluginOptions(fe.Name(), feOpts)
+	if opts.Layout != "" {
+		b = b.WithOutputLayout(opts.Layout)
+	}
+	if opts.OutputPackage != "" {
+		b = b.WithOutputPackage(opts.OutputPackage)
+	}
+	if opts.OutputDir != "" {
+		b = b.WithOutputDir(opts.OutputDir)
+	}
 	for _, a := range opts.Annotators {
 		b = b.WithAnnotator(a)
 	}

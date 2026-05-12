@@ -29,16 +29,15 @@ package repogen
 
 import (
 	"errors"
-	"strings"
 
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/opt"
-	"go.thesmos.sh/eidos/core/srcfile"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/emit/builder"
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/priority"
+	"go.thesmos.sh/eidos/routing"
 )
 
 // Name is the plugin's stable identifier surfaced through
@@ -132,6 +131,12 @@ func (*Plugin) Provides() []string { return []string{Capability} }
 // Requires returns nil — repogen has no upstream dependency.
 func (*Plugin) Requires() []string { return nil }
 
+// FilenameSuffix returns [FilenameSuffix] — the per-source filename
+// suffix the Layout phase appends to the source's basename when
+// composing the rendered output path for every decl this plugin
+// emits. Implements [plugin.FilenameProvider].
+func (*Plugin) FilenameSuffix() string { return FilenameSuffix }
+
 // Directives declares the `+gen:repo` / `-gen:repo` schema with
 // the pipeline so directive validation rejects malformed uses at
 // frontend-parse time.
@@ -167,16 +172,12 @@ func (p *Plugin) Generate(ctx *plugin.GeneratorContext) error {
 // existed.
 func (p *Plugin) generateCentralised(ctx *plugin.GeneratorContext) error {
 	c := builder.For(Name, emit.Target{})
-	pkg := c.Package(p.opts.OutputPackage, Name+":"+p.opts.OutputPackage)
+	pkg := c.Package(p.opts.OutputPackage, p.opts.OutputPackage)
 	ctx.Reader.Structs().Each(func(s *node.Struct) {
 		if !p.shouldEmit(s) {
 			return
 		}
-		target := emit.Target{
-			Dir:      p.opts.OutputPackage,
-			Filename: strings.ToLower(s.Name) + ".go",
-			Package:  p.opts.OutputPackage,
-		}
+		target := routing.Centralised(s.Name, p.opts.OutputPackage, ".go")
 		p.emitOne(pkg, s, target, emit.External(s.Package, s.Name))
 	})
 	out, err := pkg.Build()
@@ -206,13 +207,9 @@ func (p *Plugin) generateAlongsideSource(ctx *plugin.GeneratorContext) error {
 			return
 		}
 		c := builder.For(Name, emit.Target{})
-		pkg := c.Package(srcPkg.Name, Name+":"+srcPkg.Path)
+		pkg := c.Package(srcPkg.Name, srcPkg.Path)
 		for _, s := range matches {
-			target := emit.Target{
-				Filename:   srcfile.WithSuffix(s.Pos(), s.Name, FilenameSuffix),
-				Package:    srcPkg.Name,
-				ImportPath: srcPkg.Path,
-			}
+			target := routing.AlongsideSource(s.Pos(), s.Name, srcPkg.Name, srcPkg.Path, FilenameSuffix)
 			p.emitOne(pkg, s, target, emit.External(s.Package, s.Name))
 		}
 		out, err := pkg.Build()
