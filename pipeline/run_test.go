@@ -486,6 +486,42 @@ func TestPipeline_Run_PanicRecovery(t *testing.T) {
 		}
 	})
 
+	t.Run("a panicking generator does not abort peers in the same phase", func(t *testing.T) {
+		t.Parallel()
+		ranA := false
+		ranC := false
+		be := &recBE{name: "be", lang: "stub"}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(&recGen{name: "before", generate: func(*plugin.GeneratorContext) {
+				ranA = true
+			}}).
+			WithGenerator(&panickyGen{name: "boom", msg: "phase peer boom"}).
+			WithGenerator(&recGen{name: "after", generate: func(*plugin.GeneratorContext) {
+				ranC = true
+			}}).
+			WithBackend(be).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		runErr := p.Run(t.Context())
+		if !errors.Is(runErr, pipeline.ErrRunHadErrors) {
+			t.Fatalf("Run should return ErrRunHadErrors after a generator panic; got %v", runErr)
+		}
+		if !ranA {
+			t.Fatalf("pre-panic generator should have run")
+		}
+		if !ranC {
+			t.Fatalf("post-panic generator should have run despite peer panic")
+		}
+		if be.calls != 1 {
+			t.Fatalf("backend should still run after a peer panic; calls=%d", be.calls)
+		}
+		if !hasPanicMessage(p.Diag(), "phase peer boom") {
+			t.Fatalf("panic message should appear in diagnostics")
+		}
+	})
+
 	t.Run("a panicking backend becomes an Error diagnostic", func(t *testing.T) {
 		t.Parallel()
 		p, err := pipeline.New().
