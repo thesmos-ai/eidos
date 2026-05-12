@@ -90,6 +90,7 @@ import (
     bgolang "go.thesmos.sh/eidos/backend/golang"
     "go.thesmos.sh/eidos/eidostest/testpipe"
     "go.thesmos.sh/eidos/emit"
+    "go.thesmos.sh/eidos/emit/builder"
     "go.thesmos.sh/eidos/node"
     "go.thesmos.sh/eidos/pipeline"
     "go.thesmos.sh/eidos/plugin"
@@ -101,15 +102,17 @@ type helloGenerator struct{}
 
 func (helloGenerator) Name() string { return "hellogen" }
 
-func (helloGenerator) Generate(ctx *plugin.GeneratorContext) error {
-    target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
-    return ctx.Store.Emit().AddPackage(&emit.Package{
-        Name: "x", Path: "x",
-        Structs: []*emit.Struct{{
-            Name: "Greeting", Package: "x", Target: target,
-            Fields: []*emit.Field{{Name: "Message", Type: emit.Builtin("string")}},
-        }},
-    })
+func (g helloGenerator) Generate(ctx *plugin.GeneratorContext) error {
+    c := builder.For(g.Name(), emit.Target{Dir: "x", Filename: "x.go", Package: "x"})
+    pkg, err := c.Package("x", "x").
+        Struct("Greeting", func(s *builder.StructBuilder) {
+            s.Field("Message", emit.Builtin("string"), nil)
+        }).
+        Build()
+    if err != nil {
+        return err
+    }
+    return ctx.Store.Emit().AddPackage(pkg)
 }
 
 func main() {
@@ -215,6 +218,121 @@ Optional capabilities a plugin may also implement:
   `RequiredKeys`, `AllowedKeys`, `MutuallyExclusiveWith`,
   `PositionalArgs`).
 
+### Building emit graphs
+
+Plugin Generators and Annotators assemble their output through
+`emit/builder` rather than hand-wiring `emit.Package` /
+`emit.Struct` / ... struct literals. The builder threads
+`Target`, `Owner` back-pointers, and slot `Provenance.SetBy`
+automatically so plugin code stays focused on intent.
+
+```go
+// Bind plugin identity (used for Provenance.SetBy stamping on
+// slot contributions) and a default Target every decl built
+// through c will inherit.
+c := builder.For("user-repo-gen", emit.Target{
+    Dir: "users", Filename: "repo.go", Package: "users",
+})
+
+pkg, err := c.Package("users", "example.com/users").
+    Struct("Repo", func(s *builder.StructBuilder) {
+        s.Field("db", emit.External("database/sql", "DB"), nil)
+        s.Method("Get", func(m *builder.MethodBuilder) {
+            m.Receiver("r", emit.Ptr(emit.Internal(s.Node())))
+            m.Param("ctx", emit.External("context", "Context"))
+            m.Param("id", emit.Builtin("string"))
+            m.Return(emit.Ptr(emit.External("example.com/users", "User")))
+            m.Return(emit.Builtin("error"))
+        })
+    }).
+    Build()
+```
+
+Structural rule violations (e.g. a method on a true alias)
+accumulate on the builder and surface from `Build`; the partial
+graph is still returned so callers can render best-effort output
+alongside diagnostics.
+
+### Cross-cutting slot contributions
+
+Cross-cutting plugins use the same `Context` to append into named
+slots on emit values built by other plugins. The available slots
+cover the common composition points: per-method `Prebody` /
+`Postbody`, per-struct `Field` / `Method`, per-file `Top` /
+`Bottom` / `Init` / `Imports`, and a few more. Each `Append*`
+call stamps `Provenance.SetBy` automatically and accepts an
+optional anchor id later contributions can position themselves
+relative to.
+
+A "debug tracer" generator that injects a `log.Printf` at the
+top of every emitted method's body:
+
+```go
+func (p *debugTracer) Generate(ctx *plugin.GeneratorContext) error {
+    c := builder.For(p.Name(), emit.Target{})
+    for _, m := range ctx.Reader.EmitMethods().Slice() {
+        stmt := emit.NewExprStmt(emit.NewCall(
+            emit.NewField(emit.NewIdent("log"), "Printf"),
+            emit.NewLiteralString("debug: "+m.Name+" entered"),
+        ))
+        if err := c.AppendPrebody(m, stmt, "trace.entry"); err != nil {
+            return err
+        }
+    }
+    return nil
+}
+```
+
+A "registry" generator that lands one `registry.Register(...)`
+call per `+gen:register` struct into the target file's
+`func init() { ... }` block:
+
+```go
+func (p *registryGen) Generate(ctx *plugin.GeneratorContext) error {
+    c := builder.For(p.Name(), emit.Target{
+        Dir: "gen", Filename: "registry.go", Package: "gen",
+    })
+    file, err := ctx.Store.Emit().FileFor(c.Target())
+    if err != nil {
+        return err
+    }
+    for _, s := range ctx.Reader.Structs().Where(store.WithDirective[*node.Struct]("register")).Slice() {
+        stmt := emit.NewExprStmt(emit.NewCall(
+            emit.NewField(emit.NewIdent("registry"), "Register"),
+            emit.NewLiteralString(s.Name),
+            emit.NewComposite(emit.External(s.Package, s.Name), nil),
+        ))
+        if err := c.AppendInit(file, stmt, "registry."+s.Name); err != nil {
+            return err
+        }
+    }
+    return nil
+}
+```
+
+Ordering across plugins is capability-topological with append
+order as the tiebreaker. A later plugin that wants to position
+its statement relative to one of the calls above uses the
+context's positional inserts:
+
+```go
+c.InsertPrebody(method, stmt, builder.After("trace.entry"))
+```
+
+`Before` / `After` target a `Provenance.ID` anchor; `Prepend`
+and `At(index)` are the absolute alternatives.
+
+The framework also provides two helpers that satisfy common plugin
+contracts without per-plugin boilerplate:
+
+- `opt.Bind(&p.opts)` returns an `*opt.Holder[Options]` that
+  plugins embed to pick up `OptionsSchema` / `SetOptions` via
+  method promotion.
+- `directive.HasPositive` / `directive.HasNegated` (plus
+  `HasPositiveDirective` / `HasNegatedDirective` methods on
+  `node.BaseNode` and `emit.BaseEmit`) express
+  opt-in / opt-out gating without per-plugin directive walks.
+
 ### Sinks and caches
 
 ```go
@@ -310,6 +428,7 @@ diagnostics.
 ```
 node/                 source-side IR (language-agnostic)
 emit/                 output-side IR (language-agnostic)
+emit/builder/         fluent decl + slot-contribution API plugins use
 store/                two-view (Source / Emit) store with mutability windows
 writer/               file-builder primitives: ImportSet, Header, Footer
 sink/                 Sink interface + Disk / Memory / Multi / Stdout
