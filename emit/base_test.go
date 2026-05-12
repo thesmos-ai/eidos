@@ -94,6 +94,46 @@ func TestBaseEmit_HasDirective(t *testing.T) {
 	})
 }
 
+func TestBaseEmit_HasPositiveDirective(t *testing.T) {
+	t.Parallel()
+
+	t.Run("matches an unnegated entry", func(t *testing.T) {
+		t.Parallel()
+		b := &emit.BaseEmit{DirectiveList: []*directive.Directive{{Name: "mock"}}}
+		if !b.HasPositiveDirective("mock") {
+			t.Fatalf("HasPositiveDirective should match the +gen:mock form")
+		}
+	})
+
+	t.Run("does not match a negated entry", func(t *testing.T) {
+		t.Parallel()
+		b := &emit.BaseEmit{DirectiveList: []*directive.Directive{{Name: "mock", Negated: true}}}
+		if b.HasPositiveDirective("mock") {
+			t.Fatalf("HasPositiveDirective should not match the -gen:mock form")
+		}
+	})
+}
+
+func TestBaseEmit_HasNegatedDirective(t *testing.T) {
+	t.Parallel()
+
+	t.Run("matches a negated entry", func(t *testing.T) {
+		t.Parallel()
+		b := &emit.BaseEmit{DirectiveList: []*directive.Directive{{Name: "mock", Negated: true}}}
+		if !b.HasNegatedDirective("mock") {
+			t.Fatalf("HasNegatedDirective should match the -gen:mock form")
+		}
+	})
+
+	t.Run("does not match an unnegated entry", func(t *testing.T) {
+		t.Parallel()
+		b := &emit.BaseEmit{DirectiveList: []*directive.Directive{{Name: "mock"}}}
+		if b.HasNegatedDirective("mock") {
+			t.Fatalf("HasNegatedDirective should not match the +gen:mock form")
+		}
+	})
+}
+
 func TestBaseEmit_Meta(t *testing.T) {
 	t.Parallel()
 

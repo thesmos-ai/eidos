@@ -78,6 +78,12 @@ type RunOptions struct {
 	// fixture root; callers may add other entries (build_tags,
 	// include_tests, …) without restating Dir.
 	FrontendOptions map[string]string
+
+	// PluginOptions carries per-plugin configuration keyed by
+	// plugin name. Each entry is forwarded verbatim to
+	// [pipeline.Builder.WithPluginOptions]. Empty map runs every
+	// plugin with its built-in defaults.
+	PluginOptions map[string]map[string]string
 }
 
 // Result captures the outcome of a [Run] call. Tests assert
@@ -136,6 +142,9 @@ func Run(t *testing.T, opts RunOptions) Result {
 	}
 	for _, g := range opts.Generators {
 		b = b.WithGenerator(g)
+	}
+	for name, kv := range opts.PluginOptions {
+		b = b.WithPluginOptions(name, kv)
 	}
 
 	p, err := b.Build()

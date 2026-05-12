@@ -100,51 +100,25 @@ func (p *Plugin) Annotate(ctx *plugin.AnnotatorContext) error {
 	return plugin.Walk(ctx, p)
 }
 
-// OnStruct is the [plugin.StructHook] entry point. It applies the
-// directive overrides first (positive forces, negative suppresses)
-// then falls through to the canonical signature heuristic.
+// OnStruct is the [plugin.StructHook] entry point. The heuristic
+// runs first; the directive — when present — overrides its
+// outcome (positive forces detection, negative suppresses it).
+// The method back-link is recorded whenever the heuristic matched
+// AND the final detection is true, so a directive-driven match
+// without a real Write method records an empty back-link
+// alongside detected=true.
 func (*Plugin) OnStruct(_ *plugin.AnnotatorContext, s *node.Struct) {
-	override, hasOverride := directiveOverride(s)
-	if hasOverride && !override {
-		Detected.Set(s.Meta(), false, Name)
-		MethodQName.Set(s.Meta(), "", Name)
-		return
+	method, matched := matchSignature(s)
+	detected := matched
+	if d := s.Directive(DirectiveName); d != nil {
+		detected = !d.Negated
 	}
-	method, ok := matchSignature(s)
-	if hasOverride && override {
-		// Positive override forces detection regardless of the
-		// heuristic outcome; record the method when present so
-		// downstream consumers can still navigate to a concrete
-		// signature on directive-driven matches that happen to
-		// also have one.
-		Detected.Set(s.Meta(), true, Name)
-		if ok {
-			MethodQName.Set(s.Meta(), methodQName(s, method), Name)
-		} else {
-			MethodQName.Set(s.Meta(), "", Name)
-		}
-		return
+	var qname string
+	if detected && matched {
+		qname = methodQName(s, method)
 	}
-	if ok {
-		Detected.Set(s.Meta(), true, Name)
-		MethodQName.Set(s.Meta(), methodQName(s, method), Name)
-		return
-	}
-	Detected.Set(s.Meta(), false, Name)
-	MethodQName.Set(s.Meta(), "", Name)
-}
-
-// directiveOverride scans s for the writer directive. Returns
-// (true, true) for `+gen:writer`, (false, true) for `-gen:writer`,
-// and (false, false) when neither directive is attached.
-func directiveOverride(s *node.Struct) (positive, hasOverride bool) {
-	for _, d := range s.DirectiveList {
-		if d.Name != DirectiveName {
-			continue
-		}
-		return !d.Negated, true
-	}
-	return false, false
+	Detected.Set(s.Meta(), detected, Name)
+	MethodQName.Set(s.Meta(), qname, Name)
 }
 
 // matchSignature returns the method that matches the canonical
@@ -169,9 +143,11 @@ func matchSignature(s *node.Struct) (*node.Method, bool) {
 
 // isByteSlice reports whether ref is the unqualified `[]byte`
 // type — a Slice variant carrying an Elem of `byte` (or its alias
-// `uint8`).
+// `uint8`). Callers pass refs sourced from a parsed Go method
+// signature, so the frontend invariants guarantee non-nil refs
+// and non-nil Elem on slice variants.
 func isByteSlice(ref *node.TypeRef) bool {
-	if ref == nil || !ref.IsSlice() || ref.Elem == nil {
+	if !ref.IsSlice() {
 		return false
 	}
 	return isBuiltin(ref.Elem, "byte") || isBuiltin(ref.Elem, "uint8")
@@ -180,10 +156,7 @@ func isByteSlice(ref *node.TypeRef) bool {
 // isBuiltin reports whether ref is the unqualified builtin named
 // want — Named variant, no package, exactly the given Name.
 func isBuiltin(ref *node.TypeRef, want string) bool {
-	if ref == nil || !ref.IsBuiltin() {
-		return false
-	}
-	return ref.Name == want
+	return ref.IsBuiltin() && ref.Name == want
 }
 
 // methodQName recomposes the store's canonical method-bucket key

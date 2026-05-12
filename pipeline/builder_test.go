@@ -218,8 +218,22 @@ func TestBuilder_WithDirective(t *testing.T) {
 			WithDirective(directive.NewSchema("b").Build(), directive.NewSchema("c").Build()).
 			Build()
 		assertNoError(t, err)
-		if got := p.DirectiveRegistry().Names(); len(got) != 3 {
-			t.Fatalf("expected 3 registered names; got %v", got)
+		got := p.DirectiveRegistry().Names()
+		// The pipeline always registers its core directives ("out"
+		// for the Router phase) ahead of user-supplied schemas, so
+		// the expected count is the user schemas plus the core set.
+		want := []string{"a", "b", "c", "out"}
+		if len(got) != len(want) {
+			t.Fatalf("registered names: got %v, want %v", got, want)
+		}
+		set := make(map[string]bool, len(got))
+		for _, n := range got {
+			set[string(n)] = true
+		}
+		for _, n := range want {
+			if !set[n] {
+				t.Fatalf("expected registry to contain %q; got %v", n, got)
+			}
 		}
 	})
 

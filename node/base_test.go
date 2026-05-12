@@ -93,6 +93,46 @@ func TestBaseNode_HasDirective(t *testing.T) {
 	})
 }
 
+func TestBaseNode_HasPositiveDirective(t *testing.T) {
+	t.Parallel()
+
+	t.Run("matches an unnegated entry", func(t *testing.T) {
+		t.Parallel()
+		b := &node.BaseNode{DirectiveList: []*directive.Directive{{Name: "repo"}}}
+		if !b.HasPositiveDirective("repo") {
+			t.Fatalf("HasPositiveDirective should match the +gen:repo form")
+		}
+	})
+
+	t.Run("does not match a negated entry", func(t *testing.T) {
+		t.Parallel()
+		b := &node.BaseNode{DirectiveList: []*directive.Directive{{Name: "repo", Negated: true}}}
+		if b.HasPositiveDirective("repo") {
+			t.Fatalf("HasPositiveDirective should not match the -gen:repo form")
+		}
+	})
+}
+
+func TestBaseNode_HasNegatedDirective(t *testing.T) {
+	t.Parallel()
+
+	t.Run("matches a negated entry", func(t *testing.T) {
+		t.Parallel()
+		b := &node.BaseNode{DirectiveList: []*directive.Directive{{Name: "repo", Negated: true}}}
+		if !b.HasNegatedDirective("repo") {
+			t.Fatalf("HasNegatedDirective should match the -gen:repo form")
+		}
+	})
+
+	t.Run("does not match an unnegated entry", func(t *testing.T) {
+		t.Parallel()
+		b := &node.BaseNode{DirectiveList: []*directive.Directive{{Name: "repo"}}}
+		if b.HasNegatedDirective("repo") {
+			t.Fatalf("HasNegatedDirective should not match the +gen:repo form")
+		}
+	})
+}
+
 func TestBaseNode_Meta(t *testing.T) {
 	t.Parallel()
 

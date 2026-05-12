@@ -7,7 +7,9 @@ import (
 	"testing"
 
 	backend_golang "go.thesmos.sh/eidos/backend/golang"
+	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/eidostest/demopipe"
+	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/reference/shapewriter"
 )
@@ -129,4 +131,226 @@ func runFixture(t *testing.T) demopipe.Result {
 		Annotators: []plugin.Annotator{shapewriter.New()},
 		Backend:    backend_golang.New(),
 	})
+}
+
+// TestOnStructOverrideMatrix drives [shapewriter.Plugin.OnStruct]
+// against every combination of {heuristic match, no match} ×
+// {no directive, +gen:writer, -gen:writer} using synthetic struct
+// values. Direct invocation of the exported hook covers the
+// override logic without requiring contrived demoproject entities.
+func TestOnStructOverrideMatrix(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name         string
+		build        func() *node.Struct
+		wantDetected bool
+		wantMethod   string
+	}{
+		{
+			name:         "no override, no heuristic match",
+			build:        func() *node.Struct { return newStruct("pkg/x", "Plain") },
+			wantDetected: false,
+			wantMethod:   "",
+		},
+		{
+			name:         "no override, heuristic match",
+			build:        func() *node.Struct { return withWriteMethod(newStruct("pkg/x", "Logger")) },
+			wantDetected: true,
+			wantMethod:   "pkg/x.Logger.Write",
+		},
+		{
+			name: "positive override, no heuristic match",
+			build: func() *node.Struct {
+				return withDirective(newStruct("pkg/x", "Forced"), false)
+			},
+			wantDetected: true,
+			wantMethod:   "",
+		},
+		{
+			name: "positive override, heuristic match",
+			build: func() *node.Struct {
+				return withDirective(withWriteMethod(newStruct("pkg/x", "Both")), false)
+			},
+			wantDetected: true,
+			wantMethod:   "pkg/x.Both.Write",
+		},
+		{
+			name: "negative override, no heuristic match",
+			build: func() *node.Struct {
+				return withDirective(newStruct("pkg/x", "Hidden"), true)
+			},
+			wantDetected: false,
+			wantMethod:   "",
+		},
+		{
+			name: "negative override, heuristic match",
+			build: func() *node.Struct {
+				return withDirective(withWriteMethod(newStruct("pkg/x", "Silent")), true)
+			},
+			wantDetected: false,
+			wantMethod:   "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := tc.build()
+			shapewriter.New().OnStruct(nil, s)
+			detected, _ := shapewriter.Detected.Get(s.Meta())
+			if detected != tc.wantDetected {
+				t.Fatalf("detected = %v, want %v", detected, tc.wantDetected)
+			}
+			method, _ := shapewriter.MethodQName.Get(s.Meta())
+			if method != tc.wantMethod {
+				t.Fatalf("method = %q, want %q", method, tc.wantMethod)
+			}
+		})
+	}
+}
+
+// TestOnStructSignatureRejection covers the heuristic's exact-
+// signature invariant: methods named `Write` with mismatched
+// parameter type, return arity, return types, or return builtin-
+// ness all fall through to detected=false. Drives every rejection
+// branch in the signature matcher through the exported hook.
+func TestOnStructSignatureRejection(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name   string
+		method *node.Method
+	}{
+		{
+			name: "wrong param type (string instead of []byte)",
+			method: &node.Method{
+				Name:    "Write",
+				Params:  []*node.Param{{Name: "s", Type: builtinRef("string")}},
+				Returns: []*node.TypeRef{builtinRef("int"), builtinRef("error")},
+			},
+		},
+		{
+			name: "non-slice param (byte instead of []byte)",
+			method: &node.Method{
+				Name:    "Write",
+				Params:  []*node.Param{{Name: "b", Type: builtinRef("byte")}},
+				Returns: []*node.TypeRef{builtinRef("int"), builtinRef("error")},
+			},
+		},
+		{
+			name: "short return arity",
+			method: &node.Method{
+				Name:    "Write",
+				Params:  []*node.Param{{Name: "p", Type: byteSliceRef()}},
+				Returns: []*node.TypeRef{builtinRef("error")},
+			},
+		},
+		{
+			name: "wrong return type (string instead of int)",
+			method: &node.Method{
+				Name:    "Write",
+				Params:  []*node.Param{{Name: "p", Type: byteSliceRef()}},
+				Returns: []*node.TypeRef{builtinRef("string"), builtinRef("error")},
+			},
+		},
+		{
+			name: "non-builtin return (pointer first slot)",
+			method: &node.Method{
+				Name:    "Write",
+				Params:  []*node.Param{{Name: "p", Type: byteSliceRef()}},
+				Returns: []*node.TypeRef{pointerRef(builtinRef("Article")), builtinRef("int")},
+			},
+		},
+		{
+			name: "wrong method name",
+			method: &node.Method{
+				Name:    "WriteString",
+				Params:  []*node.Param{{Name: "p", Type: byteSliceRef()}},
+				Returns: []*node.TypeRef{builtinRef("int"), builtinRef("error")},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := &node.Struct{Name: "Probe", Package: "pkg/x", Methods: []*node.Method{tc.method}}
+			shapewriter.New().OnStruct(nil, s)
+			detected, _ := shapewriter.Detected.Get(s.Meta())
+			if detected {
+				t.Fatalf("near-miss signature should reach detected=false; got true")
+			}
+		})
+	}
+}
+
+// TestOnStructUint8Slice pins the byte-alias path: a method whose
+// parameter is `[]uint8` (the type alias for byte) still matches
+// the writer shape. Mirrors what gofmt-stripped Go source can
+// produce when the alias is used explicitly.
+func TestOnStructUint8Slice(t *testing.T) {
+	t.Parallel()
+
+	t.Run("uint8 slice matches the heuristic", func(t *testing.T) {
+		t.Parallel()
+		uint8Slice := &node.TypeRef{TypeKind: node.TypeRefSlice, Elem: builtinRef("uint8")}
+		s := &node.Struct{
+			Name: "AliasWriter", Package: "pkg/x",
+			Methods: []*node.Method{{
+				Name:    "Write",
+				Params:  []*node.Param{{Name: "p", Type: uint8Slice}},
+				Returns: []*node.TypeRef{builtinRef("int"), builtinRef("error")},
+			}},
+		}
+		shapewriter.New().OnStruct(nil, s)
+		detected, _ := shapewriter.Detected.Get(s.Meta())
+		if !detected {
+			t.Fatalf("uint8 slice should match writer shape; got detected=false")
+		}
+	})
+}
+
+// newStruct constructs a minimal Named struct in pkgPath with the
+// supplied name. Used by the synthetic-input tests to keep each
+// case's fixture concise.
+func newStruct(pkgPath, name string) *node.Struct {
+	return &node.Struct{Name: name, Package: pkgPath}
+}
+
+// withWriteMethod appends the canonical io.Writer-shaped method to
+// s and returns s. The method's owner is left unset because the
+// hook does not depend on the owner pointer for the writer-shape
+// match.
+func withWriteMethod(s *node.Struct) *node.Struct {
+	s.Methods = append(s.Methods, &node.Method{
+		Name:    "Write",
+		Params:  []*node.Param{{Name: "p", Type: byteSliceRef()}},
+		Returns: []*node.TypeRef{builtinRef("int"), builtinRef("error")},
+	})
+	return s
+}
+
+// withDirective attaches a `+gen:writer` directive (negated when
+// neg is true) to s's directive list and returns s.
+func withDirective(s *node.Struct, neg bool) *node.Struct {
+	s.DirectiveList = append(s.DirectiveList, &directive.Directive{
+		Name:    shapewriter.DirectiveName,
+		Negated: neg,
+	})
+	return s
+}
+
+// builtinRef constructs an unqualified Named TypeRef for the given
+// builtin name.
+func builtinRef(name string) *node.TypeRef {
+	return &node.TypeRef{TypeKind: node.TypeRefNamed, Name: name}
+}
+
+// byteSliceRef constructs a fresh `[]byte` TypeRef.
+func byteSliceRef() *node.TypeRef {
+	return &node.TypeRef{TypeKind: node.TypeRefSlice, Elem: builtinRef("byte")}
+}
+
+// pointerRef wraps elem in a Pointer TypeRef.
+func pointerRef(elem *node.TypeRef) *node.TypeRef {
+	return &node.TypeRef{TypeKind: node.TypeRefPointer, Elem: elem}
 }

@@ -66,3 +66,68 @@ func TestDirective_Value(t *testing.T) {
 		assertEqualString(t, d.Value("absent"), "")
 	})
 }
+
+func TestHasPositive(t *testing.T) {
+	t.Parallel()
+
+	t.Run("matches an unnegated entry with the given name", func(t *testing.T) {
+		t.Parallel()
+		list := []*directive.Directive{{Name: "repo"}}
+		if !directive.HasPositive(list, "repo") {
+			t.Fatalf("HasPositive should match the +gen:repo form")
+		}
+	})
+
+	t.Run("does not match a negated entry with the same name", func(t *testing.T) {
+		t.Parallel()
+		list := []*directive.Directive{{Name: "repo", Negated: true}}
+		if directive.HasPositive(list, "repo") {
+			t.Fatalf("HasPositive should not match the -gen:repo form")
+		}
+	})
+
+	t.Run("returns false on an empty list", func(t *testing.T) {
+		t.Parallel()
+		if directive.HasPositive(nil, "repo") {
+			t.Fatalf("HasPositive should return false on a nil list")
+		}
+	})
+
+	t.Run("matches when a positive entry coexists with a negative", func(t *testing.T) {
+		t.Parallel()
+		list := []*directive.Directive{
+			{Name: "repo", Negated: true},
+			{Name: "repo"},
+		}
+		if !directive.HasPositive(list, "repo") {
+			t.Fatalf("HasPositive should match when at least one positive entry exists")
+		}
+	})
+}
+
+func TestHasNegated(t *testing.T) {
+	t.Parallel()
+
+	t.Run("matches a negated entry with the given name", func(t *testing.T) {
+		t.Parallel()
+		list := []*directive.Directive{{Name: "repo", Negated: true}}
+		if !directive.HasNegated(list, "repo") {
+			t.Fatalf("HasNegated should match the -gen:repo form")
+		}
+	})
+
+	t.Run("does not match an unnegated entry with the same name", func(t *testing.T) {
+		t.Parallel()
+		list := []*directive.Directive{{Name: "repo"}}
+		if directive.HasNegated(list, "repo") {
+			t.Fatalf("HasNegated should not match the +gen:repo form")
+		}
+	})
+
+	t.Run("returns false on an empty list", func(t *testing.T) {
+		t.Parallel()
+		if directive.HasNegated(nil, "repo") {
+			t.Fatalf("HasNegated should return false on a nil list")
+		}
+	})
+}

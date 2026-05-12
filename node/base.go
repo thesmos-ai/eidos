@@ -64,6 +64,20 @@ func (b *BaseNode) HasDirective(name directive.Name) bool {
 	return b.Directive(name) != nil
 }
 
+// HasPositiveDirective reports whether any directive named name is
+// attached with [directive.Directive.Negated] false — the
+// `+gen:NAME` form. Useful for opt-in gating.
+func (b *BaseNode) HasPositiveDirective(name directive.Name) bool {
+	return directive.HasPositive(b.DirectiveList, name)
+}
+
+// HasNegatedDirective reports whether any directive named name is
+// attached with [directive.Directive.Negated] true — the
+// `-gen:NAME` form. Useful for opt-out gating.
+func (b *BaseNode) HasNegatedDirective(name directive.Name) bool {
+	return directive.HasNegated(b.DirectiveList, name)
+}
+
 // Meta returns the metadata bag for this node, allocating one on
 // first access. The allocation is one-shot per node; the bag itself
 // is concurrent-safe via its own RWMutex.

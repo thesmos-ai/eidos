@@ -67,7 +67,8 @@ func (p *Pipeline) Run(ctx context.Context, patterns ...string) error {
 	p.runAnnotators(s)
 	p.runDirectiveOverride(s)
 	p.runGenerators(s)
-	s.Emit().Freeze() // post-generator: emit structure is frozen
+	p.runRouter(s)    // resolve Target.Dir / Target.Filename before structure freeze
+	s.Emit().Freeze() // post-generator + post-router: emit structure is frozen
 	p.runBackend(s, recorder)
 	p.writeManifest(recorder)
 	p.logRunSummary()

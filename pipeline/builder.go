@@ -318,6 +318,15 @@ func (b *Builder) validateEmitVersions() []error {
 func (b *Builder) buildDirectiveRegistry() (*directive.Registry, []error) {
 	r := directive.NewRegistry()
 	var errs []error
+	// Register the framework's core directives first so they're
+	// reserved against accidental override by builder-supplied or
+	// plugin-supplied schemas — a downstream attempt to redefine
+	// `out` would surface as ErrDuplicateDirective.
+	for _, s := range coreDirectives() {
+		if err := r.Register(s); err != nil {
+			errs = append(errs, fmt.Errorf("%w: %w", ErrDuplicateDirective, err))
+		}
+	}
 	for _, s := range b.directives {
 		if err := r.Register(s); err != nil {
 			errs = append(errs, fmt.Errorf("%w: %w", ErrDuplicateDirective, err))

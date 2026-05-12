@@ -46,3 +46,29 @@ func (d *Directive) HasKey(key string) bool {
 func (d *Directive) Value(key string) string {
 	return d.KV[key]
 }
+
+// HasPositive reports whether list contains a directive named name
+// with [Directive.Negated] false — the `+gen:NAME` form. Returns
+// false when list is empty or carries only negated entries for the
+// name.
+func HasPositive(list []*Directive, name Name) bool {
+	for _, d := range list {
+		if d.Name == name && !d.Negated {
+			return true
+		}
+	}
+	return false
+}
+
+// HasNegated reports whether list contains a directive named name
+// with [Directive.Negated] true — the `-gen:NAME` form. Returns
+// false when list is empty or carries only positive entries for the
+// name.
+func HasNegated(list []*Directive, name Name) bool {
+	for _, d := range list {
+		if d.Name == name && d.Negated {
+			return true
+		}
+	}
+	return false
+}
