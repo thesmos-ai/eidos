@@ -11,19 +11,15 @@
 // composition-bucket generators (e.g. mockgen) and cross-cutting
 // weavers see the emitted builder type alongside repogen output.
 //
-// # Output layout
+// # Output routing
 //
-// buildergen supports two layouts:
-//
-//   - Alongside source (default, when [Options.OutputPackage] is unset):
-//     one `<src>_builder.go` per source struct, dropped next to the
-//     source file. The router fills [emit.Target.Dir] from the
-//     source's directory; the package clause matches the source
-//     package.
-//   - Centralised (when [Options.OutputPackage] is set): every
-//     emitted decl lands in one Go package + directory. The filename
-//     is `<src>.go` so repogen and buildergen targeting the same
-//     OutputPackage compose into one file per source struct.
+// buildergen owns no routing configuration of its own — the
+// framework's routing layer composes every emit decl's
+// [emit.Target] from the source struct's origin plus the project
+// / per-plugin output config and CLI overrides. The plugin
+// declares its filename suffix via [Plugin.FilenameSuffix] and
+// sets [emit.BaseEmit.OriginNode] on every emit decl; the
+// Layout phase does the rest.
 package buildergen
 
 import (
@@ -39,7 +35,6 @@ import (
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/priority"
 	"go.thesmos.sh/eidos/reference/internal/refconv"
-	"go.thesmos.sh/eidos/routing"
 )
 
 // Name is the plugin's stable identifier surfaced through
@@ -62,19 +57,18 @@ const DirectiveName directive.Name = "builder"
 // composes into a single `article_builder.go`.
 const FilenameSuffix = "_builder.go"
 
-// Options carries the plugin's user-tunable settings.
-type Options struct {
-	// OutputPackage is the Go package name + directory the emitted
-	// builder decls land in. When unset (the default), buildergen
-	// drops one `<src>_builder.go` file alongside each source struct;
-	// the router resolves [emit.Target.Dir] from the source's
-	// directory and the package clause matches the source. Set
-	// OutputPackage when the project keeps generated code in a
-	// dedicated sibling package — pointing repogen and buildergen at
-	// the same OutputPackage composes their output into one file per
-	// source struct.
-	OutputPackage string `eidos:"output_package"`
+// Language is the backend language whose suffix
+// [Plugin.FilenameSuffix] returns. Other languages get the empty
+// signal until matching templates and per-language suffix
+// configuration land.
+const Language = "golang"
 
+// Options carries the plugin's user-tunable settings. Routing is
+// owned by the framework's routing layer; buildergen exposes no
+// output-package option — project / per-plugin output config
+// and the CLI `-layout` / `-p` / `-output-dir` flags drive
+// where rendered output lands.
+type Options struct {
 	// Suffix is appended to the source struct's name to form the
 	// emitted builder's identifier (`<Type><Suffix>`). Defaults to
 	// `Builder`.
@@ -114,11 +108,20 @@ func (*Plugin) Provides() []string { return []string{Capability} }
 // Requires returns nil — buildergen has no upstream dependency.
 func (*Plugin) Requires() []string { return nil }
 
-// FilenameSuffix returns [FilenameSuffix] — the per-source filename
-// suffix the Layout phase appends to the source's basename when
-// composing the rendered output path for every decl this plugin
-// emits. Implements [plugin.FilenameProvider].
-func (*Plugin) FilenameSuffix() string { return FilenameSuffix }
+// FilenameSuffix returns the per-source filename suffix the Layout
+// phase appends to the source's basename when composing the
+// rendered output path for every decl this plugin emits.
+// Implements [plugin.FilenameProvider]. Returns the empty string
+// for backends targeting any language other than [Language] so
+// the Layout phase surfaces a missing-FilenameProvider error
+// rather than producing a Go-shaped suffix that wouldn't match
+// the rendered output.
+func (*Plugin) FilenameSuffix(lang string) string {
+	if lang == Language {
+		return FilenameSuffix
+	}
+	return ""
+}
 
 // Directives declares the `+gen:builder` / `-gen:builder` schema so
 // directive validation rejects malformed uses at frontend-parse
@@ -137,45 +140,12 @@ func (*Plugin) Directives() []directive.Schema {
 // `-gen:builder` skips the source struct even when other generators
 // act on it.
 //
-// Output layout depends on [Options.OutputPackage]:
-//
-//   - Unset (default): one emit.Package per source package, emitted
-//     alongside the source files.
-//   - Set: every decl lands in a single centralised emit.Package.
+// Routing is owned entirely by the framework's routing layer:
+// each emit decl carries Origin set to the source struct and
+// [emit.Target] zero. The Layout phase composes Target.Dir /
+// Filename / Package / ImportPath from the origin and the
+// resolved [pipeline.LayoutPolicy] downstream.
 func (p *Plugin) Generate(ctx *plugin.GeneratorContext) error {
-	if p.opts.OutputPackage != "" {
-		return p.generateCentralised(ctx)
-	}
-	return p.generateAlongsideSource(ctx)
-}
-
-// generateCentralised drops every emitted decl into one shared
-// emit.Package keyed by [Options.OutputPackage].
-func (p *Plugin) generateCentralised(ctx *plugin.GeneratorContext) error {
-	c := builder.For(Name, emit.Target{})
-	pkg := c.Package(p.opts.OutputPackage, p.opts.OutputPackage)
-	ctx.Reader.Structs().Each(func(s *node.Struct) {
-		if !p.shouldEmit(s) {
-			return
-		}
-		target := routing.Centralised(s.Name, p.opts.OutputPackage, ".go")
-		p.emitOne(pkg, s, target, emit.External(s.Package, s.Name))
-	})
-	out, err := pkg.Build()
-	if err != nil {
-		return err
-	}
-	if err := ctx.Store.Emit().AddPackage(out); err != nil {
-		return errors.Join(errAddPackage, err)
-	}
-	return nil
-}
-
-// generateAlongsideSource emits one emit.Package per source package,
-// containing one decl per `+gen:builder` target. Each emitted decl's
-// Target is filename-only — the router fills Target.Dir from the
-// source's directory at the routing phase.
-func (p *Plugin) generateAlongsideSource(ctx *plugin.GeneratorContext) error {
 	var firstErr error
 	ctx.Reader.Packages().Each(func(srcPkg *node.Package) {
 		matches := matchingStructs(srcPkg, p.shouldEmit)
@@ -185,11 +155,7 @@ func (p *Plugin) generateAlongsideSource(ctx *plugin.GeneratorContext) error {
 		c := builder.For(Name, emit.Target{})
 		pkg := c.Package(srcPkg.Name, srcPkg.Path)
 		for _, s := range matches {
-			target := routing.AlongsideSource(s.Pos(), s.Name, srcPkg.Name, srcPkg.Path, FilenameSuffix)
-			// Same-package elision via [emit.Target.ImportPath]
-			// renders this reference bare — no self-import on the
-			// rendered file.
-			p.emitOne(pkg, s, target, emit.External(s.Package, s.Name))
+			p.emitOne(pkg, s, emit.External(s.Package, s.Name))
 		}
 		out, err := pkg.Build()
 		if err != nil {
@@ -239,12 +205,13 @@ func (*Plugin) shouldEmit(s *node.Struct) bool {
 // across chained calls; `Build` returns a pointer-to-source-struct
 // populated from those fields.
 //
-// srcRef is the reference the emitted `Build` method's return uses
-// for the source type — callers in centralised layout pass
-// [emit.External] so the renderer adds the import; callers in
-// alongside-source layout pass [emit.External] too, and the
-// same-package elision performed via [emit.Target.ImportPath]
-// renders it bare.
+// srcRefBase is the reference the emitted `Build` method's return
+// uses for the source type. The plugin always passes
+// [emit.External]; the renderer elides self-imports for
+// same-package references via the Target.ImportPath the Layout
+// phase composes from the source package, so the qualified form
+// stays correct under both alongside-source and centralised
+// layouts.
 //
 // Generic source structs propagate their type parameters to the
 // emitted builder verbatim — `Dispatcher[T any]` produces
@@ -253,17 +220,16 @@ func (*Plugin) shouldEmit(s *node.Struct) bool {
 // type-arg list is threaded through receiver / return / composite
 // references via `typeArgsFromParams`.
 //
-// The Origin of the emitted struct is set to src so the router can
-// resolve Target.Dir from the source's file path when target.Dir
-// is empty (alongside-source layout).
-func (p *Plugin) emitOne(pkg *builder.PackageBuilder, src *node.Struct, target emit.Target, srcRefBase emit.Ref) {
+// The Origin of the emitted struct is set to src so the Layout
+// phase can resolve every Target field downstream — the plugin
+// itself never constructs an [emit.Target] literal.
+func (p *Plugin) emitOne(pkg *builder.PackageBuilder, src *node.Struct, srcRefBase emit.Ref) {
 	builderName := src.Name + p.opts.Suffix
 	exported := exportedFields(src)
 	typeArgs := builder.TypeArgsFromNodeParams(src.TypeParams)
 	srcRef := builder.ApplyTypeArgs(srcRefBase, typeArgs)
 
 	pkg.Struct(builderName, func(b *builder.StructBuilder) {
-		b.Target(target)
 		b.Origin(src)
 		b.Docs(
 			builderName + " accumulates field values for " + src.Name +

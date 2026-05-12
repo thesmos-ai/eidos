@@ -226,7 +226,7 @@ type recGen struct {
 }
 
 func (g *recGen) Name() string { return g.name }
-func (g *recGen) FilenameSuffix() string {
+func (g *recGen) FilenameSuffix(_ string) string {
 	if g.suffix == "" {
 		return "_gen.go"
 	}
@@ -466,8 +466,8 @@ type layoutGen struct {
 	pkg    *emit.Package
 }
 
-func (g *layoutGen) Name() string           { return g.name }
-func (g *layoutGen) FilenameSuffix() string { return g.suffix }
+func (g *layoutGen) Name() string                   { return g.name }
+func (g *layoutGen) FilenameSuffix(_ string) string { return g.suffix }
 func (g *layoutGen) Generate(ctx *plugin.GeneratorContext) error {
 	stampSetByOnEmitPackage(g.pkg, g.name)
 	return ctx.Store.Emit().AddPackage(g.pkg)
@@ -564,8 +564,8 @@ type slotContributingGen struct {
 	contribute func(ctx *plugin.GeneratorContext) error
 }
 
-func (g *slotContributingGen) Name() string           { return g.name }
-func (g *slotContributingGen) FilenameSuffix() string { return g.suffix }
+func (g *slotContributingGen) Name() string                   { return g.name }
+func (g *slotContributingGen) FilenameSuffix(_ string) string { return g.suffix }
 func (g *slotContributingGen) Generate(ctx *plugin.GeneratorContext) error {
 	if g.contribute == nil {
 		return nil

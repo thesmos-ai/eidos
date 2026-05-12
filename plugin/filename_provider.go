@@ -17,6 +17,21 @@ package plugin
 // layouts and across CLI `-o` / `-p` overrides without per-plugin
 // branches.
 //
+// # Language parameter
+//
+// [FilenameSuffix] takes the active backend's language so one
+// plugin can ship language-paired surfaces — templates plus
+// filename suffix — without committing to a single backend at
+// compile time. The shape mirrors [TemplateProvider.Templates],
+// which already takes a language argument and returns
+// `(fs.FS, bool)` so a plugin's template set narrows by
+// language. The matching convention here: return a non-empty
+// suffix for every language the plugin supports; return the
+// empty string for languages the plugin doesn't ship templates
+// for. The framework treats an empty return for the active
+// language the same as a plugin not implementing
+// FilenameProvider at all.
+//
 // # When to implement
 //
 // A generator that emits routable decls or File-level slot
@@ -25,7 +40,9 @@ package plugin
 // the typed routing error
 // [go.thesmos.sh/eidos/pipeline.ErrMissingFilenameProvider] when
 // it tries to compose a Filename for a decl attributed to a plugin
-// that does not implement the capability.
+// that does not implement the capability — or whose
+// FilenameSuffix returns the empty string for the run's
+// language.
 //
 // Pure method-slot weavers — plugins that only contribute items
 // to Prebody / Postbody slots on decls some *other* plugin owns
@@ -37,25 +54,30 @@ package plugin
 //
 // # Empty-suffix semantics
 //
-// Returning the empty string is not a valid declaration: the
-// resulting composed filename would be the bare source basename
-// with no extension and would overwrite the source file on disk.
-// Generators that have legitimately no filename to declare must
-// not implement FilenameProvider at all — that's the
-// "method-slot weaver" signal documented above. Plugins
+// Returning the empty string for the active language is not a
+// valid declaration for a plugin that emits routable output:
+// the resulting composed filename would be the bare source
+// basename with no extension and would overwrite the source
+// file on disk. Generators that have legitimately no filename
+// to declare must not implement FilenameProvider at all — that's
+// the "method-slot weaver" signal documented above. Plugins
 // supporting multiple output families (e.g. a mock generator
 // with a test-mode variant) return the per-current-mode suffix
-// here and switch the returned value via their options.
+// for the active language and switch the returned value via
+// their options.
 type FilenameProvider interface {
 	Plugin
 
 	// FilenameSuffix returns the trailing identifier the pipeline
 	// appends to a source file's basename to form the rendered
-	// output filename — e.g. `_repo.go` for a repository generator
-	// or `_mock.go` for a mock generator. The leading underscore is
-	// conventional but not required; the pipeline appends the
-	// returned string verbatim. The empty string is not a valid
-	// return value — see the "Empty-suffix semantics" docblock
-	// section above.
-	FilenameSuffix() string
+	// output filename in the named language — e.g. `_repo.go`
+	// for a repository generator targeting `golang`, `_repo.rs`
+	// for the same generator targeting `rust`. The leading
+	// underscore is conventional but not required; the pipeline
+	// appends the returned string verbatim. Returning the empty
+	// string for a language signals "this plugin emits no
+	// routable output for the named language" — see the
+	// "Language parameter" and "Empty-suffix semantics"
+	// docblock sections above.
+	FilenameSuffix(lang string) string
 }

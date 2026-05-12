@@ -5,6 +5,7 @@ package store_test
 
 import (
 	"errors"
+	"sync"
 	"testing"
 
 	"go.thesmos.sh/eidos/core/directive"
@@ -174,6 +175,91 @@ func TestEmitView_AddPackage_DuplicateDetection(t *testing.T) {
 		}
 		if len(host.Structs) != 2 {
 			t.Fatalf("merged Structs slice should hold both contributions; got %d", len(host.Structs))
+		}
+	})
+
+	t.Run("concurrent AddPackage with identical path resolves via the merge fast-path", func(t *testing.T) {
+		t.Parallel()
+		// EmitView.AddPackage serialises the check-then-create of the
+		// packages bucket entry; concurrent callers targeting the same
+		// Path either create the host (first arrival) or merge into
+		// the existing host (every subsequent arrival). Race detector
+		// flags any drift from this contract.
+		s := store.New()
+		const concurrency = 32
+		errs := make(chan error, concurrency)
+		var wg sync.WaitGroup
+		for range concurrency {
+			wg.Go(func() {
+				errs <- s.Emit().AddPackage(&emit.Package{
+					Name: "x", Path: "example.com/race",
+				})
+			})
+		}
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			if err != nil {
+				t.Errorf("concurrent AddPackage error: %v", err)
+			}
+		}
+		if got := s.Emit().Packages().Len(); got != 1 {
+			t.Fatalf("Packages.Len = %d, want 1 (merged via concurrent AddPackage)", got)
+		}
+	})
+
+	t.Run("merge appends every per-kind slice into the existing emit.Package", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		// First contribution: a representative entity of every routable
+		// kind plus a File and an Import. Second contribution: a
+		// sibling of every kind targeting the same Package path so the
+		// merge arm fires for each per-kind slice.
+		first := &emit.Package{
+			Name: "x", Path: "example.com/x",
+			Files:      []*emit.File{{Name: "a.go", Dir: "x", Package: "x"}},
+			Imports:    []*emit.Import{{Path: "io"}},
+			Structs:    []*emit.Struct{{Name: "A", Package: "example.com/x"}},
+			Interfaces: []*emit.Interface{{Name: "IA", Package: "example.com/x"}},
+			Functions:  []*emit.Function{{Name: "FA", Package: "example.com/x"}},
+			Variables:  []*emit.Variable{{Name: "VA", Package: "example.com/x"}},
+			Constants:  []*emit.Constant{{Name: "CA", Package: "example.com/x"}},
+			Enums:      []*emit.Enum{{Name: "EA", Package: "example.com/x"}},
+			Aliases:    []*emit.Alias{{Name: "AA", Package: "example.com/x"}},
+		}
+		assertNoError(t, s.Emit().AddPackage(first))
+		second := &emit.Package{
+			Name: "x", Path: "example.com/x",
+			Files:      []*emit.File{{Name: "b.go", Dir: "x", Package: "x"}},
+			Imports:    []*emit.Import{{Path: "fmt"}},
+			Structs:    []*emit.Struct{{Name: "B", Package: "example.com/x"}},
+			Interfaces: []*emit.Interface{{Name: "IB", Package: "example.com/x"}},
+			Functions:  []*emit.Function{{Name: "FB", Package: "example.com/x"}},
+			Variables:  []*emit.Variable{{Name: "VB", Package: "example.com/x"}},
+			Constants:  []*emit.Constant{{Name: "CB", Package: "example.com/x"}},
+			Enums:      []*emit.Enum{{Name: "EB", Package: "example.com/x"}},
+			Aliases:    []*emit.Alias{{Name: "AB", Package: "example.com/x"}},
+		}
+		assertNoError(t, s.Emit().AddPackage(second))
+		host, _ := s.Emit().Packages().ByQName("example.com/x")
+		cases := []struct {
+			name string
+			got  int
+		}{
+			{"Files", len(host.Files)},
+			{"Imports", len(host.Imports)},
+			{"Structs", len(host.Structs)},
+			{"Interfaces", len(host.Interfaces)},
+			{"Functions", len(host.Functions)},
+			{"Variables", len(host.Variables)},
+			{"Constants", len(host.Constants)},
+			{"Enums", len(host.Enums)},
+			{"Aliases", len(host.Aliases)},
+		}
+		for _, tc := range cases {
+			if tc.got != 2 {
+				t.Errorf("%s after merge = %d, want 2 (both contributions)", tc.name, tc.got)
+			}
 		}
 	})
 

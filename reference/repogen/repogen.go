@@ -12,19 +12,15 @@
 // pattern doesn't apply. `+gen:repo` opts a struct into emission;
 // `-gen:repo` suppresses it.
 //
-// # Output layout
+// # Output routing
 //
-// repogen supports two layouts:
-//
-//   - Alongside source (default, when [Options.OutputPackage] is unset):
-//     one emitted file per source struct, dropped next to the source
-//     file. The router fills [emit.Target.Dir] from the source's
-//     directory; the package clause matches the source package. The
-//     emitted filename is `<src>_repo.go`.
-//   - Centralised (when [Options.OutputPackage] is set): every emitted
-//     decl lands in one Go package + directory. The filename is
-//     `<src>.go` so repogen and buildergen targeting the same
-//     OutputPackage compose into one file per source struct.
+// repogen owns no routing configuration of its own — the
+// framework's routing layer composes every emit decl's
+// [emit.Target] from the source struct's origin plus the project
+// / per-plugin output config and CLI overrides. The plugin
+// declares its filename suffix via [Plugin.FilenameSuffix] and
+// sets [emit.BaseEmit.OriginNode] on every emit decl; the
+// Layout phase does the rest.
 package repogen
 
 import (
@@ -37,7 +33,6 @@ import (
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/priority"
-	"go.thesmos.sh/eidos/routing"
 )
 
 // Name is the plugin's stable identifier surfaced through
@@ -62,6 +57,12 @@ const DirectiveName directive.Name = "repo"
 // output with hand-authored code.
 const FilenameSuffix = "_repo.go"
 
+// Language is the backend language whose suffix
+// [Plugin.FilenameSuffix] returns. Other languages get the empty
+// signal until matching templates and per-language suffix
+// configuration land.
+const Language = "golang"
+
 // NamingPascal selects the canonical PascalCase identifier shape
 // (e.g. `ArticleRepository`, `Get`). Default for the Naming option.
 const NamingPascal = "Pascal"
@@ -71,17 +72,12 @@ const NamingPascal = "Pascal"
 // identifiers, useful for internal repository surfaces.
 const NamingCamel = "Camel"
 
-// Options carries the plugin's user-tunable settings.
+// Options carries the plugin's user-tunable settings. Routing
+// is owned by the framework's routing layer; repogen exposes no
+// output-package option — project / per-plugin output config
+// and the CLI `-layout` / `-p` / `-output-dir` flags drive
+// where rendered output lands.
 type Options struct {
-	// OutputPackage is the Go package name + directory the emitted
-	// repository decls land in. When unset (the default), repogen
-	// drops one `<src>_repo.go` file alongside each source struct;
-	// the router resolves [emit.Target.Dir] from the source's
-	// directory and the package clause matches the source. Set
-	// OutputPackage when the project keeps generated code in a
-	// dedicated sibling package.
-	OutputPackage string `eidos:"output_package"`
-
 	// InterfaceSuffix is appended to the source struct's name to
 	// form the emitted interface's identifier
 	// (`<Type><InterfaceSuffix>`). Defaults to `Repository`.
@@ -131,11 +127,20 @@ func (*Plugin) Provides() []string { return []string{Capability} }
 // Requires returns nil — repogen has no upstream dependency.
 func (*Plugin) Requires() []string { return nil }
 
-// FilenameSuffix returns [FilenameSuffix] — the per-source filename
-// suffix the Layout phase appends to the source's basename when
-// composing the rendered output path for every decl this plugin
-// emits. Implements [plugin.FilenameProvider].
-func (*Plugin) FilenameSuffix() string { return FilenameSuffix }
+// FilenameSuffix returns the per-source filename suffix the Layout
+// phase appends to the source's basename when composing the
+// rendered output path for every decl this plugin emits.
+// Implements [plugin.FilenameProvider]. The plugin emits standard
+// Go decls today; consumers targeting another backend language
+// receive the empty signal so the Layout phase surfaces a
+// missing-FilenameProvider error rather than producing a Go
+// suffix that wouldn't match the rendered output.
+func (*Plugin) FilenameSuffix(lang string) string {
+	if lang == Language {
+		return FilenameSuffix
+	}
+	return ""
+}
 
 // Directives declares the `+gen:repo` / `-gen:repo` schema with
 // the pipeline so directive validation rejects malformed uses at
@@ -154,52 +159,13 @@ func (*Plugin) Directives() []directive.Schema {
 // target. Suppression via `-gen:repo` skips the source struct
 // even when other generators (builder, registry) act on it.
 //
-// Output layout depends on [Options.OutputPackage]:
-//
-//   - Unset (default): one emit.Package per source package, emitted
-//     alongside the source files.
-//   - Set: every decl lands in a single centralised emit.Package.
+// Output routing is owned entirely by the framework's routing
+// layer: the plugin sets each emit decl's Origin to the source
+// struct and leaves [emit.Target] zero. The Layout phase
+// composes Dir / Filename / Package / ImportPath from the
+// origin and the resolved [pipeline.LayoutPolicy] for this
+// plugin.
 func (p *Plugin) Generate(ctx *plugin.GeneratorContext) error {
-	if p.opts.OutputPackage != "" {
-		return p.generateCentralised(ctx)
-	}
-	return p.generateAlongsideSource(ctx)
-}
-
-// generateCentralised drops every emitted decl into one shared
-// emit.Package keyed by [Options.OutputPackage]. The behaviour
-// downstream consumers depended on before alongside-source routing
-// existed.
-func (p *Plugin) generateCentralised(ctx *plugin.GeneratorContext) error {
-	c := builder.For(Name, emit.Target{})
-	pkg := c.Package(p.opts.OutputPackage, p.opts.OutputPackage)
-	ctx.Reader.Structs().Each(func(s *node.Struct) {
-		if !p.shouldEmit(s) {
-			return
-		}
-		target := routing.Centralised(s.Name, p.opts.OutputPackage, ".go")
-		p.emitOne(pkg, s, target, emit.External(s.Package, s.Name))
-	})
-	out, err := pkg.Build()
-	if err != nil {
-		return err
-	}
-	if err := ctx.Store.Emit().AddPackage(out); err != nil {
-		return errors.Join(errAddPackage, err)
-	}
-	return nil
-}
-
-// generateAlongsideSource emits one emit.Package per source package,
-// containing one decl per `+gen:repo` target. Each emitted decl's
-// Target is filename-only — the router fills Target.Dir from the
-// source's directory at the routing phase — and carries the source
-// package's import path so the renderer elides same-package
-// qualifiers via the [emit.Target.ImportPath] mechanism. The plugin
-// therefore emits every type reference (including the source
-// struct's own type) as [emit.External]; the backend renders
-// cross-package refs qualified and same-package refs bare.
-func (p *Plugin) generateAlongsideSource(ctx *plugin.GeneratorContext) error {
 	var firstErr error
 	ctx.Reader.Packages().Each(func(srcPkg *node.Package) {
 		matches := matchingStructs(srcPkg, p.shouldEmit)
@@ -209,8 +175,7 @@ func (p *Plugin) generateAlongsideSource(ctx *plugin.GeneratorContext) error {
 		c := builder.For(Name, emit.Target{})
 		pkg := c.Package(srcPkg.Name, srcPkg.Path)
 		for _, s := range matches {
-			target := routing.AlongsideSource(s.Pos(), s.Name, srcPkg.Name, srcPkg.Path, FilenameSuffix)
-			p.emitOne(pkg, s, target, emit.External(s.Package, s.Name))
+			p.emitOne(pkg, s, emit.External(s.Package, s.Name))
 		}
 		out, err := pkg.Build()
 		if err != nil {
@@ -261,20 +226,20 @@ func (*Plugin) shouldEmit(s *node.Struct) bool {
 // are empty so cross-cutting weavers have a clean slot surface.
 //
 // srcRef is the reference the emitted methods use for the source
-// type — callers in centralised layout pass [emit.External] so the
-// renderer adds the import; callers in alongside-source layout pass
-// [emit.Builtin] so the renderer emits a bare identifier without a
-// self-import.
+// type. The plugin always passes [emit.External]; the renderer
+// elides self-imports for same-package references via the
+// Target.ImportPath the Layout phase composes from the source
+// package, so the qualified form stays correct under both
+// alongside-source and centralised layouts.
 //
-// The Origin of each emitted decl is set to src so the router can
-// resolve Target.Dir from the source's file path when target.Dir
-// is empty (alongside-source layout).
-func (p *Plugin) emitOne(pkg *builder.PackageBuilder, src *node.Struct, target emit.Target, srcRef emit.Ref) {
+// The Origin of each emitted decl is set to src so the Layout
+// phase can resolve every Target field downstream — the plugin
+// itself never constructs an [emit.Target] literal.
+func (p *Plugin) emitOne(pkg *builder.PackageBuilder, src *node.Struct, srcRef emit.Ref) {
 	ifaceName := p.identifier(src.Name + p.opts.InterfaceSuffix)
 	structName := p.identifier(src.Name + p.opts.StructSuffix)
 
 	pkg.Interface(ifaceName, func(i *builder.InterfaceBuilder) {
-		i.Target(target)
 		i.Origin(src)
 		i.Docs(ifaceName + " stores and retrieves " + src.Name + " values.")
 		i.Method(p.identifier("Get"), func(m *builder.MethodBuilder) {
@@ -301,7 +266,6 @@ func (p *Plugin) emitOne(pkg *builder.PackageBuilder, src *node.Struct, target e
 	})
 
 	pkg.Struct(structName, func(st *builder.StructBuilder) {
-		st.Target(target)
 		st.Origin(src)
 		st.Docs(structName + " is the default in-memory implementation of " + ifaceName + ".")
 		st.Method(p.identifier("Get"), func(m *builder.MethodBuilder) {

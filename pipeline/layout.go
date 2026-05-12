@@ -425,18 +425,32 @@ func clearConflictedTargets(v *store.EmitView, key string) {
 // originating source file on disk.
 func (p *Pipeline) collectFilenameSuffixes() map[string]string {
 	out := map[string]string{}
+	lang := p.backendLanguage()
 	for _, gen := range p.generators {
 		fp, ok := any(gen).(plugin.FilenameProvider)
 		if !ok {
 			continue
 		}
-		suffix := fp.FilenameSuffix()
+		suffix := fp.FilenameSuffix(lang)
 		if suffix == "" {
 			continue
 		}
 		out[gen.Name()] = suffix
 	}
 	return out
+}
+
+// backendLanguage returns the configured backend's language —
+// the value passed to [plugin.FilenameProvider.FilenameSuffix]
+// (and to [plugin.TemplateProvider.Templates]) so plugins narrow
+// their per-language surfaces to the active backend. Returns
+// the empty string when no backend is configured; under that
+// (no-backend) construction the Layout phase will not run anyway.
+func (p *Pipeline) backendLanguage() string {
+	if p.backend == nil {
+		return ""
+	}
+	return p.backend.Language()
 }
 
 // originSourcePackage walks origin's owning-package chain and

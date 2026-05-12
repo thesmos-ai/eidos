@@ -17,6 +17,7 @@ import (
 	"go.thesmos.sh/eidos/eidostest/demopipe"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/node"
+	"go.thesmos.sh/eidos/pipeline"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/reference/registrygen"
 	"go.thesmos.sh/eidos/sink"
@@ -24,12 +25,8 @@ import (
 )
 
 // outputPackage is the canonical destination for emitted registry
-// init blocks.
+// init blocks under centralised layout.
 const outputPackage = "gen"
-
-// defaultFilename mirrors the plugin's Options.Filename default so
-// tests look up the right Target.
-const defaultFilename = "registry.go"
 
 // TestPluginShape pins the plugin's public-contract surface.
 func TestPluginShape(t *testing.T) {
@@ -81,6 +78,90 @@ func TestPluginShape(t *testing.T) {
 			t.Fatalf("Templates should return ok=false for unsupported languages")
 		}
 	})
+
+	t.Run("implements plugin.FilenameProvider with the documented suffix", func(t *testing.T) {
+		t.Parallel()
+		p := registrygen.New()
+		fp, ok := any(p).(plugin.FilenameProvider)
+		if !ok {
+			t.Fatalf("plugin must implement plugin.FilenameProvider")
+		}
+		if got, want := fp.FilenameSuffix(registrygen.Language), registrygen.FilenameSuffix; got != want {
+			t.Fatalf("FilenameSuffix(%q) = %q, want %q", registrygen.Language, got, want)
+		}
+		if got := fp.FilenameSuffix("rust"); got != "" {
+			t.Fatalf("FilenameSuffix(rust) = %q, want empty (plugin ships no rust suffix)", got)
+		}
+		if registrygen.FilenameSuffix == "" {
+			t.Fatalf("FilenameSuffix must be non-empty for a routable-decl-emitting plugin")
+		}
+	})
+}
+
+// TestGenerate_OriginAnchoredSlot pins the routing-layer contract:
+// each +gen:register struct produces one origin-anchored slot
+// contribution rather than a pre-routed File. The Layout phase
+// resolves the contribution's Origin to a Target downstream; the
+// plugin itself sets no Target.
+func TestGenerate_OriginAnchoredSlot(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Generate appends one pending slot per +gen:register struct", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		srcPkg := &node.Package{Name: "blog", Path: "example.com/blog"}
+		src := &node.Struct{
+			Name:    "Article",
+			Package: srcPkg.Path,
+			BaseNode: node.BaseNode{
+				SourcePos:     position.Pos{File: "blog/article.go", Line: 1},
+				DirectiveList: []*directive.Directive{{Name: registrygen.DirectiveName}},
+			},
+		}
+		other := &node.Struct{
+			Name:    "Comment",
+			Package: srcPkg.Path,
+			BaseNode: node.BaseNode{
+				SourcePos: position.Pos{File: "blog/comment.go", Line: 1},
+			},
+		}
+		srcPkg.Structs = []*node.Struct{src, other}
+		if err := s.Nodes().AddPackage(srcPkg); err != nil {
+			t.Fatalf("AddPackage: %v", err)
+		}
+		p := registrygen.New()
+		if err := p.SetOptions(opt.New(p.OptionsSchema(), nil)); err != nil {
+			t.Fatalf("SetOptions: %v", err)
+		}
+		ctx := &plugin.GeneratorContext{
+			Store: s, Reader: store.NewReader(s), Diag: diag.New(),
+		}
+		if err := p.Generate(ctx); err != nil {
+			t.Fatalf("Generate: %v", err)
+		}
+		// The +gen:register struct produces one pending slot
+		// anchored to itself; the un-annotated sibling produces
+		// nothing. No emit.File is created — Layout composes the
+		// resolved Target from the origin downstream.
+		pending := s.Emit().PendingOriginSlots()
+		if len(pending) != 1 {
+			t.Fatalf("expected 1 pending origin slot; got %d", len(pending))
+		}
+		tup := pending[0]
+		if tup.Origin != src {
+			t.Fatalf("pending tuple Origin = %+v, want the +gen:register struct", tup.Origin)
+		}
+		if tup.SlotName != "init" {
+			t.Fatalf("slot name = %q, want %q", tup.SlotName, "init")
+		}
+		if _, ok := tup.Item.(*registrygen.Registration); !ok {
+			t.Fatalf("slot item should be *Registration; got %T", tup.Item)
+		}
+		// No File pre-routed by the plugin.
+		if files := s.Emit().Files().Len(); files != 0 {
+			t.Fatalf("plugin should not pre-route any emit.File; got %d", files)
+		}
+	})
 }
 
 // TestRegistrationKind covers the plugin-defined emit kind: a
@@ -97,22 +178,23 @@ func TestRegistrationKind(t *testing.T) {
 }
 
 // TestGenerate_EndToEnd runs registry-gen against the demoproject
-// fixture and asserts the canonical acceptance criteria:
-//   - Article (the only fixture struct carrying +gen:register)
-//     produces a Registration in the target file's Init slot;
-//   - the rendered file contains one registry.Register call inside
-//     one func init() block; and
-//   - the plugin's template reached the backend (the rendered
-//     output matches the template's shape).
+// fixture and asserts the canonical acceptance criteria for the
+// origin-anchored slot path: Article (the only fixture struct
+// carrying +gen:register) produces a Registration anchored to
+// its source struct; the Layout phase routes the contribution
+// into a per-source registry file (`article_registry.go` under
+// the centralised package); and the rendered file contains the
+// expected register call inside a single `func init()` block.
 func TestGenerate_EndToEnd(t *testing.T) {
 	t.Parallel()
 
 	result := demopipe.Run(t, demopipe.RunOptions{
-		Generators: []plugin.Generator{registrygen.New()},
-		Backend:    backend_golang.New(),
+		Generators:    []plugin.Generator{registrygen.New()},
+		Backend:       backend_golang.New(),
+		Layout:        pipeline.LayoutCentralised,
+		OutputPackage: outputPackage,
 		PluginOptions: map[string]map[string]string{
 			registrygen.Name: {
-				"output_package":   outputPackage,
 				"register_package": "registry",
 				"register_func":    "Register",
 			},
@@ -125,9 +207,9 @@ func TestGenerate_EndToEnd(t *testing.T) {
 		t.Fatalf("pipeline Run: %v", result.RunErr)
 	}
 
-	t.Run("Article registration lands in the emit-store File.Init slot", func(t *testing.T) {
+	t.Run("Article registration lands in the per-source registry file", func(t *testing.T) {
 		t.Parallel()
-		file := requireFile(t, result.Store)
+		file := requireArticleRegistryFile(t, result.Store)
 		entries := file.Init().Items
 		if len(entries) != 1 {
 			t.Fatalf("expected 1 Init entry; got %d", len(entries))
@@ -143,9 +225,9 @@ func TestGenerate_EndToEnd(t *testing.T) {
 
 	t.Run("rendered file contains the registry.Register call inside one func init() block", func(t *testing.T) {
 		t.Parallel()
-		body := sinkBody(t, result.Sink, defaultFilename)
+		body := sinkBody(t, result.Sink, "article"+registrygen.FilenameSuffix)
 		if want := `registry.Register("Article", blog.Article{})`; !strings.Contains(body, want) {
-			t.Fatalf("registry.go missing %q; got:\n%s", want, body)
+			t.Fatalf("rendered file missing %q; got:\n%s", want, body)
 		}
 		if strings.Count(body, "func init()") != 1 {
 			t.Fatalf("expected exactly one func init() block; got:\n%s", body)
@@ -154,67 +236,11 @@ func TestGenerate_EndToEnd(t *testing.T) {
 
 	t.Run("non-+gen:register fixture structs do not produce registrations", func(t *testing.T) {
 		t.Parallel()
-		file := requireFile(t, result.Store)
-		if file.Init().Len() != 1 {
-			t.Fatalf("Init slot should hold exactly the Article entry; got %d items", file.Init().Len())
-		}
-	})
-}
-
-// TestGenerate_AlongsideSourceLayout covers the default layout:
-// an unconfigured plugin emits one `registry.go` per source
-// package, with [emit.Target.Dir] derived from the package's first
-// source file. The init block lives alongside the package it
-// registers.
-func TestGenerate_AlongsideSourceLayout(t *testing.T) {
-	t.Parallel()
-
-	t.Run("registry.go drops alongside the source package", func(t *testing.T) {
-		t.Parallel()
-		s := store.New()
-		srcPkg := &node.Package{
-			Name: "blog", Path: "example.com/blog",
-			Files: []*node.File{{Path: "blog/article.go"}},
-		}
-		src := &node.Struct{
-			Name:    "Article",
-			Package: srcPkg.Path,
-			BaseNode: node.BaseNode{
-				SourcePos:     position.Pos{File: "blog/article.go", Line: 1},
-				DirectiveList: []*directive.Directive{{Name: registrygen.DirectiveName}},
-			},
-		}
-		srcPkg.Structs = append(srcPkg.Structs, src)
-		if err := s.Nodes().AddPackage(srcPkg); err != nil {
-			t.Fatalf("AddPackage: %v", err)
-		}
-
-		p := registrygen.New()
-		if err := p.SetOptions(opt.New(p.OptionsSchema(), nil)); err != nil {
-			t.Fatalf("SetOptions: %v", err)
-		}
-		ctx := &plugin.GeneratorContext{
-			Store: s, Reader: store.NewReader(s), Diag: diag.New(),
-		}
-		if err := p.Generate(ctx); err != nil {
-			t.Fatalf("Generate: %v", err)
-		}
-
-		target := emit.Target{Dir: "blog", Filename: registrygen.DefaultFilename, Package: "blog"}
-		file, err := s.Emit().FileFor(target)
-		if err != nil {
-			t.Fatalf("FileFor: %v", err)
-		}
-		entries := file.Init().Items
-		if len(entries) != 1 {
-			t.Fatalf("expected 1 Init entry alongside source; got %d", len(entries))
-		}
-		reg, ok := entries[0].(*registrygen.Registration)
-		if !ok {
-			t.Fatalf("Init entry should be *Registration; got %T", entries[0])
-		}
-		if reg.Name != "Article" {
-			t.Fatalf("Registration.Name = %q, want Article", reg.Name)
+		// The demoproject contains many structs; only Article
+		// carries +gen:register. Pending slot count therefore
+		// stays at 1 — no other registration was queued.
+		if got := len(result.Store.Emit().PendingOriginSlots()); got != 1 {
+			t.Fatalf("PendingOriginSlots = %d, want 1 (Article only)", got)
 		}
 	})
 }
@@ -235,22 +261,26 @@ func readTemplate(t *testing.T, fsys fs.FS, name string) string {
 	return string(body)
 }
 
-// requireFile returns the registry-gen target file from the emit
-// store, failing the test when the file is missing.
-func requireFile(t *testing.T, s *store.Store) *emit.File {
+// requireArticleRegistryFile returns the emit.File composed by
+// the Layout phase for the Article registration (basename
+// "article" + the plugin's filename suffix). Fails the test when
+// the file is missing.
+func requireArticleRegistryFile(t *testing.T, s *store.Store) *emit.File {
 	t.Helper()
-	target := emit.Target{Dir: outputPackage, Filename: defaultFilename, Package: outputPackage}
+	want := "article" + registrygen.FilenameSuffix
 	for _, f := range s.Emit().Files().Items() {
-		if f.Target() == target {
+		if f.Name == want {
 			return f
 		}
 	}
-	t.Fatalf("emit store missing the registry-gen target file %+v", target)
+	t.Fatalf("emit store missing file %q", want)
 	return nil
 }
 
-// sinkBody returns the rendered body for filename under the
-// configured output package.
+// sinkBody returns the rendered body for the file whose basename
+// equals filename. The Layout phase composes the file under the
+// configured centralised output package; the helper finds it via
+// the filename portion alone.
 func sinkBody(t *testing.T, s sink.Sink, filename string) string {
 	t.Helper()
 	mem, ok := s.(*sink.Memory)
@@ -258,10 +288,10 @@ func sinkBody(t *testing.T, s sink.Sink, filename string) string {
 		t.Fatalf("sink is not *sink.Memory; got %T", s)
 	}
 	for target, body := range mem.Files() {
-		if target.Filename == filename && target.Package == outputPackage {
+		if target.Filename == filename {
 			return string(body)
 		}
 	}
-	t.Fatalf("sink missing %q under package %q", filename, outputPackage)
+	t.Fatalf("sink missing file %q", filename)
 	return ""
 }

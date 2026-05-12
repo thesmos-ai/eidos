@@ -50,6 +50,7 @@ type EmitView struct {
 
 	frozen    atomic.Bool
 	fileForMu sync.Mutex
+	addPkgMu  sync.Mutex
 }
 
 // newEmitView constructs an empty EmitView with all buckets and
@@ -105,14 +106,22 @@ func (v *EmitView) AddPackage(p *emit.Package) error {
 		return fmt.Errorf("%w: EmitView (post-generator phase)", ErrFrozen)
 	}
 
+	// Serialise the check-then-create on the packages bucket so two
+	// concurrent AddPackage calls targeting the same Path resolve
+	// deterministically — one creates the host, the other merges
+	// into it. The bucket's own locks are too narrow to bridge the
+	// ByQName / Add window.
+	v.addPkgMu.Lock()
 	host, merge := v.packages.ByQName(p.Path)
 	if !merge {
-		if err := v.packages.Add(p.Path, p); err != nil {
-			return err
-		}
+		// Add cannot fail here: addPkgMu serialises us against any
+		// concurrent AddPackage, and ByQName above confirmed the
+		// key is absent.
+		_ = v.packages.Add(p.Path, p) //nolint:errcheck // serialised; duplicate impossible
 		v.indexCommon(p, p.Path, emit.Target{})
 		host = p
 	}
+	v.addPkgMu.Unlock()
 
 	for _, f := range p.Files {
 		if err := v.addFile(f, p.Path); err != nil {

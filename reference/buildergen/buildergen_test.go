@@ -14,6 +14,7 @@ import (
 	"go.thesmos.sh/eidos/core/opt"
 	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/eidostest/demopipe"
+	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/pipeline"
 	"go.thesmos.sh/eidos/plugin"
@@ -230,7 +231,10 @@ func TestGenerate_FieldTypeCoverage(t *testing.T) {
 		t.Fatalf("Generate: %v", err)
 	}
 
-	probe, ok := s.Emit().Structs().ByQName(outputPackage + ".ProbeBuilder")
+	// The emitted builder lives under the source package's import
+	// path now that routing is owned by the framework's layout
+	// layer.
+	probe, ok := s.Emit().Structs().ByQName("example.com/synth.ProbeBuilder")
 	if !ok {
 		t.Fatalf("emit store missing ProbeBuilder; got %+v", s.Emit().Structs().Items())
 	}
@@ -259,15 +263,16 @@ func TestGenerate_FieldTypeCoverage(t *testing.T) {
 	}
 }
 
-// TestGenerate_AlongsideSourceLayout covers the default layout: an
-// unconfigured plugin (OutputPackage empty) emits one builder per
-// source struct with [emit.Target.Dir] left empty and a
-// `<src>_builder.go` filename so the pipeline router fills the Dir
-// from the source's directory at the routing phase.
-func TestGenerate_AlongsideSourceLayout(t *testing.T) {
+// TestGenerate_LeavesTargetForLayout pins the routing-layer
+// contract: the plugin emits the builder struct with Origin set
+// but Target fields untouched. The framework's Layout phase
+// composes Target.Dir / Filename / Package / ImportPath
+// downstream — the plugin never constructs an [emit.Target]
+// literal.
+func TestGenerate_LeavesTargetForLayout(t *testing.T) {
 	t.Parallel()
 
-	t.Run("empty OutputPackage drops decls alongside the source", func(t *testing.T) {
+	t.Run("emitted builder carries Origin but no plugin-stamped Target", func(t *testing.T) {
 		t.Parallel()
 		s := store.New()
 		srcPkg := &node.Package{Name: "users", Path: "example.com/users"}
@@ -304,23 +309,17 @@ func TestGenerate_AlongsideSourceLayout(t *testing.T) {
 		}
 		emitPkg, _ := pkgs.ByQName(srcPkg.Path)
 		if emitPkg == nil {
-			t.Fatalf("expected emit.Package keyed by plugin-namespaced source path; got %v", pkgs)
-		}
-		if emitPkg.Name != srcPkg.Name {
-			t.Fatalf("emit.Package.Name = %q, want %q (matches source pkg name)", emitPkg.Name, srcPkg.Name)
+			t.Fatalf("expected emit.Package keyed by source path; got %v", pkgs)
 		}
 		if len(emitPkg.Structs) != 1 {
 			t.Fatalf("expected one emitted struct; got %d", len(emitPkg.Structs))
 		}
 		bld := emitPkg.Structs[0]
-		if bld.Target.Dir != "" {
-			t.Fatalf("Target.Dir should be empty so the router fills it; got %q", bld.Target.Dir)
-		}
-		if bld.Target.Filename != "probe"+buildergen.FilenameSuffix {
-			t.Fatalf("Target.Filename = %q, want probe%s", bld.Target.Filename, buildergen.FilenameSuffix)
+		if bld.Target != (emit.Target{}) {
+			t.Fatalf("Target should be zero until Layout composes it; got %+v", bld.Target)
 		}
 		if bld.Origin() != src {
-			t.Fatalf("Origin should be the source struct so the router can resolve Dir")
+			t.Fatalf("Origin should be the source struct so Layout can resolve the Target")
 		}
 	})
 }
@@ -346,14 +345,14 @@ func runFixture(t *testing.T, extraOpts map[string]string) demopipe.Result {
 }
 
 // configuredPlugin returns a fresh buildergen plugin with the
-// minimum required options applied so synthetic-store tests can
-// call Generate directly without going through the pipeline's
-// option-decode plumbing.
+// framework's defaults applied so synthetic-store tests can call
+// Generate directly without going through the pipeline's
+// option-decode plumbing. Routing is owned by the framework's
+// routing layer and is not part of the plugin's option surface.
 func configuredPlugin(t *testing.T) *buildergen.Plugin {
 	t.Helper()
 	p := buildergen.New()
-	o := opt.New(p.OptionsSchema(), map[string]string{"output_package": outputPackage})
-	if err := p.SetOptions(o); err != nil {
+	if err := p.SetOptions(opt.New(p.OptionsSchema(), nil)); err != nil {
 		t.Fatalf("SetOptions: %v", err)
 	}
 	return p

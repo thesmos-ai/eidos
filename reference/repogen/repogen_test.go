@@ -14,6 +14,7 @@ import (
 	"go.thesmos.sh/eidos/core/opt"
 	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/eidostest/demopipe"
+	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/pipeline"
 	"go.thesmos.sh/eidos/plugin"
@@ -212,15 +213,15 @@ func TestGenerate_DirectiveGating(t *testing.T) {
 	}
 }
 
-// TestGenerate_AlongsideSourceLayout covers the default layout: an
-// unconfigured plugin (OutputPackage empty) emits one decl per
-// source struct with [emit.Target.Dir] left empty and a
-// `<src>_repo.go` filename so the pipeline router fills the Dir
-// from the source's directory at the routing phase.
-func TestGenerate_AlongsideSourceLayout(t *testing.T) {
+// TestGenerate_LeavesTargetForLayout pins the routing-layer
+// contract: the plugin emits decls with Origin set but Target
+// fields untouched. The framework's Layout phase composes
+// Target.Dir / Filename / Package / ImportPath downstream — the
+// plugin never constructs an [emit.Target] literal.
+func TestGenerate_LeavesTargetForLayout(t *testing.T) {
 	t.Parallel()
 
-	t.Run("empty OutputPackage drops decls alongside the source", func(t *testing.T) {
+	t.Run("emitted decls carry Origin but no plugin-stamped Target", func(t *testing.T) {
 		t.Parallel()
 		s := store.New()
 		srcPkg := &node.Package{Name: "users", Path: "example.com/users"}
@@ -256,24 +257,15 @@ func TestGenerate_AlongsideSourceLayout(t *testing.T) {
 		if emitPkg == nil {
 			t.Fatalf("expected emit.Package keyed by source path %q; got %v", srcPkg.Path, pkgs)
 		}
-		if emitPkg.Name != srcPkg.Name {
-			t.Fatalf("emit.Package.Name = %q, want %q (matches source pkg name)", emitPkg.Name, srcPkg.Name)
-		}
 		if len(emitPkg.Interfaces) != 1 {
 			t.Fatalf("expected one emitted interface; got %d", len(emitPkg.Interfaces))
 		}
 		iface := emitPkg.Interfaces[0]
-		if iface.Target.Dir != "" {
-			t.Fatalf("Target.Dir should be empty so the router fills it; got %q", iface.Target.Dir)
-		}
-		if iface.Target.Filename != "probe"+repogen.FilenameSuffix {
-			t.Fatalf("Target.Filename = %q, want probe%s", iface.Target.Filename, repogen.FilenameSuffix)
-		}
-		if iface.Target.Package != "users" {
-			t.Fatalf("Target.Package = %q, want users", iface.Target.Package)
+		if iface.Target != (emit.Target{}) {
+			t.Fatalf("Target should be zero until Layout composes it; got %+v", iface.Target)
 		}
 		if iface.Origin() != src {
-			t.Fatalf("Origin should be the source struct so the router can resolve Dir")
+			t.Fatalf("Origin should be the source struct so Layout can resolve the Target")
 		}
 	})
 }
@@ -303,14 +295,15 @@ func runFixture(t *testing.T, extraOpts map[string]string) demopipe.Result {
 	return demopipe.Run(t, runOpts)
 }
 
-// configuredPlugin returns a fresh repogen plugin with OutputPackage
-// applied so synthetic-store tests can call Generate directly
-// without going through the pipeline's option-decode plumbing.
+// configuredPlugin returns a fresh repogen plugin with the
+// framework's defaults applied so synthetic-store tests can call
+// Generate directly without going through the pipeline's
+// option-decode plumbing. Routing is owned by the framework's
+// routing layer and is not part of the plugin's option surface.
 func configuredPlugin(t *testing.T) *repogen.Plugin {
 	t.Helper()
 	p := repogen.New()
-	o := opt.New(p.OptionsSchema(), map[string]string{"output_package": outputPackage})
-	if err := p.SetOptions(o); err != nil {
+	if err := p.SetOptions(opt.New(p.OptionsSchema(), nil)); err != nil {
 		t.Fatalf("SetOptions: %v", err)
 	}
 	return p

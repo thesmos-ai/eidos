@@ -94,12 +94,16 @@ func TestEndToEnd(t *testing.T) {
 
 	t.Run("registry-gen produces one func init with the Article registration", func(t *testing.T) {
 		t.Parallel()
-		registry := sinkBodyFromResult(t, result, "registry.go")
+		// registrygen's filename suffix composes per-source files
+		// under the framework's routing layer — the Article
+		// registration lands in `article_registry.go` next to
+		// the article's other generator outputs.
+		registry := sinkBodyFromResult(t, result, "article"+registrygen.FilenameSuffix)
 		if want := `registry.Register("Article", blog.Article{})`; !strings.Contains(registry, want) {
-			t.Fatalf("registry.go missing %q; got:\n%s", want, registry)
+			t.Fatalf("registry file missing %q; got:\n%s", want, registry)
 		}
 		if strings.Count(registry, "func init()") != 1 {
-			t.Fatalf("expected exactly one func init() block in registry.go; got:\n%s", registry)
+			t.Fatalf("expected exactly one func init() block; got:\n%s", registry)
 		}
 	})
 
@@ -165,14 +169,10 @@ func runAllPlugins(t *testing.T) demopipe.Result {
 		Layout:        pipeline.LayoutCentralised,
 		OutputPackage: outputPackage,
 		PluginOptions: map[string]map[string]string{
-			// registrygen synthesises an emit.File via FileFor at
-			// generator time; the Layout phase does not re-route
-			// pre-built Files because they carry no source Origin.
-			// Until the plugin migrates to origin-anchored slot
-			// attachment, its plugin-level output_package option
-			// is the path that drives centralised routing.
+			// registrygen drives routing through the framework's
+			// origin-anchored slot attachment now; only the
+			// register-call shape stays plugin-configurable.
 			registrygen.Name: {
-				"output_package":   outputPackage,
 				"register_package": "registry",
 				"register_func":    "Register",
 			},

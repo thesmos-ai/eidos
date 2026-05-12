@@ -23,8 +23,9 @@ import (
 	"go.thesmos.sh/eidos/store"
 )
 
-// outputPackage is the canonical destination package for emitted
-// mock decls in the tests.
+// outputPackage is the canonical destination package the demopipe
+// harness pins via the routing-layer surface for the centralised
+// end-to-end run.
 const outputPackage = "gen"
 
 // TestPluginShape pins the plugin's public-contract surface so a
@@ -39,22 +40,28 @@ func TestPluginShape(t *testing.T) {
 		}
 	})
 
-	t.Run("implements Generator, CapabilityProvider, OptionsProvider, DirectiveProvider", func(t *testing.T) {
-		t.Parallel()
-		p := mockgen.New()
-		if _, ok := any(p).(plugin.Generator); !ok {
-			t.Fatalf("plugin must implement plugin.Generator")
-		}
-		if _, ok := any(p).(plugin.CapabilityProvider); !ok {
-			t.Fatalf("plugin must implement plugin.CapabilityProvider")
-		}
-		if _, ok := any(p).(plugin.OptionsProvider); !ok {
-			t.Fatalf("plugin must implement plugin.OptionsProvider")
-		}
-		if _, ok := any(p).(plugin.DirectiveProvider); !ok {
-			t.Fatalf("plugin must implement plugin.DirectiveProvider")
-		}
-	})
+	t.Run(
+		"implements Generator, CapabilityProvider, OptionsProvider, DirectiveProvider, FilenameProvider",
+		func(t *testing.T) {
+			t.Parallel()
+			p := mockgen.New()
+			if _, ok := any(p).(plugin.Generator); !ok {
+				t.Fatalf("plugin must implement plugin.Generator")
+			}
+			if _, ok := any(p).(plugin.CapabilityProvider); !ok {
+				t.Fatalf("plugin must implement plugin.CapabilityProvider")
+			}
+			if _, ok := any(p).(plugin.OptionsProvider); !ok {
+				t.Fatalf("plugin must implement plugin.OptionsProvider")
+			}
+			if _, ok := any(p).(plugin.DirectiveProvider); !ok {
+				t.Fatalf("plugin must implement plugin.DirectiveProvider")
+			}
+			if _, ok := any(p).(plugin.FilenameProvider); !ok {
+				t.Fatalf("plugin must implement plugin.FilenameProvider")
+			}
+		},
+	)
 
 	t.Run("Provides advertises the mock capability", func(t *testing.T) {
 		t.Parallel()
@@ -83,6 +90,48 @@ func TestPluginShape(t *testing.T) {
 		}
 		if !schemas[0].AllowNegated {
 			t.Fatalf("schema must allow the negated form for opt-out support")
+		}
+	})
+}
+
+// TestFilenameSuffix pins the language-parametric capability:
+// only the supported backend language receives a suffix; other
+// languages get the empty signal so the Layout phase can surface
+// a missing-FilenameProvider error rather than producing a
+// Go-shaped suffix for a non-Go renderer.
+func TestFilenameSuffix(t *testing.T) {
+	t.Parallel()
+
+	t.Run("non-Test mode returns the production suffix for golang", func(t *testing.T) {
+		t.Parallel()
+		p := mockgen.New()
+		if err := p.SetOptions(opt.New(p.OptionsSchema(), nil)); err != nil {
+			t.Fatalf("SetOptions: %v", err)
+		}
+		if got, want := p.FilenameSuffix(mockgen.Language), mockgen.FilenameSuffix; got != want {
+			t.Fatalf("FilenameSuffix(%q) = %q, want %q", mockgen.Language, got, want)
+		}
+	})
+
+	t.Run("Test mode flips the suffix to the test-file form", func(t *testing.T) {
+		t.Parallel()
+		p := mockgen.New()
+		if err := p.SetOptions(opt.New(p.OptionsSchema(), map[string]string{"test": "true"})); err != nil {
+			t.Fatalf("SetOptions: %v", err)
+		}
+		if got, want := p.FilenameSuffix(mockgen.Language), mockgen.TestFilenameSuffix; got != want {
+			t.Fatalf("FilenameSuffix(Test) = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("unsupported language returns the empty signal", func(t *testing.T) {
+		t.Parallel()
+		p := mockgen.New()
+		if err := p.SetOptions(opt.New(p.OptionsSchema(), nil)); err != nil {
+			t.Fatalf("SetOptions: %v", err)
+		}
+		if got := p.FilenameSuffix("rust"); got != "" {
+			t.Fatalf("FilenameSuffix(unsupported) = %q, want empty", got)
 		}
 	})
 }
@@ -145,32 +194,29 @@ func TestGenerate_EndToEnd(t *testing.T) {
 		}
 	})
 
-	t.Run("rendered ArticleRepository mock dispatches the canonical CRUD methods", func(t *testing.T) {
-		t.Parallel()
-		// Repogen emits ArticleRepository to article<_repo.go>; mockgen
-		// emits the *Mock* interface implementations for source
-		// interfaces, which lands in the same file when repogen and
-		// mockgen share an output target. Under centralised layout
-		// both plugins compose to the source basename + their suffix;
-		// the ArticleRepositoryMock decl lands in article<_mock.go>
-		// since it derives from the article-anchored interface.
-		body := sinkBody(t, result.Sink, "article"+mockgen.FilenameSuffix)
-		// Field-type alignment is gofmt-managed (extra whitespace
-		// between identifier and type) so the field assertions
-		// match on the rendered func-type alone.
-		for _, want := range []string{
-			"type ArticleRepositoryMock struct",
-			"func(context.Context, string) (*blog.Article, error)",
-			"func (m *ArticleRepositoryMock) Get(ctx context.Context, id string) (*blog.Article, error)",
-			"return m.GetFunc(ctx, id)",
-			"func (m *ArticleRepositoryMock) List(ctx context.Context) ([]*blog.Article, error)",
-			"return m.ListFunc(ctx)",
-		} {
-			if !strings.Contains(body, want) {
-				t.Fatalf("article.go missing %q; got:\n%s", want, body)
+	t.Run(
+		"rendered ArticleRepository mock dispatches the canonical CRUD methods",
+		func(t *testing.T) {
+			t.Parallel()
+			// Article mock composes into article<_mock.go> because its
+			// Origin is the Article source struct (inherited from
+			// repogen's ArticleRepository.Origin). The Layout phase
+			// derives the source basename from that origin.
+			body := sinkBody(t, result.Sink, "article"+mockgen.FilenameSuffix)
+			for _, want := range []string{
+				"type ArticleRepositoryMock struct",
+				"func(context.Context, string) (*blog.Article, error)",
+				"func (m *ArticleRepositoryMock) Get(ctx context.Context, id string) (*blog.Article, error)",
+				"return m.GetFunc(ctx, id)",
+				"func (m *ArticleRepositoryMock) List(ctx context.Context) ([]*blog.Article, error)",
+				"return m.ListFunc(ctx)",
+			} {
+				if !strings.Contains(body, want) {
+					t.Fatalf("article.go missing %q; got:\n%s", want, body)
+				}
 			}
-		}
-	})
+		},
+	)
 
 	t.Run("Plan orders repogen before mockgen by priority bucket", func(t *testing.T) {
 		t.Parallel()
@@ -178,12 +224,146 @@ func TestGenerate_EndToEnd(t *testing.T) {
 		repoIdx := indexOf(plan, repogen.Name)
 		mockIdx := indexOf(plan, mockgen.Name)
 		if repoIdx < 0 || mockIdx < 0 {
-			t.Fatalf("plan must contain both plugins; got repogen=%d mockgen=%d in %+v", repoIdx, mockIdx, plan)
+			t.Fatalf(
+				"plan must contain both plugins; got repogen=%d mockgen=%d in %+v",
+				repoIdx,
+				mockIdx,
+				plan,
+			)
 		}
 		if repoIdx >= mockIdx {
 			t.Fatalf("repogen must run before mockgen; got repogen=%d mockgen=%d", repoIdx, mockIdx)
 		}
 	})
+}
+
+// TestGenerate_LeavesTargetForLayout pins the routing-layer
+// contract: every emitted mock carries its source-anchored Origin
+// but no plugin-stamped Target. The framework's Layout phase
+// composes Target.Dir / Filename / Package / ImportPath
+// downstream — the plugin never constructs an [emit.Target]
+// literal.
+func TestGenerate_LeavesTargetForLayout(t *testing.T) {
+	t.Parallel()
+
+	t.Run(
+		"source-side mock anchors to the source interface and lands in the source emit.Package",
+		func(t *testing.T) {
+			t.Parallel()
+			s := store.New()
+			srcPkg := &node.Package{Name: "search", Path: "example.com/search"}
+			iface := &node.Interface{
+				Name:    "Finder",
+				Package: srcPkg.Path,
+				BaseNode: node.BaseNode{
+					SourcePos:     position.Pos{File: "search/finder.go", Line: 1},
+					DirectiveList: []*directive.Directive{{Name: mockgen.DirectiveName}},
+				},
+			}
+			srcPkg.Interfaces = append(srcPkg.Interfaces, iface)
+			if err := s.Nodes().AddPackage(srcPkg); err != nil {
+				t.Fatalf("AddPackage: %v", err)
+			}
+
+			p := configuredPlugin(t)
+			ctx := &plugin.GeneratorContext{
+				Store: s, Reader: store.NewReader(s), Diag: diag.New(),
+			}
+			if err := p.Generate(ctx); err != nil {
+				t.Fatalf("Generate: %v", err)
+			}
+
+			emitPkg, ok := s.Emit().Packages().ByQName(srcPkg.Path)
+			if !ok {
+				t.Fatalf(
+					"expected emit.Package keyed by source path %q; got %+v",
+					srcPkg.Path,
+					s.Emit().Packages().Items(),
+				)
+			}
+			if emitPkg.Name != srcPkg.Name {
+				t.Fatalf("emit.Package.Name = %q, want %q", emitPkg.Name, srcPkg.Name)
+			}
+			if len(emitPkg.Structs) != 1 {
+				t.Fatalf("expected one mock struct; got %d", len(emitPkg.Structs))
+			}
+			mock := emitPkg.Structs[0]
+			if mock.Target != (emit.Target{}) {
+				t.Fatalf("Target should be zero until Layout composes it; got %+v", mock.Target)
+			}
+			if mock.Origin() != iface {
+				t.Fatalf("Origin should be the source interface so Layout can resolve the Target")
+			}
+		},
+	)
+
+	t.Run(
+		"emit-side mock anchors to the upstream interface's Origin and lands in the upstream emit.Package",
+		func(t *testing.T) {
+			t.Parallel()
+			s := store.New()
+			// Stand in for repogen's output: an emit interface
+			// containing the to-be-mocked methods, anchored to a
+			// source struct via Origin.
+			srcPkg := &node.Package{Name: "blog", Path: "example.com/blog"}
+			article := &node.Struct{
+				Name:    "Article",
+				Package: srcPkg.Path,
+				BaseNode: node.BaseNode{
+					SourcePos: position.Pos{File: "blog/article.go", Line: 1},
+				},
+			}
+			srcPkg.Structs = append(srcPkg.Structs, article)
+			if err := s.Nodes().AddPackage(srcPkg); err != nil {
+				t.Fatalf("Nodes.AddPackage: %v", err)
+			}
+
+			epkg := &emit.Package{Name: "blog", Path: "example.com/blog"}
+			epkg.Interfaces = []*emit.Interface{{
+				BaseEmit: emit.BaseEmit{OriginNode: article},
+				Name:     "ArticleRepository",
+				Package:  epkg.Path,
+			}}
+			if err := s.Emit().AddPackage(epkg); err != nil {
+				t.Fatalf("Emit.AddPackage: %v", err)
+			}
+
+			p := configuredPlugin(t)
+			ctx := &plugin.GeneratorContext{
+				Store: s, Reader: store.NewReader(s), Diag: diag.New(),
+			}
+			if err := p.Generate(ctx); err != nil {
+				t.Fatalf("Generate: %v", err)
+			}
+
+			emitPkg, ok := s.Emit().Packages().ByQName(epkg.Path)
+			if !ok {
+				t.Fatalf(
+					"expected emit.Package keyed by %q; got %+v",
+					epkg.Path,
+					s.Emit().Packages().Items(),
+				)
+			}
+			var mock *emit.Struct
+			for _, st := range emitPkg.Structs {
+				if st.Name == "ArticleRepositoryMock" {
+					mock = st
+					break
+				}
+			}
+			if mock == nil {
+				t.Fatalf("emit.Package missing ArticleRepositoryMock; got %+v", emitPkg.Structs)
+			}
+			if mock.Target != (emit.Target{}) {
+				t.Fatalf("Target should be zero until Layout composes it; got %+v", mock.Target)
+			}
+			if mock.Origin() != article {
+				t.Fatalf(
+					"Origin should propagate from the upstream interface so Layout can resolve the Target",
+				)
+			}
+		},
+	)
 }
 
 // TestGenerate_SuppressEmitInterface covers the `-gen:mock` opt-out
@@ -322,7 +502,10 @@ func TestGenerate_DispatchBodyZeroReturn(t *testing.T) {
 	if err := p.Generate(ctx); err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
-	mock, ok := s.Emit().Structs().ByQName(outputPackage + ".NotifierMock")
+	// The emitted mock lives under the source package's import
+	// path now that routing is owned by the framework's layout
+	// layer.
+	mock, ok := s.Emit().Structs().ByQName(pkg.Path + ".NotifierMock")
 	if !ok {
 		t.Fatalf("emit store missing NotifierMock; got %+v", s.Emit().Structs().Items())
 	}
@@ -371,7 +554,7 @@ func TestGenerate_AnonymousParamsGetNames(t *testing.T) {
 	if err := p.Generate(ctx); err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
-	mock, ok := s.Emit().Structs().ByQName(outputPackage + ".AnonProbeMock")
+	mock, ok := s.Emit().Structs().ByQName(pkg.Path + ".AnonProbeMock")
 	if !ok {
 		t.Fatalf("emit store missing AnonProbeMock")
 	}
@@ -384,78 +567,15 @@ func TestGenerate_AnonymousParamsGetNames(t *testing.T) {
 	}
 }
 
-// TestGenerate_AlongsideSourceLayout covers the default layout: an
-// unconfigured plugin (OutputPackage empty) emits one mock per
-// `+gen:mock` source interface with [emit.Target.Dir] left empty
-// and a `<src>_mock.go` filename so the pipeline router fills the
-// Dir from the source's directory at the routing phase.
-func TestGenerate_AlongsideSourceLayout(t *testing.T) {
-	t.Parallel()
-
-	t.Run("empty OutputPackage drops decls alongside the source", func(t *testing.T) {
-		t.Parallel()
-		s := store.New()
-		srcPkg := &node.Package{Name: "search", Path: "example.com/search"}
-		iface := &node.Interface{
-			Name:    "Finder",
-			Package: srcPkg.Path,
-			BaseNode: node.BaseNode{
-				SourcePos:     position.Pos{File: "search/finder.go", Line: 1},
-				DirectiveList: []*directive.Directive{{Name: mockgen.DirectiveName}},
-			},
-		}
-		srcPkg.Interfaces = append(srcPkg.Interfaces, iface)
-		if err := s.Nodes().AddPackage(srcPkg); err != nil {
-			t.Fatalf("AddPackage: %v", err)
-		}
-
-		p := mockgen.New()
-		if err := p.SetOptions(opt.New(p.OptionsSchema(), nil)); err != nil {
-			t.Fatalf("SetOptions: %v", err)
-		}
-		ctx := &plugin.GeneratorContext{
-			Store: s, Reader: store.NewReader(s), Diag: diag.New(),
-		}
-		if err := p.Generate(ctx); err != nil {
-			t.Fatalf("Generate: %v", err)
-		}
-
-		pkgs := s.Emit().Packages()
-		if pkgs.Len() != 1 {
-			t.Fatalf("expected one emit.Package; got %d", pkgs.Len())
-		}
-		emitPkg, _ := pkgs.ByQName(srcPkg.Path)
-		if emitPkg == nil {
-			t.Fatalf("expected emit.Package keyed by source path %q; got %v", srcPkg.Path, pkgs)
-		}
-		if emitPkg.Name != srcPkg.Name {
-			t.Fatalf("emit.Package.Name = %q, want %q", emitPkg.Name, srcPkg.Name)
-		}
-		if len(emitPkg.Structs) != 1 {
-			t.Fatalf("expected one mock struct; got %d", len(emitPkg.Structs))
-		}
-		mock := emitPkg.Structs[0]
-		if mock.Target.Dir != "" {
-			t.Fatalf("Target.Dir should be empty so the router fills it; got %q", mock.Target.Dir)
-		}
-		if mock.Target.Filename != "finder"+mockgen.FilenameSuffix {
-			t.Fatalf("Target.Filename = %q, want finder%s", mock.Target.Filename, mockgen.FilenameSuffix)
-		}
-		if mock.Origin() != iface {
-			t.Fatalf("Origin should be the source interface so the router can resolve Dir")
-		}
-	})
-}
-
-// configuredPlugin returns a fresh mockgen plugin with the minimum
-// required options applied so synthetic-store tests can call
-// Generate directly without going through the pipeline's
-// option-decode plumbing.
+// configuredPlugin returns a fresh mockgen plugin with framework
+// defaults applied so synthetic-store tests can call Generate
+// directly without going through the pipeline's option-decode
+// plumbing. Routing is owned by the framework's routing layer and
+// is not part of the plugin's option surface.
 func configuredPlugin(t *testing.T) *mockgen.Plugin {
 	t.Helper()
 	p := mockgen.New()
-	o := opt.New(p.OptionsSchema(), map[string]string{"output_package": outputPackage})
-	if err := p.SetOptions(o); err != nil {
+	if err := p.SetOptions(opt.New(p.OptionsSchema(), nil)); err != nil {
 		t.Fatalf("SetOptions: %v", err)
 	}
 	return p
@@ -496,12 +616,10 @@ func sinkBody(t *testing.T, s sink.Sink, filename string) string {
 func planFor(t *testing.T) []string {
 	t.Helper()
 	result := demopipe.Run(t, demopipe.RunOptions{
-		Generators: []plugin.Generator{mockgen.New(), repogen.New()},
-		Backend:    backend_golang.New(),
-		PluginOptions: map[string]map[string]string{
-			repogen.Name: {"output_package": outputPackage},
-			mockgen.Name: {"output_package": outputPackage},
-		},
+		Generators:    []plugin.Generator{mockgen.New(), repogen.New()},
+		Backend:       backend_golang.New(),
+		Layout:        pipeline.LayoutCentralised,
+		OutputPackage: outputPackage,
 	})
 	if result.RunErr != nil {
 		t.Fatalf("planFor: pipeline Run: %v", result.RunErr)

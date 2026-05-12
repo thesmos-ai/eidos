@@ -5,29 +5,37 @@
 // it defines its own [Registration] emit kind outside the
 // `emit.*` namespace, ships the matching `registration.tmpl`
 // template through [plugin.TemplateProvider], and appends one
-// Registration to a target file's [emit.File.Init] slot for each
-// source struct annotated with `+gen:register`. The rendered
-// output collects every registration into a single `func init()`
-// block per file.
+// origin-anchored Registration contribution for each source
+// struct annotated with `+gen:register`. The Layout phase
+// resolves each contribution's origin to a rendered file via
+// the standard routing precedence (framework / project /
+// per-plugin / CLI); every Registration whose resolved file
+// shares a target lands in the same `func init() { ... }`
+// block.
 //
 // # Output layout
 //
-// registrygen supports two layouts:
+// registrygen retains zero filename control of its own. Output
+// routing is supplied by the framework's routing layer:
 //
-//   - Alongside source (default, when [Options.OutputPackage] is
-//     unset): one `registry.go` per source package, dropped next to
-//     the package's source files. Each per-package file collects the
-//     registrations declared in that package.
-//   - Centralised (when [Options.OutputPackage] is set): every
-//     registration lands in one `<OutputPackage>/<Filename>` file,
-//     useful when downstream code expects to import one registry.
+//   - Alongside-source (the framework default): one
+//     `<src-basename>_registry.go` per source struct, dropped
+//     next to its source file.
+//   - Centralised (configured via project-level / per-plugin
+//     output config or CLI overrides): each registration lands
+//     in the configured Dir with the same `<basename>_registry.go`
+//     filename per source struct.
+//
+// Aggregating multiple registrations into one rendered file is
+// achieved by pinning a shared filename through `+gen:out` on
+// each contributing source struct or via the CLI `-o` override
+// — the routing-layer mechanism is uniform across plugins, not
+// a plugin-specific switch.
 package registrygen
 
 import (
 	"embed"
-	"errors"
 	"io/fs"
-	"path/filepath"
 	"text/template"
 
 	"go.thesmos.sh/eidos/core/directive"
@@ -59,10 +67,18 @@ const Kind directive.Kind = "registrygen.registration"
 // [Plugin.Templates].
 const Language = "golang"
 
-// DefaultFilename is the rendered output's filename when
-// [Options.Filename] is unset. The same name is used in both layouts
-// so the registration block is always recognisable.
-const DefaultFilename = "registry.go"
+// FilenameSuffix is the per-source filename suffix the routing
+// layer appends to each contributing source struct's basename.
+// `<src-basename>_registry.go` keeps the registration blocks
+// recognisable wherever the routing layer places them.
+const FilenameSuffix = "_registry.go"
+
+// SlotName is the per-file slot the Layout phase materialises
+// Registration contributions into. Matches [emit.File]'s
+// canonical `init` slot name so the rendered output collects
+// every registration inside the file's `func init() { ... }`
+// block.
+const SlotName = "init"
 
 // DefaultRegisterPackage is the import path the rendered
 // register-call resolves to when [Options.RegisterPackage] is
@@ -82,19 +98,12 @@ const DefaultRegisterPackage = "log"
 // translation needed when callers switch packages.
 const DefaultRegisterFunc = "Print"
 
-// Options carries the plugin's user-tunable settings.
+// Options carries the plugin's user-tunable settings. Routing
+// is owned by the framework, so registrygen exposes no
+// output-package / filename options — those land via project-
+// level `output.*` config or CLI overrides applied through the
+// routing layer.
 type Options struct {
-	// OutputPackage is the Go package name + directory the emitted
-	// registry init block lands in. When unset (the default), the
-	// plugin drops one registry file per source package alongside
-	// the package's source files; set OutputPackage to centralise
-	// every registration into a single sibling package.
-	OutputPackage string `eidos:"output_package"`
-
-	// Filename is the rendered file name registrations are
-	// collected into. Defaults to [DefaultFilename].
-	Filename string `eidos:"filename,default=registry.go"`
-
 	// RegisterPackage is the import path of the registry package
 	// the rendered call references. Defaults to
 	// [DefaultRegisterPackage]. The renderer registers the import
@@ -128,6 +137,20 @@ func New() *Plugin {
 
 // Name returns [Name].
 func (*Plugin) Name() string { return Name }
+
+// FilenameSuffix returns the per-source suffix the routing layer
+// composes into each rendered file's name. The plugin ships
+// golang templates today and returns [FilenameSuffix] for that
+// language; other languages get the empty string until matching
+// templates land. registrygen has no per-decl filename override
+// — the routing layer's `+gen:out` directive remains available
+// on source structs when a user wants to pin a specific name.
+func (*Plugin) FilenameSuffix(lang string) string {
+	if lang == Language {
+		return FilenameSuffix
+	}
+	return ""
+}
 
 // Priority places the plugin in the cross-cutting bucket so it
 // runs after foundation and composition generators.
@@ -176,8 +199,9 @@ func (*Plugin) TemplateOverrides(string) template.FuncMap { return nil }
 // Registration is the plugin-defined emit kind every emitted
 // registration carries. The matching `registration.tmpl` template
 // renders it as a single-line `<RegisterFunc>(<NameLit>, <Init>)`
-// call — slotted into a file's [emit.File.Init] block so all
-// registrations land inside one `func init() { ... }` per file.
+// call — slotted into the resolved file's `init` block so all
+// registrations routed to the same file land inside one
+// `func init() { ... }`.
 type Registration struct {
 	emit.BaseEmit
 
@@ -203,9 +227,6 @@ type Registration struct {
 	// into stdlib `log.Print`; configurable through
 	// [Options.RegisterPackage] / [Options.RegisterFunc].
 	RegisterFunc *emit.Expr
-
-	// Target identifies the file the registration contributes to.
-	Target emit.Target
 }
 
 // Kind returns [Kind].
@@ -215,143 +236,33 @@ func (*Registration) Kind() directive.Kind { return Kind }
 // [emit.Node].
 var _ emit.Node = (*Registration)(nil)
 
-// Generate iterates the node store's struct bucket and appends one
-// Registration to the target file's Init slot for each
-// `+gen:register` annotated struct.
-//
-// Output layout depends on [Options.OutputPackage]:
-//
-//   - Unset (default): one `registry.go` per source package,
-//     emitted alongside that package's sources.
-//   - Set: every Registration lands in a single centralised file.
+// Generate walks the source structs and appends one
+// origin-anchored Registration to the `init` slot for each
+// `+gen:register` annotated struct. The Layout phase resolves
+// each contribution's origin to a rendered file downstream;
+// the plugin itself sets no Target.
 func (p *Plugin) Generate(ctx *plugin.GeneratorContext) error {
-	if p.opts.OutputPackage != "" {
-		return p.generateCentralised(ctx)
-	}
-	return p.generateAlongsideSource(ctx)
-}
-
-// generateCentralised collects every `+gen:register` struct into
-// one shared file keyed by [Options.OutputPackage]. The registered
-// value uses an [emit.External] composite literal so the rendered
-// file imports the source's package and references it qualified.
-func (p *Plugin) generateCentralised(ctx *plugin.GeneratorContext) error {
-	target := emit.Target{
-		Dir:      p.opts.OutputPackage,
-		Filename: p.opts.Filename,
-		Package:  p.opts.OutputPackage,
-	}
-	c := builder.For(Name, target)
-	// FileFor only errors when the EmitView is frozen; Generate
-	// runs pre-freeze so the call is infallible here.
-	file, _ := ctx.Store.Emit().FileFor(target)
+	c := builder.For(Name, emit.Target{})
 	for _, s := range ctx.Reader.Structs().Slice() {
 		if !s.HasPositiveDirective(DirectiveName) {
 			continue
 		}
-		p.appendRegistration(file, c, s, target, emit.External(s.Package, s.Name))
+		reg := &Registration{
+			BaseEmit: emit.BaseEmit{
+				OriginNode: s,
+				SetByName:  c.SetBy(),
+				SourcePos:  s.Pos(),
+			},
+			Name:         s.Name,
+			NameLit:      emit.NewLiteralString(s.Name),
+			Init:         emit.NewComposite(emit.External(s.Package, s.Name), nil),
+			RegisterFunc: emit.NewExternal(p.registerPackage(), p.registerFunc()),
+		}
+		if err := ctx.Store.Emit().AppendOriginSlot(s, SlotName, reg, c.Provenance("registry."+s.Name)); err != nil {
+			return err
+		}
 	}
 	return nil
-}
-
-// generateAlongsideSource emits one registry file per source
-// package, dropped alongside the package's source files. The
-// Target.Dir is derived from the first source file's directory so
-// the rendered file shares its location with the package it
-// registers.
-func (p *Plugin) generateAlongsideSource(ctx *plugin.GeneratorContext) error {
-	var firstErr error
-	ctx.Reader.Packages().Each(func(srcPkg *node.Package) {
-		matches := matchingStructs(srcPkg)
-		if len(matches) == 0 {
-			return
-		}
-		dir, ok := packageDir(srcPkg)
-		if !ok {
-			if firstErr == nil {
-				firstErr = errors.Join(
-					errMissingPackageDir,
-					errors.New("source package "+srcPkg.Path+" has no source-file attribution"),
-				)
-			}
-			return
-		}
-		target := emit.Target{
-			Dir:        dir,
-			Filename:   p.opts.Filename,
-			Package:    srcPkg.Name,
-			ImportPath: srcPkg.Path,
-		}
-		c := builder.For(Name, target)
-		file, _ := ctx.Store.Emit().FileFor(target)
-		for _, s := range matches {
-			// Same-package elision via [emit.Target.ImportPath]
-			// renders this reference bare — no self-import on the
-			// rendered file.
-			p.appendRegistration(file, c, s, target, emit.External(s.Package, s.Name))
-		}
-	})
-	return firstErr
-}
-
-// matchingStructs returns srcPkg's structs opted into registration
-// by `+gen:register`.
-func matchingStructs(srcPkg *node.Package) []*node.Struct {
-	out := make([]*node.Struct, 0, len(srcPkg.Structs))
-	for _, s := range srcPkg.Structs {
-		if s.HasPositiveDirective(DirectiveName) {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
-// packageDir returns the directory containing srcPkg's first source
-// file, used as the alongside-source layout's Target.Dir. Returns
-// the empty string and false when srcPkg has no source-file
-// attribution — synthetic packages without files can't be routed
-// alongside source.
-func packageDir(srcPkg *node.Package) (string, bool) {
-	for _, f := range srcPkg.Files {
-		if f.Path != "" {
-			return filepath.Dir(f.Path), true
-		}
-	}
-	return "", false
-}
-
-// appendRegistration creates one Registration for src and appends
-// it to file's Init slot, attributing the contribution through c's
-// provenance helper. typeRef is the reference the registered value's
-// composite literal uses for the source type — callers in
-// centralised layout pass [emit.External]; callers in
-// alongside-source layout pass [emit.Builtin] so the renderer
-// doesn't insert a self-import.
-//
-// The Registration's [Registration.RegisterFunc] resolves to
-// `<Options.RegisterPackage>.<Options.RegisterFunc>` via
-// [emit.NewExternal]; the renderer registers the configured
-// package's import on the rendered file's import set automatically.
-func (p *Plugin) appendRegistration(
-	file *emit.File,
-	c *builder.Context,
-	src *node.Struct,
-	target emit.Target,
-	typeRef emit.Ref,
-) {
-	reg := &Registration{
-		BaseEmit:     emit.BaseEmit{SetByName: c.SetBy()},
-		Name:         src.Name,
-		NameLit:      emit.NewLiteralString(src.Name),
-		Init:         emit.NewComposite(typeRef, nil),
-		RegisterFunc: emit.NewExternal(p.registerPackage(), p.registerFunc()),
-		Target:       target,
-	}
-	// Init slot has no element-kind constraint, so the plugin-
-	// defined kind reaches the renderer where the shipped template
-	// dispatches it. Append is infallible for non-nil items on a
-	// kindless slot.
-	_ = file.Init().Append(reg, c.Provenance("registry."+src.Name))
 }
 
 // registerPackage / registerFunc return the configured option value
@@ -371,10 +282,3 @@ func (p *Plugin) registerFunc() string {
 	}
 	return DefaultRegisterFunc
 }
-
-// errMissingPackageDir surfaces when alongside-source routing is
-// active and a source package carries no resolvable directory —
-// typically a synthetic package without source files.
-//
-//nolint:gochecknoglobals // sentinel.
-var errMissingPackageDir = errors.New("registry-gen: source package has no resolvable directory")
