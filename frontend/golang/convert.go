@@ -88,6 +88,7 @@ func newConverter(ctx *plugin.FrontendContext, pkg *packages.Package, opts Optio
 // run executes the conversion pipeline and returns the populated
 // [node.Package].
 func (c *converter) run() *node.Package {
+	stampFrontendMarker(c.out)
 	c.convertFiles()
 	c.collectPackageDoc()
 	c.convertDecls()

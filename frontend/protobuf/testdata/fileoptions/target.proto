@@ -1,0 +1,18 @@
+// target.proto exercises the file-level option channel: a standard
+// option (`go_package`), a standard bool option (`deprecated`),
+// and a custom string-typed extension defined in audience.proto.
+// All three stamp under the documented `proto.option.<full-name>`
+// channel on the producing node.Package.
+syntax = "proto3";
+
+package eidos.protobuf.testdata.fileoptions;
+
+import "audience.proto";
+
+option go_package = "github.com/example/fileoptions";
+option deprecated = true;
+option (eidos.protobuf.testdata.fileoptions.audience) = "public";
+
+message Target {
+  string id = 1;
+}

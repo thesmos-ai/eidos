@@ -1,0 +1,15 @@
+// audience.proto defines a custom file-level option extension —
+// the fixture's custom-option half. The extension lives on
+// google.protobuf.FileOptions with field number 50000 (a valid
+// custom-extension number per the protobuf reserved-range rules).
+syntax = "proto3";
+
+package eidos.protobuf.testdata.fileoptions;
+
+import "google/protobuf/descriptor.proto";
+
+extend google.protobuf.FileOptions {
+  // audience records the file's intended audience — used by
+  // target.proto to exercise the custom-option channel.
+  string audience = 50000;
+}

@@ -1,0 +1,15 @@
+// a.proto exercises two import shapes: an in-tree same-package
+// import (b.proto) and a well-known import the bundled descriptor
+// set resolves (google/protobuf/timestamp.proto). The frontend
+// records both as node.Import entries on the contributing File
+// and contributes them to the Package's deduplicated import union.
+syntax = "proto3";
+
+package eidos.protobuf.testdata.imports;
+
+import "b.proto";
+import "google/protobuf/timestamp.proto";
+
+message Alpha {
+  string id = 1;
+}

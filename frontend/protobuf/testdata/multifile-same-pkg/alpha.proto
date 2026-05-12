@@ -1,0 +1,11 @@
+// alpha.proto contributes the first message to the shared package.
+// The frontend must merge this file's declarations with beta.proto
+// into a single node.Package — the merge order is alphabetical by
+// file basename within the import root.
+syntax = "proto3";
+
+package eidos.protobuf.testdata.multipkg;
+
+message Alpha {
+  string id = 1;
+}

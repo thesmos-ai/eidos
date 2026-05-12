@@ -133,7 +133,14 @@
     }
   ],
   "meta": {
-    "entries": []
+    "entries": [
+      {
+        "authority": 0,
+        "name": "frontend",
+        "set_by": "golang",
+        "value": "golang"
+      }
+    ]
   },
   "name": "fixture",
   "path": "example.com/golangtest",

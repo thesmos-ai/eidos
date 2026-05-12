@@ -1,0 +1,9 @@
+// beta.proto declares a different proto package from alpha.proto;
+// the frontend produces a second node.Package for this qualifier.
+syntax = "proto3";
+
+package eidos.protobuf.testdata.split.beta;
+
+message Beta {
+  int32 count = 1;
+}

@@ -1,0 +1,10 @@
+// alpha.proto declares its own proto package distinct from
+// beta.proto's. The frontend produces one node.Package per
+// qualifier — two source files, two packages, no merge.
+syntax = "proto3";
+
+package eidos.protobuf.testdata.split.alpha;
+
+message Alpha {
+  string id = 1;
+}

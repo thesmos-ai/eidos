@@ -90,6 +90,7 @@ func loadPattern(ctx *plugin.FrontendContext, opts Options) error {
 	if _, hit := consultCache(ctx.Cache, key); !hit {
 		storeCache(ctx.Cache, ps, key, nil)
 	}
+	convertFiles(ctx, ps, descriptors)
 	return nil
 }
 

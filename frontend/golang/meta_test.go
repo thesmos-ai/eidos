@@ -53,6 +53,36 @@ func TestMetaKeyNames(t *testing.T) {
 	}
 }
 
+// TestMetaFrontend covers the cross-frontend provenance-marker
+// convention: every produced [node.Package] carries the bare
+// `frontend` meta key whose value is the producing frontend's
+// plugin name. The marker is the scope mechanism downstream bridge
+// annotators and the cross-namespace audit step pivot on.
+func TestMetaFrontend(t *testing.T) {
+	t.Parallel()
+
+	t.Run("key carries the documented bare 'frontend' name", func(t *testing.T) {
+		t.Parallel()
+		if got := golang.MetaFrontend.Name(); got != "frontend" {
+			t.Fatalf("MetaFrontend name = %q, want %q", got, "frontend")
+		}
+	})
+
+	t.Run("converter stamps the marker on every produced node.Package", func(t *testing.T) {
+		t.Parallel()
+		pkg := requirePackage(t, map[string]string{
+			"a.go": "package a\n",
+		})
+		got, ok := golang.MetaFrontend.Get(pkg.Meta())
+		if !ok {
+			t.Fatalf("MetaFrontend missing on go-frontend package %+v", pkg.Meta())
+		}
+		if got != golang.FrontendName {
+			t.Fatalf("MetaFrontend = %q, want %q", got, golang.FrontendName)
+		}
+	})
+}
+
 // TestMetaTagPrefix verifies the documented namespace under which
 // struct-tag entries are stamped.
 func TestMetaTagPrefix(t *testing.T) {

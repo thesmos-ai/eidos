@@ -1,0 +1,11 @@
+// beta.proto contributes the second message to the same proto
+// package as alpha.proto. The frontend collapses both files into
+// one node.Package; later phases populate the Structs slice from
+// each contributing file.
+syntax = "proto3";
+
+package eidos.protobuf.testdata.multipkg;
+
+message Beta {
+  int32 count = 1;
+}

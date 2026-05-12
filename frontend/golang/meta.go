@@ -15,7 +15,26 @@ import (
 // produces; each is a registry-singleton declared at package init.
 // Consumers typed-read via [meta.Key.Get]; templates read via the
 // string-keyed `metaBool` / `metaStr` funcmap helpers.
+//
+// MetaFrontend is the one exception to the `go.*` namespace: it
+// carries the bare name `frontend` because it is a cross-frontend
+// convention. Multiple frontends declare the same key
+// independently (each through [meta.EnsureKey] to avoid
+// init-order coupling), and every produced [node.Package] carries
+// the marker with the producing frontend's plugin name as value.
 var (
+	// MetaFrontend stamps the producing frontend's plugin name on
+	// every [node.Package] entry the Go frontend emits. The value
+	// is the string `"golang"` for Go-derived packages; the
+	// protobuf frontend stamps the matching `"protobuf"` on its
+	// packages. Bridge annotators (protogo and future language
+	// pairs) and the cross-namespace audit step filter their walks
+	// by reading this stamp.
+	MetaFrontend = meta.EnsureKey(
+		"frontend",
+		meta.StringParser,
+	) //nolint:gochecknoglobals // cross-frontend registry-singleton key
+
 	// MetaIsChannel reports whether a [node.TypeRef] models a Go
 	// channel.
 	MetaIsChannel = meta.NewKey(
@@ -172,6 +191,14 @@ type ConstraintTerm struct {
 	// operator (any type whose underlying type is Type) or names
 	// the type exactly.
 	Approximate bool `json:"approximate,omitempty"`
+}
+
+// stampFrontendMarker records the cross-frontend provenance marker
+// on pkg's meta bag. Every package the Go frontend emits carries
+// this stamp; bridge annotators and the cross-namespace audit step
+// filter their walks by reading it.
+func stampFrontendMarker(pkg *node.Package) {
+	MetaFrontend.Set(pkg.Meta(), FrontendName, FrontendName)
 }
 
 // stampChanMeta records [MetaIsChannel], [MetaChanDir], and

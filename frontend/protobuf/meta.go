@@ -11,15 +11,23 @@ import "go.thesmos.sh/eidos/core/meta"
 // framework-level convention shared across every frontend (the Go
 // frontend stamps the same key with value `"golang"`, future
 // frontends with their own plugin names). Cross-frontend consumers
-// — the protogo bridge annotator, the Phase-G audit step — pivot on
-// the marker to scope language-namespaced meta to the correct
-// source.
+// — the protogo bridge annotator, the cross-namespace audit step —
+// pivot on the marker to scope language-namespaced meta to the
+// correct source.
 //
-// Keys are typed registry-singletons constructed at package init
-// via [meta.NewKey]; consumers typed-read via [meta.Key.Get].
+// Per-frontend keys go through [meta.NewKey] (single-owner singletons
+// that panic on duplicate registration — the desired behaviour for
+// the namespaced `proto.*` surface). The cross-frontend marker key
+// goes through [meta.EnsureKey] so multiple frontends can declare
+// it independently without an init-order coupling: whichever
+// frontend's package initialises first registers the key; the
+// later-initialising frontend's [meta.EnsureKey] returns the same
+// singleton instead of panicking.
+//
 // Dynamic per-option keys (proto custom options carrying their full
-// dotted name) go through [OptionMetaKey] so each option full-name
-// resolves to a single canonical [meta.Key] across the run.
+// dotted name) also go through [meta.EnsureKey] via [OptionMetaKey]
+// so each option full-name resolves to a single canonical
+// [meta.Key] across the run.
 var (
 	// MetaFrontend stamps the producing frontend's plugin name on
 	// every [node.Package] entry the frontend emits. The value is
@@ -30,10 +38,10 @@ var (
 	// expected marker value, and the cross-namespace audit
 	// assertion proves no `<lang>.*` meta leaks onto sources from
 	// other frontends.
-	MetaFrontend = meta.NewKey(
+	MetaFrontend = meta.EnsureKey(
 		"frontend",
 		meta.StringParser,
-	) //nolint:gochecknoglobals // typed registry-singleton key
+	) //nolint:gochecknoglobals // cross-frontend registry-singleton key
 )
 
 // MetaOptionPrefix is the namespace under which proto custom-option
