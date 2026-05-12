@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"go.thesmos.sh/eidos/cache"
 	"go.thesmos.sh/eidos/core/diag"
 	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/manifest"
@@ -290,18 +291,47 @@ func (p *Pipeline) invokeGenerator(gen plugin.Generator, s *store.Store) {
 	p.recordCacheKey(gen.Name(), r)
 }
 
-// recordCacheKey writes the per-plugin cache marker — a fixed-form
-// key derived from the plugin's name and the supplied [store.ReadSet]
-// hash — to the configured cache. Cache layers that consume the
-// marker can later detect "this plugin ran with the same inputs"
-// for skip-on-hit optimisations.
+// recordCacheKey writes the per-plugin cache marker — a key
+// composed of every input the plugin's output depends on — to
+// the configured cache. Two kinds of routing input enter the key
+// alongside the existing reads-hash:
+//
+//   - The plugin's resolved [LayoutPolicy] (layout / package /
+//     directory after every precedence layer is merged) — a flip
+//     of any project, per-plugin, or CLI override fed into the
+//     merge produces a different key for that plugin only when
+//     the merge actually changes the resolved value.
+//   - The run-wide scope inputs the routing layer reads
+//     uniformly across every plugin: the literal -target value
+//     (the scope filter) and the literal -o value (the per-decl
+//     filename override). Either flip invalidates every plugin's
+//     cache key for the run.
+//
+// Cache layers that consume the marker can later detect "this
+// plugin ran with these inputs (reads + routing + scope)" for
+// skip-on-hit optimisations.
 //
 // Errors from the cache are silently dropped because the cache is
 // best-effort: a failed write is no worse than running without a
 // cache at all.
 func (p *Pipeline) recordCacheKey(name string, r *store.Reader) {
-	key := fmt.Sprintf("plugin:%s:reads:%s", name, r.ReadSet().Hash())
+	routing := cache.HashStrings(p.cacheRoutingComponents(name))
+	scope := cache.HashStrings([]string{p.targetSym, p.outFilename})
+	key := cache.NewKey(
+		"plugin", name,
+		"reads", r.ReadSet().Hash(),
+		"routing", routing,
+		"scope", scope,
+	)
 	_ = p.cache.Put(key, []byte(r.ReadSet().Hash())) //nolint:errcheck // best-effort cache marker
+}
+
+// cacheRoutingComponents returns the resolved-policy fields that
+// enter the per-plugin cache key. Returned in canonical order
+// so [cache.HashStrings] produces stable digests across runs.
+func (p *Pipeline) cacheRoutingComponents(pluginName string) []string {
+	pol := p.LayoutPolicyFor(pluginName)
+	return []string{pol.Layout, pol.Package, pol.Dir}
 }
 
 // runBackend invokes Render on the backend with a populated

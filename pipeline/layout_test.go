@@ -5,12 +5,14 @@ package pipeline_test
 
 import (
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"go.thesmos.sh/eidos/core/diag"
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/manifest"
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/pipeline"
 	"go.thesmos.sh/eidos/plugin"
@@ -1249,6 +1251,322 @@ func TestLayout_OriginSourceDirBasename_NoDir(t *testing.T) {
 		}
 		if got, want := s.Target.Filename, "x_gen.go"; got != want {
 			t.Fatalf("Target.Filename = %q, want %q", got, want)
+		}
+	})
+}
+
+// TestLayout_UnknownLayoutValue pins the production-grade contract
+// for an impossible-by-design layout value reaching the Layout
+// phase: the switch is exhaustive, the default arm surfaces an
+// Internal diagnostic naming the offending plugin / layout, and
+// the decl / slot tuple drops from byTarget so the backend skips
+// it. The path is normally unreachable because
+// [cli.ValidateConfig] rejects bogus layout values; this test
+// drives the Builder directly to bypass that gate so the
+// invariant guard is observable.
+func TestLayout_UnknownLayoutValue(t *testing.T) {
+	t.Parallel()
+
+	t.Run(
+		"bogus layout surfaces Internal diagnostic and drops decl + pending slot",
+		func(t *testing.T) {
+			t.Parallel()
+			declOrigin := &node.Struct{
+				BaseNode: node.BaseNode{SourcePos: position.Pos{File: "x/x.go"}},
+				Name:     "X", Package: "example.com/x",
+			}
+			slotOrigin := &node.Struct{
+				BaseNode: node.BaseNode{SourcePos: position.Pos{File: "x/y.go"}},
+				Name:     "Y", Package: "example.com/x",
+			}
+			slotItem := &emit.Constant{
+				Name: "K", Package: "x",
+				BaseEmit: emit.BaseEmit{SetByName: "rg"},
+			}
+			gen := &slotContributingGen{
+				name:   "rg",
+				suffix: "_gen.go",
+				contribute: func(ctx *plugin.GeneratorContext) error {
+					if err := ctx.Store.Emit().AppendOriginSlot(
+						slotOrigin, "init", slotItem, emit.Provenance{SetBy: "rg"},
+					); err != nil {
+						return err
+					}
+					decl := &emit.Struct{
+						BaseEmit: emit.BaseEmit{OriginNode: declOrigin, SetByName: "rg"},
+						Name:     "X", Package: "x",
+					}
+					return ctx.Store.Emit().AddPackage(&emit.Package{
+						Name: "x", Path: "example.com/x",
+						Structs: []*emit.Struct{decl},
+					})
+				},
+			}
+			d := diag.New()
+			p, err := pipeline.New().
+				WithFrontend(&stubFE{name: "fe"}).
+				WithGenerator(gen).
+				WithBackend(&stubBE{name: "be"}).
+				WithSink(sink.NewMemory()).
+				WithDiag(d).
+				WithProjectOutput("bogus-layout", "", "").
+				Build()
+			assertNoError(t, err)
+			_ = p.Run(t.Context())
+			if !hasDiagContaining(d, "unknown layout") {
+				t.Fatalf("expected Internal diagnostic naming unknown layout; got %+v", d.Diagnostics())
+			}
+		},
+	)
+}
+
+// TestLayout_OriginPackagePath_NilOwner pins the helper's
+// owner-chain walk for kinds whose Owner can legitimately be nil:
+// the helper returns the empty string, [originSourcePackage]
+// returns nil, and composeTarget proceeds without overwriting
+// Package / ImportPath from the source side. This covers the
+// Method, Field, EnumVariant, and File nil-Owner arms.
+func TestLayout_OriginPackagePath_NilOwner(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name   string
+		origin node.Node
+	}{
+		{"Method with nil Owner", &node.Method{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "x/m.go"}},
+			Name:     "M",
+		}},
+		{"Field with nil Owner", &node.Field{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "x/f.go"}},
+			Name:     "F",
+		}},
+		{"EnumVariant with nil Owner", &node.EnumVariant{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "x/e.go"}},
+			Name:     "V",
+		}},
+		{"File with nil Owner", &node.File{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "x/f.go"}},
+			Name:     "f.go",
+		}},
+		{"Embed kind not enumerated in the switch", &node.Embed{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "x/e.go"}},
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name+" routes with empty Package", func(t *testing.T) {
+			t.Parallel()
+			s := &emit.Struct{
+				BaseEmit: emit.BaseEmit{OriginNode: tc.origin},
+				Name:     "S", Package: "ignored",
+			}
+			p, err := pipeline.New().
+				WithFrontend(&stubFE{name: "fe"}).
+				WithGenerator(&layoutGen{name: "rg", suffix: "_gen.go", pkg: &emit.Package{
+					Name: "x", Path: "example.com/x",
+					Structs: []*emit.Struct{s},
+				}}).
+				WithBackend(&stubBE{name: "be"}).
+				WithSink(sink.NewMemory()).
+				Build()
+			assertNoError(t, err)
+			assertNoError(t, p.Run(t.Context(), "x"))
+			if s.Target.Package != "" {
+				t.Fatalf("Target.Package = %q, want empty (no resolvable package)", s.Target.Package)
+			}
+		})
+	}
+}
+
+// TestLayout_DivergentResolvedLayout pins the production-grade
+// invariant guard in [Pipeline.recordResolvedLayout]: when two
+// plugins emit decls that compose to the same [emit.Target] but
+// resolve their layout policy via different precedence layers,
+// the second write surfaces an Internal diagnostic naming the
+// divergent value. The path catches a hypothetical regression
+// that would let manifest attribution flip-flop across runs.
+//
+// Setup: project sets `Package=shared-pkg`; plugin A redundantly
+// re-declares the same Package as a per-plugin override (value
+// matches but the precedence layer stamps differ); plugin B has
+// no per-plugin override. Both emit a routable decl attributed
+// to the same source origin so the composed Target aligns but
+// the per-field [manifest.Layer] attribution diverges (A stamps
+// per-plugin, B stamps project).
+func TestLayout_DivergentResolvedLayout(t *testing.T) {
+	t.Parallel()
+
+	t.Run("same Target with different ResolvedFrom layer fires Internal diagnostic", func(t *testing.T) {
+		t.Parallel()
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "x/x.go"}},
+			Name:     "X", Package: "example.com/x",
+		}
+		nodePkg := &node.Package{
+			Name: "x", Path: "example.com/x",
+			Structs: []*node.Struct{origin},
+		}
+		sA := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin},
+			Name:     "A", Package: "x",
+		}
+		sB := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin},
+			Name:     "B", Package: "x",
+		}
+		genA := &layoutGen{name: "a", suffix: "_gen.go", pkg: &emit.Package{
+			Name: "x", Path: "example.com/x",
+			Structs: []*emit.Struct{sA},
+		}}
+		genB := &layoutGen{name: "b", suffix: "_gen.go", pkg: &emit.Package{
+			Name: "x", Path: "example.com/x",
+			Structs: []*emit.Struct{sB},
+		}}
+		d := diag.New()
+		p, err := pipeline.New().
+			WithFrontend(&nodePackageFE{name: "fe", pkg: nodePkg}).
+			WithGenerator(genA).
+			WithGenerator(genB).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			WithDiag(d).
+			WithProjectOutput(pipeline.LayoutAlongsideSource, "shared-pkg", "").
+			WithPluginOutput("a", pipeline.LayoutAlongsideSource, "shared-pkg", "").
+			Build()
+		assertNoError(t, err)
+		_ = p.Run(t.Context(), "x")
+		if !hasDiagContaining(d, "divergent ResolvedLayout") {
+			t.Fatalf("expected divergence diagnostic; got %+v", d.Diagnostics())
+		}
+	})
+}
+
+// TestPipeline_PluginNames_IncludesAnnotators pins
+// [Pipeline.pluginNames]'s registration-order enumeration of
+// every role — including annotators. The manifest's
+// per-output Plugins list is filtered against this enumeration,
+// so registering an annotator alongside a contributing
+// generator confirms the annotator's name flows through the
+// enumeration (even when no entity carries the annotator's
+// SetBy).
+func TestPipeline_PluginNames_IncludesAnnotators(t *testing.T) {
+	t.Parallel()
+
+	t.Run("annotator registration flows through pluginNames enumeration", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		manifestPath := filepath.Join(root, "manifest.json")
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "x/x.go"}},
+			Name:     "X", Package: "example.com/x",
+		}
+		s := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin},
+			Name:     "X", Package: "x",
+		}
+		gen := &layoutGen{name: "rg", suffix: "_gen.go", pkg: &emit.Package{
+			Name: "x", Path: "example.com/x",
+			Structs: []*emit.Struct{s},
+		}}
+		be := &recBE{name: "be", lang: "stub", render: func(ctx *plugin.BackendContext) {
+			ctx.Reader.EmitStructs().Each(func(s *emit.Struct) {
+				_ = ctx.Sink.Write(s.Target, []byte("body"))
+			})
+		}}
+		p, err := pipeline.New().
+			WithFrontend(&nodePackageFE{name: "fe", pkg: &node.Package{
+				Name: "x", Path: "example.com/x",
+				Structs: []*node.Struct{origin},
+			}}).
+			WithAnnotator(&stubAnn{name: "ann"}).
+			WithGenerator(gen).
+			WithBackend(be).
+			WithSink(sink.NewMemory()).
+			WithManifestPath(manifestPath).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "x"))
+		m, err := manifest.Read(manifestPath)
+		assertNoError(t, err)
+		if len(m.Outputs) != 1 {
+			t.Fatalf("expected 1 output; got %d", len(m.Outputs))
+		}
+		// pluginNames must have iterated annotators for the
+		// manifest write to complete. Plugins list filters by
+		// contribution, so "ann" is absent — but the enumeration
+		// step ran. The successful manifest write is the
+		// observable signal.
+		if got := m.Outputs[0].Plugins; len(got) != 1 || got[0] != "rg" {
+			t.Fatalf("Plugins = %v, want [rg]", got)
+		}
+	})
+}
+
+// TestLayout_CollectContributors_InterfaceMethods pins the
+// Interface-methods recursion arm in [collectTargetContributors]:
+// when an Interface decl carries methods attributed to a different
+// plugin, the manifest's per-output Plugins list includes both
+// the Interface's SetBy and each method's SetBy.
+func TestLayout_CollectContributors_InterfaceMethods(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Interface method SetBy contributes to manifest Plugins list", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		manifestPath := filepath.Join(root, "manifest.json")
+		origin := &node.Interface{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "x/i.go"}},
+			Name:     "I", Package: "example.com/x",
+		}
+		method := &emit.Method{
+			BaseEmit: emit.BaseEmit{SetByName: "methgen"}, Name: "Do",
+		}
+		iface := &emit.Interface{
+			BaseEmit: emit.BaseEmit{OriginNode: origin, SetByName: "rg"},
+			Name:     "I", Package: "x",
+			Methods: []*emit.Method{method},
+		}
+		nodePkg := &node.Package{
+			Name: "x", Path: "example.com/x",
+			Interfaces: []*node.Interface{origin},
+		}
+		gen := &layoutGen{
+			name: "rg", suffix: "_gen.go",
+			pkg: &emit.Package{
+				Name: "x", Path: "example.com/x",
+				Interfaces: []*emit.Interface{iface},
+			},
+		}
+		be := &recBE{
+			name: "be", lang: "stub",
+			render: func(ctx *plugin.BackendContext) {
+				ctx.Reader.EmitInterfaces().Each(func(i *emit.Interface) {
+					_ = ctx.Sink.Write(i.Target, []byte("body"))
+				})
+			},
+		}
+		p, err := pipeline.New().
+			WithFrontend(&nodePackageFE{name: "fe", pkg: nodePkg}).
+			WithGenerator(gen).
+			WithGenerator(&recGen{name: "methgen"}).
+			WithBackend(be).
+			WithSink(sink.NewMemory()).
+			WithManifestPath(manifestPath).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "x"))
+		m, err := manifest.Read(manifestPath)
+		assertNoError(t, err)
+		if len(m.Outputs) != 1 {
+			t.Fatalf("expected 1 output; got %d", len(m.Outputs))
+		}
+		got := m.Outputs[0].Plugins
+		want := map[string]bool{"rg": true, "methgen": true}
+		for _, name := range got {
+			delete(want, name)
+		}
+		if len(want) != 0 {
+			t.Fatalf("Plugins = %v, missing contributors %v", got, want)
 		}
 	})
 }

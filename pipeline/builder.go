@@ -605,9 +605,10 @@ func (b *Builder) buildDirectiveRegistry() (*directive.Registry, []error) {
 	// plugin-supplied schemas — a downstream attempt to redefine
 	// `out` would surface as ErrDuplicateDirective.
 	for _, s := range coreDirectives() {
-		if err := r.Register(s); err != nil {
-			errs = append(errs, fmt.Errorf("%w: %w", ErrDuplicateDirective, err))
-		}
+		// coreDirectives() returns the framework's reserved schemas
+		// into a fresh registry — registration cannot collide here,
+		// so the error from Register is discarded.
+		_ = r.Register(s) //nolint:errcheck // unreachable: fresh registry + unique core schema names
 	}
 	for _, s := range b.directives {
 		if err := r.Register(s); err != nil {

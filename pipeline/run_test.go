@@ -7,9 +7,9 @@ import (
 	"errors"
 	"os"
 	"slices"
+	"strings"
 	"testing"
 
-	"go.thesmos.sh/eidos/cache"
 	"go.thesmos.sh/eidos/core/diag"
 	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/emit"
@@ -701,7 +701,7 @@ func TestPipeline_Run_RecordsCacheKeys(t *testing.T) {
 
 	t.Run("each plugin's ReadSet hash is written to the cache", func(t *testing.T) {
 		t.Parallel()
-		c := cache.NewDisk(t.TempDir())
+		c := &recordingCache{}
 		ann := &recAnn{name: "ann"}
 		gen := &recGen{name: "gen"}
 		be := &recBE{name: "be", lang: "stub"}
@@ -717,15 +717,15 @@ func TestPipeline_Run_RecordsCacheKeys(t *testing.T) {
 		assertNoError(t, p.Run(t.Context()))
 		// Three plugins (ann, gen, be) each record a cache key; the
 		// frontend phase does not record one because Frontend.Load
-		// does not receive a Reader.
-		if !c.Has("plugin:ann:reads:" + emptyReadSetHash()) {
-			t.Fatalf("expected annotator cache key with empty-readset hash")
-		}
-		if !c.Has("plugin:gen:reads:" + emptyReadSetHash()) {
-			t.Fatalf("expected generator cache key with empty-readset hash")
-		}
-		if !c.Has("plugin:be:reads:" + emptyReadSetHash()) {
-			t.Fatalf("expected backend cache key with empty-readset hash")
+		// does not receive a Reader. Each recorded key includes the
+		// ReadSet hash plus the routing fingerprint composed from
+		// the resolved layout policy and run-wide scope.
+		for _, name := range []string{"ann", "gen", "be"} {
+			key := c.keyFor(t, name)
+			wantSub := "reads:" + emptyReadSetHash()
+			if !strings.Contains(key, wantSub) {
+				t.Errorf("plugin %q cache key %q missing %q", name, key, wantSub)
+			}
 		}
 	})
 }

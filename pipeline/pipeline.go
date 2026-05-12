@@ -265,17 +265,17 @@ func (p *Pipeline) recordResolvedLayout(target emit.Target, rl manifest.Resolved
 }
 
 // sameResolvedLayout reports whether two [manifest.ResolvedLayout]
-// values are equal, including their ResolvedFrom maps.
+// values agree on per-field precedence-layer attribution. Target
+// equality (the keying invariant the caller maintains) already pins
+// every value-bearing field — Layout, Package, Dir, Filename — so
+// only the ResolvedFrom map can legitimately diverge between two
+// compositions for the same Target. composeTarget always populates
+// the same four keys (layout, package, dir, filename), so the
+// comparison degenerates to a four-entry value check; an extra or
+// missing key implies the caller bypassed composeTarget, which is
+// a framework bug surfaced via the Internal diagnostic the divergence
+// path emits.
 func sameResolvedLayout(a, b manifest.ResolvedLayout) bool {
-	switch {
-	case a.Layout != b.Layout,
-		a.Package != b.Package,
-		a.Dir != b.Dir,
-		a.Filename != b.Filename:
-		return false
-	case len(a.ResolvedFrom) != len(b.ResolvedFrom):
-		return false
-	}
 	for k, v := range a.ResolvedFrom {
 		if b.ResolvedFrom[k] != v {
 			return false

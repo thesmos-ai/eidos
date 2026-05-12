@@ -121,9 +121,6 @@ func (r *recordingSink) asManifest(
 // Plugins list stays consistent with the rendered file's
 // `Plugins:` header in either regime.
 func pluginsForTarget(s *store.Store, target emit.Target, order []string) []string {
-	if s == nil {
-		return append([]string(nil), order...)
-	}
 	contributed := map[string]bool{}
 	for _, e := range s.Emit().ByTarget().Get(target) {
 		collectTargetContributors(e, contributed)
@@ -146,9 +143,6 @@ func pluginsForTarget(s *store.Store, target emit.Target, order []string) []stri
 // collector the backend's header renderer uses so manifest and
 // header report the same per-target plugin set.
 func collectTargetContributors(n emit.Node, out map[string]bool) {
-	if n == nil {
-		return
-	}
 	if name := strings.TrimSpace(n.SetBy()); name != "" {
 		out[name] = true
 	}
