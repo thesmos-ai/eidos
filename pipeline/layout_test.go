@@ -89,6 +89,56 @@ func TestLayout_AlongsideSource(t *testing.T) {
 	})
 }
 
+// TestLayout_AlongsideSource_HonoursEmitPackage pins the
+// plugin-overrides-source-package contract: when a plugin emits a
+// decl into an [emit.Package] whose Name / Path differ from the
+// origin's source package, Layout's alongside-source path stamps
+// Target.Package / Target.ImportPath from the emit.Package the
+// plugin chose. The source package's directory still drives
+// Target.Dir.
+//
+// mockgen is the canonical consumer: it emits mocks into a
+// `<srcPkg>_test` emit.Package so the rendered file declares
+// `package <pkg>_test` and its import identity diverges from the
+// regular source package — same-package elision stays inert when
+// the test mock references back into the regular package.
+func TestLayout_AlongsideSource_HonoursEmitPackage(t *testing.T) {
+	t.Parallel()
+
+	t.Run("plugin emit.Package overrides source-package routing", func(t *testing.T) {
+		t.Parallel()
+		nodePkg := &node.Package{Name: "users", Path: "example.com/users"}
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "internal/users/user.go"}},
+			Name:     "User", Package: "example.com/users",
+		}
+		s := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin},
+			Name:     "UserMock", Package: "example.com/users_test",
+		}
+		p, err := pipeline.New().
+			WithFrontend(&nodePackageFE{name: "fe", pkg: nodePkg}).
+			WithGenerator(&layoutGen{name: "mg", suffix: "_mock.go", pkg: &emit.Package{
+				Name: "users_test", Path: "example.com/users_test",
+				Structs: []*emit.Struct{s},
+			}}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "x"))
+		if got, want := s.Target.Dir, "internal/users"; got != want {
+			t.Fatalf("Target.Dir = %q, want %q (still derived from origin)", got, want)
+		}
+		if got, want := s.Target.Package, "users_test"; got != want {
+			t.Fatalf("Target.Package = %q, want %q (from emit.Package.Name)", got, want)
+		}
+		if got, want := s.Target.ImportPath, "example.com/users_test"; got != want {
+			t.Fatalf("Target.ImportPath = %q, want %q (from emit.Package.Path)", got, want)
+		}
+	})
+}
+
 // TestLayout_OutDirective verifies the +gen:out directive on an
 // origin overrides the plugin-suffix-derived Filename — precedence
 // layer 5.
@@ -130,6 +180,148 @@ func TestLayout_OutDirective(t *testing.T) {
 	})
 }
 
+// TestLayout_OutDirective_PathAware pins the path-aware form of
+// the +gen:out directive: a value carrying a directory component
+// splits into Target.Dir (resolved relative to the origin's
+// source directory) + Target.Filename, while a bare filename keeps
+// the existing behaviour.
+func TestLayout_OutDirective_PathAware(t *testing.T) {
+	t.Parallel()
+
+	t.Run("path with directory routes to sibling directory under source dir", func(t *testing.T) {
+		t.Parallel()
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{
+				SourcePos: position.Pos{File: "internal/users/user.go"},
+				DirectiveList: []*directive.Directive{
+					{Name: pipeline.OutDirective, Args: []string{"test/user_mock_test.go"}},
+				},
+			},
+			Name: "User", Package: "example.com/users",
+		}
+		s := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin},
+			Name:     "UserMock", Package: "example.com/users",
+		}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(&layoutGen{name: "mg", suffix: "_mock.go", pkg: &emit.Package{
+				Name: "users", Path: "example.com/users",
+				Structs: []*emit.Struct{s},
+			}}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "x"))
+		if got, want := s.Target.Dir, filepath.Join("internal", "users", "test"); got != want {
+			t.Fatalf("Target.Dir = %q, want %q (origin dir + directive path)", got, want)
+		}
+		if got, want := s.Target.Filename, "user_mock_test.go"; got != want {
+			t.Fatalf("Target.Filename = %q, want %q (basename of directive path)", got, want)
+		}
+	})
+}
+
+// TestLayout_OutDirective_PluginScope pins the plugin-scoped
+// variant of +gen:out: when the directive carries `plugin=<name>`,
+// the override applies only to the named plugin's output for that
+// origin; every other plugin targeting the same source routes
+// per the framework default.
+func TestLayout_OutDirective_PluginScope(t *testing.T) {
+	t.Parallel()
+
+	t.Run("plugin=<name> filters the override to one plugin", func(t *testing.T) {
+		t.Parallel()
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{
+				SourcePos: position.Pos{File: "internal/users/user.go"},
+				DirectiveList: []*directive.Directive{
+					{
+						Name: pipeline.OutDirective,
+						Args: []string{"custom.go"},
+						KV:   map[string]string{"plugin": "mg"},
+					},
+				},
+			},
+			Name: "User", Package: "example.com/users",
+		}
+		mocked := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin},
+			Name:     "UserMock", Package: "example.com/users",
+		}
+		built := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin},
+			Name:     "UserBuilder", Package: "example.com/users",
+		}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(&layoutGen{name: "mg", suffix: "_mock.go", pkg: &emit.Package{
+				Name: "users", Path: "example.com/users",
+				Structs: []*emit.Struct{mocked},
+			}}).
+			WithGenerator(&layoutGen{name: "bg", suffix: "_builder.go", pkg: &emit.Package{
+				Name: "users", Path: "example.com/users",
+				Structs: []*emit.Struct{built},
+			}}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "x"))
+		if got, want := mocked.Target.Filename, "custom.go"; got != want {
+			t.Fatalf("mocked plugin's Target.Filename = %q, want %q (plugin-scoped override)", got, want)
+		}
+		if got, want := built.Target.Filename, "user_builder.go"; got != want {
+			t.Fatalf("non-targeted plugin's Target.Filename = %q, want %q (framework default)", got, want)
+		}
+	})
+}
+
+// TestLayout_OutDirective_PkgOverride pins the pkg=<name> arg on
+// +gen:out: the supplied package overrides Target.Package and
+// Target.ImportPath at directive layer (5), winning over the
+// alongside-source emit.Package default but losing to CLI -p.
+func TestLayout_OutDirective_PkgOverride(t *testing.T) {
+	t.Parallel()
+
+	t.Run("pkg=<name> pins Target.Package to the supplied value", func(t *testing.T) {
+		t.Parallel()
+		nodePkg := &node.Package{Name: "users", Path: "example.com/users"}
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{
+				SourcePos: position.Pos{File: "internal/users/user.go"},
+				DirectiveList: []*directive.Directive{
+					{
+						Name: pipeline.OutDirective,
+						Args: []string{"user_mock.go"},
+						KV:   map[string]string{"pkg": "users_mocks"},
+					},
+				},
+			},
+			Name: "User", Package: "example.com/users",
+		}
+		s := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin},
+			Name:     "UserMock", Package: "example.com/users",
+		}
+		p, err := pipeline.New().
+			WithFrontend(&nodePackageFE{name: "fe", pkg: nodePkg}).
+			WithGenerator(&layoutGen{name: "mg", suffix: "_mock.go", pkg: &emit.Package{
+				Name: "users", Path: "example.com/users",
+				Structs: []*emit.Struct{s},
+			}}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "x"))
+		if got, want := s.Target.Package, "users_mocks"; got != want {
+			t.Fatalf("Target.Package = %q, want %q (directive pkg= override)", got, want)
+		}
+	})
+}
+
 // TestLayout_OutputFilenameOverride verifies the CLI -o override
 // (precedence layer 6) wins over the +gen:out directive (layer 5)
 // for Target.Filename.
@@ -165,6 +357,46 @@ func TestLayout_OutputFilenameOverride(t *testing.T) {
 		assertNoError(t, p.Run(t.Context(), "x"))
 		if got, want := s.Target.Filename, "cli_pinned.go"; got != want {
 			t.Fatalf("Target.Filename = %q, want %q (CLI -o wins)", got, want)
+		}
+	})
+}
+
+// TestLayout_OutputFilename_PathAware pins the path-aware form of
+// CLI -o: a value carrying a directory component splits into
+// Target.Dir (stacked under the origin's source directory) +
+// Target.Filename, mirroring +gen:out's path-aware semantics. A
+// bare filename keeps the existing behaviour and pins Filename
+// only.
+func TestLayout_OutputFilename_PathAware(t *testing.T) {
+	t.Parallel()
+
+	t.Run("path with directory routes under origin's source dir", func(t *testing.T) {
+		t.Parallel()
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "internal/users/user.go"}},
+			Name:     "User", Package: "example.com/users",
+		}
+		s := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin},
+			Name:     "UserRepo", Package: "example.com/users",
+		}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(&layoutGen{name: "rg", suffix: "_repo.go", pkg: &emit.Package{
+				Name: "users", Path: "example.com/users",
+				Structs: []*emit.Struct{s},
+			}}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			WithOutputFilename("test/cli_pinned.go").
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "x"))
+		if got, want := s.Target.Dir, filepath.Join("internal", "users", "test"); got != want {
+			t.Fatalf("Target.Dir = %q, want %q (CLI -o path stacked under origin dir)", got, want)
+		}
+		if got, want := s.Target.Filename, "cli_pinned.go"; got != want {
+			t.Fatalf("Target.Filename = %q, want %q (basename of CLI -o path)", got, want)
 		}
 	})
 }

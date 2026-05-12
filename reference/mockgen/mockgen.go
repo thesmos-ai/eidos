@@ -20,21 +20,18 @@
 //
 // # Output routing
 //
-// mockgen owns no routing configuration of its own — the
-// framework's routing layer composes every emit decl's
-// [emit.Target] from the source struct's origin plus the project
-// / per-plugin output config and CLI overrides. The plugin
-// declares its filename suffix via [Plugin.FilenameSuffix] and
-// sets [emit.BaseEmit.OriginNode] on every emit decl; the
-// Layout phase does the rest.
-//
-// [Options.Test] is plugin behaviour, not a routing decision:
-// the Test toggle flips the declared filename suffix to
-// [TestFilenameSuffix] so the rendered mock lands in a `_test.go`
-// file. Users who want mocks in a sibling `<srcPkg>_test`
-// package set the per-plugin `output.package` config alongside
-// `options.test: true` — two independent toggles for two
-// independent concerns.
+// mockgen targets external test packages by default: every mock
+// lands in a `<srcPkg>_test` emit.Package and the rendered file
+// carries the `_mock_test.go` suffix, so the Go test toolchain
+// confines it to test builds and the import identity diverges from
+// the regular source package (no whitebox same-package elision).
+// The plugin owns no routing configuration of its own — package
+// selection flows through the framework's routing layer:
+// `+gen:out:<plugin>` directives, the project / per-plugin
+// `output.*` config, and the CLI `-o` / `-p` overrides reshape
+// the destination per-source or per-run when the user has a
+// non-default requirement (whitebox testing, production mocks,
+// sibling-directory routing).
 package mockgen
 
 import (
@@ -71,18 +68,23 @@ const DirectiveName directive.Name = "mock"
 
 // FilenameSuffix is appended to the source-file basename (without
 // the `.go` extension) to form the alongside-source output
-// filename: `<src-file>_mock.go`. Every `+gen:mock` interface
-// declared in `searcher.go` therefore composes into one
-// `searcher_mock.go`.
-const FilenameSuffix = "_mock.go"
+// filename: `<src-file>_mock_test.go`. The `_test.go` ending pins
+// the rendered mock to Go's test-build convention so it never
+// reaches a production binary, and the `_mock` infix keeps the
+// generated file distinguishable from a user-authored
+// `<src-file>_test.go` test file.
+const FilenameSuffix = "_mock_test.go"
 
-// TestFilenameSuffix is the [Plugin.FilenameSuffix] value when
-// [Options.Test] is set: `<src-file>_test.go`. Go's test toolchain
-// compiles `_test.go` files only at test time, so the generated
-// mock stays out of production builds.
-const TestFilenameSuffix = "_test.go"
+// TestPackageSuffix is appended to the source package's short name
+// (and import path) to form the emit-side package mockgen lands
+// every mock in. The Go convention `<pkg>_test` produces an
+// external test package whose import identity differs from the
+// regular package — same-package elision stays inert so the
+// rendered mock's references back into the regular package
+// qualify naturally.
+const TestPackageSuffix = "_test"
 
-// Language is the backend language whose suffixes
+// Language is the backend language whose suffix
 // [Plugin.FilenameSuffix] returns. Other languages get the empty
 // signal until matching templates and per-language suffix
 // configuration land.
@@ -90,23 +92,16 @@ const Language = "golang"
 
 // Options carries the plugin's user-tunable settings. Routing is
 // owned by the framework's routing layer; mockgen exposes no
-// output-package option — project / per-plugin output config and
-// the CLI `-layout` / `-p` / `-output-dir` flags drive where
-// rendered output lands.
+// test/production toggle. Users wanting a non-default destination
+// (whitebox mock in the source package, production mock in a
+// custom location, a sibling-directory route, etc.) drive it
+// through the routing surface — `+gen:out:mockgen <path> pkg=…`
+// on the source, or `-o` / `-p` on the CLI.
 type Options struct {
 	// Suffix is appended to the targeted interface's name to form
 	// the emitted mock struct's identifier (`<Type><Suffix>`).
 	// Defaults to `Mock`.
 	Suffix string `eidos:"suffix,default=Mock"`
-
-	// Test selects the test-file filename suffix
-	// ([TestFilenameSuffix]) so the rendered mock lands in a
-	// `_test.go` file and the Go test toolchain confines it to
-	// test builds. Test only affects the declared filename suffix
-	// — the rendered package and import path remain whatever the
-	// framework's routing layer composes from the project /
-	// per-plugin `output.package` config and CLI overrides.
-	Test bool `eidos:"test,default=false"`
 }
 
 // Plugin is the mock-implementation generator. The zero value is
@@ -150,19 +145,11 @@ func (*Plugin) Requires() []string { return []string{RequiresRepository} }
 // receive the empty signal so the Layout phase surfaces a
 // missing-FilenameProvider error rather than producing a Go
 // suffix that wouldn't match the rendered output.
-//
-// [Options.Test] switches the suffix to [TestFilenameSuffix] so
-// the rendered mock lands in a `_test.go` file. The switch is
-// per-mode behaviour: every emission from a Test-enabled plugin
-// instance carries the test suffix.
-func (p *Plugin) FilenameSuffix(lang string) string {
-	if lang != Language {
-		return ""
+func (*Plugin) FilenameSuffix(lang string) string {
+	if lang == Language {
+		return FilenameSuffix
 	}
-	if p.opts.Test {
-		return TestFilenameSuffix
-	}
-	return FilenameSuffix
+	return ""
 }
 
 // Directives declares the `+gen:mock` / `-gen:mock` schema. Positive
@@ -186,42 +173,48 @@ func (*Plugin) Directives() []directive.Schema {
 // the upstream interface's Origin so the mock composes into the
 // same file as the interface it shadows).
 //
+// Iteration uses the scoped reader's `Interfaces()` and
+// `EmitInterfaces()` queries so the pipeline's scope predicate is
+// honoured at the iterator level — a `-target X` run sees only
+// X-shaped interfaces, source-side or emit-side.
+//
 // Routing is owned entirely by the framework's routing layer:
 // every emit decl carries Origin set and leaves [emit.Target]
-// zero. The Layout phase composes Dir / Filename / Package /
-// ImportPath from the origin and the resolved
-// [pipeline.LayoutPolicy] for this plugin.
+// zero. mockgen drops each mock into a `<srcPkg>_test`
+// emit.Package so the Layout phase's alongside-source rule —
+// which reads Target.Package from the emit-side package —
+// composes the rendered file's `package <pkg>_test` clause
+// without the framework knowing anything about Go's test-package
+// convention.
 func (p *Plugin) Generate(ctx *plugin.GeneratorContext) error {
-	var firstErr error
-	ctx.Reader.Packages().Each(func(srcPkg *node.Package) {
-		matches := matchingSourceInterfaces(srcPkg)
-		if len(matches) == 0 {
-			return
+	srcGroups, srcOrder := groupSourceInterfaces(ctx)
+	for _, path := range srcOrder {
+		srcPkg, ok := ctx.Reader.Store().Nodes().Packages().ByQName(path)
+		if !ok {
+			continue
 		}
 		c := builder.For(Name, emit.Target{})
-		pkg := c.Package(srcPkg.Name, srcPkg.Path)
-		for _, si := range matches {
+		pkg := c.Package(srcPkg.Name+TestPackageSuffix, srcPkg.Path+TestPackageSuffix)
+		for _, si := range srcGroups[path] {
 			p.emitForSourceInterface(pkg, si, emit.External(si.Package, si.Name))
 		}
-		if err := buildAndAdd(ctx, pkg); err != nil && firstErr == nil {
-			firstErr = err
+		if err := buildAndAdd(ctx, pkg); err != nil {
+			return err
 		}
-	})
-	ctx.Reader.EmitPackages().Each(func(epkg *emit.Package) {
-		matches := matchingEmitInterfaces(epkg)
-		if len(matches) == 0 {
-			return
-		}
+	}
+	emitGroups, emitOrder := groupEmitInterfaces(ctx)
+	for _, key := range emitOrder {
+		group := emitGroups[key]
 		c := builder.For(Name, emit.Target{})
-		pkg := c.Package(epkg.Name, epkg.Path)
-		for _, ei := range matches {
+		pkg := c.Package(group.pkgName+TestPackageSuffix, group.pkgPath+TestPackageSuffix)
+		for _, ei := range group.items {
 			p.emitForEmitInterface(pkg, ei)
 		}
-		if err := buildAndAdd(ctx, pkg); err != nil && firstErr == nil {
-			firstErr = err
+		if err := buildAndAdd(ctx, pkg); err != nil {
+			return err
 		}
-	})
-	return firstErr
+	}
+	return nil
 }
 
 // buildAndAdd finalises the in-progress package and folds it into
@@ -244,32 +237,64 @@ func buildAndAdd(ctx *plugin.GeneratorContext, pkg *builder.PackageBuilder) erro
 //nolint:gochecknoglobals // sentinel.
 var errAddPackage = errors.New("mockgen: add package to store")
 
-// matchingSourceInterfaces returns srcPkg's source-side interfaces
-// opted into mocking by `+gen:mock`.
-func matchingSourceInterfaces(srcPkg *node.Package) []*node.Interface {
-	out := make([]*node.Interface, 0, len(srcPkg.Interfaces))
-	for _, i := range srcPkg.Interfaces {
-		if i.HasPositiveDirective(DirectiveName) {
-			out = append(out, i)
-		}
-	}
-	return out
-}
-
-// matchingEmitInterfaces returns epkg's emit-side interfaces that
-// haven't opted out via `-gen:mock`. The default-on polarity
-// mirrors the documented contract: upstream generators land an
-// interface and mockgen mocks it unless the user explicitly
-// suppresses.
-func matchingEmitInterfaces(epkg *emit.Package) []*emit.Interface {
-	out := make([]*emit.Interface, 0, len(epkg.Interfaces))
-	for _, i := range epkg.Interfaces {
-		if i.HasNegatedDirective(DirectiveName) {
+// groupSourceInterfaces walks the scoped source-interface bucket
+// and groups every `+gen:mock` match by source-package path. The
+// returned order slice preserves first-encountered path order so
+// iteration of the grouping stays deterministic across runs.
+func groupSourceInterfaces(
+	ctx *plugin.GeneratorContext,
+) (map[string][]*node.Interface, []string) {
+	groups := map[string][]*node.Interface{}
+	order := []string{}
+	for _, i := range ctx.Reader.Interfaces().Slice() {
+		if !i.HasPositiveDirective(DirectiveName) {
 			continue
 		}
-		out = append(out, i)
+		if _, seen := groups[i.Package]; !seen {
+			order = append(order, i.Package)
+		}
+		groups[i.Package] = append(groups[i.Package], i)
 	}
-	return out
+	return groups, order
+}
+
+// emitInterfaceGroup buckets emit-side interfaces by their
+// containing emit.Package identity (Name + Path) so each rendered
+// mock package mirrors the upstream interface's package — with
+// the [TestPackageSuffix] applied at AddPackage time.
+type emitInterfaceGroup struct {
+	pkgName, pkgPath string
+	items            []*emit.Interface
+}
+
+// groupEmitInterfaces walks the scoped emit-interface bucket and
+// groups every non-suppressed interface by its containing
+// emit.Package's (Name, Path). Order is first-encountered.
+func groupEmitInterfaces(
+	ctx *plugin.GeneratorContext,
+) (map[string]*emitInterfaceGroup, []string) {
+	pkgByQName := map[string]*emit.Package{}
+	for _, epkg := range ctx.Reader.Store().Emit().Packages().Items() {
+		pkgByQName[epkg.Path] = epkg
+	}
+	groups := map[string]*emitInterfaceGroup{}
+	order := []string{}
+	for _, ei := range ctx.Reader.EmitInterfaces().Slice() {
+		if ei.HasNegatedDirective(DirectiveName) {
+			continue
+		}
+		host := pkgByQName[ei.Package]
+		if host == nil {
+			continue
+		}
+		key := host.Name + "\x00" + host.Path
+		if _, seen := groups[key]; !seen {
+			order = append(order, key)
+			groups[key] = &emitInterfaceGroup{pkgName: host.Name, pkgPath: host.Path}
+		}
+		groups[key].items = append(groups[key].items, ei)
+	}
+	return groups, order
 }
 
 // methodSig is the minimal per-method information mockgen needs to
@@ -321,9 +346,9 @@ func (p *Plugin) emitForEmitInterface(pkg *builder.PackageBuilder, i *emit.Inter
 // [refconv.FromNode] so the generated mock parses against the same
 // signatures the source declares. ifaceRef is the reference the
 // emitted mock uses for the source interface — the plugin always
-// passes [emit.External]; the renderer elides same-package
-// qualifiers via the Target.ImportPath the Layout phase composes
-// from the source package.
+// passes [emit.External]; the renderer qualifies references back
+// into the regular package because the test-package import
+// identity differs from the regular package's.
 //
 // Generic source interfaces propagate their type parameters to the
 // mock and thread the type-arg list through ifaceRef so the

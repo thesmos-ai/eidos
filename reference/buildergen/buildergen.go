@@ -135,10 +135,14 @@ func (*Plugin) Directives() []directive.Schema {
 	}
 }
 
-// Generate iterates the node store's struct bucket and emits a
+// Generate walks the scoped source-struct bucket and emits a
 // builder type for every `+gen:builder` target. Suppression via
 // `-gen:builder` skips the source struct even when other generators
 // act on it.
+//
+// Iteration goes through `ctx.Reader.Structs()` so the pipeline's
+// scope predicate is honoured at the iterator level — a
+// `-target X` run sees only X-shaped source structs.
 //
 // Routing is owned entirely by the framework's routing layer:
 // each emit decl carries Origin set to the source struct and
@@ -146,31 +150,26 @@ func (*Plugin) Directives() []directive.Schema {
 // Filename / Package / ImportPath from the origin and the
 // resolved [pipeline.LayoutPolicy] downstream.
 func (p *Plugin) Generate(ctx *plugin.GeneratorContext) error {
-	var firstErr error
-	ctx.Reader.Packages().Each(func(srcPkg *node.Package) {
-		matches := matchingStructs(srcPkg, p.shouldEmit)
-		if len(matches) == 0 {
-			return
+	groups, order := groupByPackage(ctx, p.shouldEmit)
+	for _, path := range order {
+		srcPkg, ok := ctx.Reader.Store().Nodes().Packages().ByQName(path)
+		if !ok {
+			continue
 		}
 		c := builder.For(Name, emit.Target{})
 		pkg := c.Package(srcPkg.Name, srcPkg.Path)
-		for _, s := range matches {
+		for _, s := range groups[path] {
 			p.emitOne(pkg, s, emit.External(s.Package, s.Name))
 		}
 		out, err := pkg.Build()
 		if err != nil {
-			if firstErr == nil {
-				firstErr = err
-			}
-			return
+			return err
 		}
 		if err := ctx.Store.Emit().AddPackage(out); err != nil {
-			if firstErr == nil {
-				firstErr = errors.Join(errAddPackage, err)
-			}
+			return errors.Join(errAddPackage, err)
 		}
-	})
-	return firstErr
+	}
+	return nil
 }
 
 // errAddPackage is the sentinel wrapped around store-side AddPackage
@@ -179,17 +178,26 @@ func (p *Plugin) Generate(ctx *plugin.GeneratorContext) error {
 //nolint:gochecknoglobals // sentinel.
 var errAddPackage = errors.New("buildergen: add package to store")
 
-// matchingStructs returns srcPkg's structs the predicate accepts, in
-// declaration order. Extracted so both layouts share the predicate
-// path and the per-package slice allocation pattern.
-func matchingStructs(srcPkg *node.Package, ok func(*node.Struct) bool) []*node.Struct {
-	out := make([]*node.Struct, 0, len(srcPkg.Structs))
-	for _, s := range srcPkg.Structs {
-		if ok(s) {
-			out = append(out, s)
+// groupByPackage walks the scoped source-struct bucket and groups
+// every match of pred by source-package import path. The returned
+// order slice preserves first-encountered path order so iteration
+// of the grouping stays deterministic across runs.
+func groupByPackage(
+	ctx *plugin.GeneratorContext,
+	pred func(*node.Struct) bool,
+) (map[string][]*node.Struct, []string) {
+	groups := map[string][]*node.Struct{}
+	order := []string{}
+	for _, s := range ctx.Reader.Structs().Slice() {
+		if !pred(s) {
+			continue
 		}
+		if _, seen := groups[s.Package]; !seen {
+			order = append(order, s.Package)
+		}
+		groups[s.Package] = append(groups[s.Package], s)
 	}
-	return out
+	return groups, order
 }
 
 // shouldEmit reports whether the source struct opts into builder

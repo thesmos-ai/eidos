@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/sink"
@@ -61,6 +62,29 @@ func TestDisk_Write(t *testing.T) {
 		assertNoError(t, err)
 		if string(got) != "second" {
 			t.Fatalf("overwrite mismatch: %q", got)
+		}
+	})
+
+	t.Run("skips the write when the destination already has identical bytes", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		d := sink.NewDisk(root)
+		assertNoError(t, d.Write(targetAt("a", "b.go"), []byte("body")))
+		path := filepath.Join(root, "a", "b.go")
+		first, err := os.Stat(path)
+		assertNoError(t, err)
+		// Sleep through filesystem mtime granularity so any rewrite
+		// would surface a fresh ModTime. macOS HFS+ resolves seconds;
+		// APFS resolves nanoseconds but still benefits from the gap.
+		time.Sleep(1100 * time.Millisecond)
+		assertNoError(t, d.Write(targetAt("a", "b.go"), []byte("body")))
+		second, err := os.Stat(path)
+		assertNoError(t, err)
+		if !first.ModTime().Equal(second.ModTime()) {
+			t.Fatalf(
+				"identical body rewrite should not touch mtime; first=%v second=%v",
+				first.ModTime(), second.ModTime(),
+			)
 		}
 	})
 

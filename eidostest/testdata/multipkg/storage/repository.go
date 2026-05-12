@@ -3,12 +3,13 @@
 
 // Package storage holds the generic Repository surface. The
 // `+gen:mock` directive on Repository[T] forces the mock generator
-// to produce one mock per source interface; the multipkg
-// acceptance test configures mockgen with `test: true` so the mock
-// lands in `<src>_test.go` under a `storage_test` package — the
-// rendered file lives in this directory but its import identity is
-// `example.com/multipkg/storage_test`, so references back to the
-// regular `storage` types qualify rather than elide.
+// to produce one mock per source interface. mockgen's default
+// routes every mock into a `<srcPkg>_test` package with a
+// `_mock_test.go` filename, so the rendered mock lands at
+// `storage/repository_mock_test.go` declaring `package storage_test`
+// — the Go toolchain compiles it only at test time and references
+// back into the regular `storage` package qualify naturally because
+// the test-package import identity differs.
 package storage
 
 import (

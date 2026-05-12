@@ -263,6 +263,45 @@ func TestGenerate_FieldTypeCoverage(t *testing.T) {
 	}
 }
 
+// TestGenerate_HonoursScope pins the routing-layer scope contract:
+// when the pipeline carries a target-symbol predicate, buildergen
+// emits decls only for source structs matching the predicate.
+// Iteration must go through scoped reader queries; iterating raw
+// struct slices off [node.Package] would bypass the filter.
+func TestGenerate_HonoursScope(t *testing.T) {
+	t.Parallel()
+
+	result := demopipe.Run(t, demopipe.RunOptions{
+		Generators:    []plugin.Generator{buildergen.New()},
+		Backend:       backend_golang.New(),
+		Layout:        pipeline.LayoutCentralised,
+		OutputPackage: outputPackage,
+		TargetSymbol:  "Article",
+	})
+	if result.RunErr != nil {
+		t.Fatalf("pipeline Run: %v", result.RunErr)
+	}
+	if result.Diag.HasErrors() {
+		t.Fatalf("expected no error diagnostics; got %+v", result.Diag.Diagnostics())
+	}
+
+	t.Run("Article in scope produces its builder", func(t *testing.T) {
+		t.Parallel()
+		if !emitContainsStruct(result.Store, "ArticleBuilder") {
+			t.Fatalf("expected ArticleBuilder under -target Article")
+		}
+	})
+
+	t.Run("UserBuilder and CommentBuilder are out of scope", func(t *testing.T) {
+		t.Parallel()
+		for _, unwanted := range []string{"UserBuilder", "CommentBuilder"} {
+			if emitContainsStruct(result.Store, unwanted) {
+				t.Fatalf("did not expect %q under -target Article scope", unwanted)
+			}
+		}
+	})
+}
+
 // TestGenerate_LeavesTargetForLayout pins the routing-layer
 // contract: the plugin emits the builder struct with Origin set
 // but Target fields untouched. The framework's Layout phase

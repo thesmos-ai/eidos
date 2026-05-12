@@ -4,6 +4,8 @@
 package cli_test
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"flag"
 	"os"
 	"path/filepath"
@@ -108,7 +110,151 @@ func TestCheckCommand_MissingFile(t *testing.T) {
 	})
 }
 
-// TestCheckCommand_ConfigError covers the user-error path.
+// TestCheckCommand_ProvenanceMismatch covers the body-edit drift
+// surface: a file whose stamped provenance hash still matches the
+// in-memory render's stamped hash counts as drift when the on-disk
+// body bytes themselves no longer hash to that value — the
+// drift-detection contract must catch manual edits between the
+// header and the trailer even when the trailer stays untouched.
+func TestCheckCommand_ProvenanceMismatch(t *testing.T) {
+	t.Parallel()
+
+	t.Run("body edited but trailer untouched is drift", func(t *testing.T) {
+		t.Parallel()
+		env, stdout, _ := freshEnv(t, "eidos")
+		const cleanBody = "package x\n\nfunc Hello() {}\n"
+		mem := framedFile(cleanBody)
+		// Disk has tampered body bytes but keeps the original
+		// stamped hash so the trailer agrees with the in-memory
+		// render at the hash level.
+		hash := sha256Hex(cleanBody)
+		tampered := framedFileWith("test", "package x\n\nfunc Tampered() {}\n", hash)
+		tgt := emit.Target{Dir: "out", Filename: "hello.go", Package: "x"}
+		if err := os.MkdirAll(filepath.Join(env.Workdir, tgt.Dir), 0o750); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(env.Workdir, tgt.Dir, tgt.Filename), tampered, 0o600); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+		cmd := &cli.CheckCommand{Config: cli.CheckConfig{
+			Plugins: []plugin.Plugin{
+				stubFrontend{name: "fe"},
+				writingBackend{name: "be", body: mem, tgt: tgt},
+			},
+		}}
+		if code := cmd.Execute(t.Context(), env); code != cli.ExitCheckDrift {
+			t.Fatalf("Execute = %d, want ExitCheckDrift", code)
+		}
+		if !strings.Contains(stdout.String(), "content differs") {
+			t.Fatalf("expected content-differs line; got %q", stdout.String())
+		}
+	})
+}
+
+// TestCheckCommand_AppendedAfterTrailer covers the
+// post-trailer-tampering drift surface: bytes appended to the
+// file *after* the provenance line surface as drift, even though
+// the stamped hash and the actual body bytes both stay coherent
+// with the in-memory render.
+func TestCheckCommand_AppendedAfterTrailer(t *testing.T) {
+	t.Parallel()
+
+	t.Run("bytes appended after the trailer are drift", func(t *testing.T) {
+		t.Parallel()
+		env, stdout, _ := freshEnv(t, "eidos")
+		const cleanBody = "package x\n\nfunc Hello() {}\n"
+		mem := framedFile(cleanBody)
+		appended := append([]byte(nil), mem...)
+		appended = append(appended, "// trailing junk\n"...)
+		tgt := emit.Target{Dir: "out", Filename: "hello.go", Package: "x"}
+		if err := os.MkdirAll(filepath.Join(env.Workdir, tgt.Dir), 0o750); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(env.Workdir, tgt.Dir, tgt.Filename), appended, 0o600); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+		cmd := &cli.CheckCommand{Config: cli.CheckConfig{
+			Plugins: []plugin.Plugin{
+				stubFrontend{name: "fe"},
+				writingBackend{name: "be", body: mem, tgt: tgt},
+			},
+		}}
+		if code := cmd.Execute(t.Context(), env); code != cli.ExitCheckDrift {
+			t.Fatalf("Execute = %d, want ExitCheckDrift", code)
+		}
+		if !strings.Contains(stdout.String(), "content differs") {
+			t.Fatalf("expected content-differs line; got %q", stdout.String())
+		}
+	})
+}
+
+// TestCheckCommand_HeaderOnlyDifference pins the spec contract
+// that header lines varying between `eidos run` and `eidos check`
+// (Command, Plugins, Source paths) do not surface as drift —
+// provenance is over body bytes only, so the rendered files
+// agree at the hash level even when the header text differs.
+func TestCheckCommand_HeaderOnlyDifference(t *testing.T) {
+	t.Parallel()
+
+	t.Run("differing header lines with matching body are not drift", func(t *testing.T) {
+		t.Parallel()
+		env, stdout, _ := freshEnv(t, "eidos")
+		const bodyText = "package x\n\nfunc Hello() {}\n"
+		hash := sha256Hex(bodyText)
+		mem := framedFileWith("check ./...", bodyText, hash)
+		disk := framedFileWith("run ./...", bodyText, hash)
+		tgt := emit.Target{Dir: "out", Filename: "hello.go", Package: "x"}
+		if err := os.MkdirAll(filepath.Join(env.Workdir, tgt.Dir), 0o750); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(env.Workdir, tgt.Dir, tgt.Filename), disk, 0o600); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+		cmd := &cli.CheckCommand{Config: cli.CheckConfig{
+			Plugins: []plugin.Plugin{
+				stubFrontend{name: "fe"},
+				writingBackend{name: "be", body: mem, tgt: tgt},
+			},
+		}}
+		if code := cmd.Execute(t.Context(), env); code != cli.ExitOK {
+			t.Fatalf("Execute = %d, want ExitOK (header-only differences); got %s", code, stdout.String())
+		}
+		if !strings.Contains(stdout.String(), "no drift detected") {
+			t.Fatalf("expected no-drift summary; got %q", stdout.String())
+		}
+	})
+}
+
+// framedFile wraps body in the canonical eidos header / footer
+// envelope so the check command's provenance-hash comparison has
+// a realistic input to parse. The stamped hash is computed over
+// body's bytes so the result is a well-formed eidos file.
+func framedFile(body string) []byte {
+	return framedFileWith("test", body, sha256Hex(body))
+}
+
+// framedFileWith mirrors framedFile but lets callers pin the
+// Command-line stamp and the trailer hash independently. Tests
+// that exercise stale-stamp or post-trailer-tampering scenarios
+// supply a mismatching hash or extend the returned bytes.
+func framedFileWith(command, body, hash string) []byte {
+	header := "// Code generated by eidos. DO NOT EDIT.\n" +
+		"//\n" +
+		"// Source:    test.go\n" +
+		"// Plugins:   stub\n" +
+		"// Command:   " + command + "\n\n"
+	footer := "\n// eidos: end of generated content.\n" +
+		"// eidos:provenance " + hash + "\n"
+	return []byte(header + body + footer)
+}
+
+// sha256Hex returns the lowercase-hex SHA-256 of s — the body
+// hash format every backend stamps into the provenance trailer.
+func sha256Hex(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
+}
+
 func TestCheckCommand_ConfigError(t *testing.T) {
 	t.Parallel()
 

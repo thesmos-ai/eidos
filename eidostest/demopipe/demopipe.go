@@ -101,6 +101,12 @@ type RunOptions struct {
 	// centralised layout. Ignored under alongside-source. Empty
 	// defers to [OutputPackage] when centralised is selected.
 	OutputDir string
+
+	// TargetSymbol restricts the run to source decls whose
+	// unqualified Name equals the value, or whose QName ends with
+	// `.<value>`. Empty disables scoping (every in-scope decl
+	// participates). Maps to [pipeline.Builder.WithTargetSymbol].
+	TargetSymbol string
 }
 
 // Result captures the outcome of a [Run] call. Tests assert
@@ -162,6 +168,9 @@ func Run(t *testing.T, opts RunOptions) Result {
 	}
 	if opts.OutputDir != "" {
 		b = b.WithOutputDir(opts.OutputDir)
+	}
+	if opts.TargetSymbol != "" {
+		b = b.WithTargetSymbol(opts.TargetSymbol)
 	}
 	for _, a := range opts.Annotators {
 		b = b.WithAnnotator(a)

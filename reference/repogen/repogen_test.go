@@ -213,6 +213,49 @@ func TestGenerate_DirectiveGating(t *testing.T) {
 	}
 }
 
+// TestGenerate_HonoursScope pins the routing-layer scope contract
+// from the consumer side: when the pipeline carries a
+// target-symbol predicate, repogen emits decls only for source
+// structs matching the predicate. The contract requires plugins
+// to iterate via scoped reader queries — iterating raw struct
+// slices off [node.Package] would bypass the scope filter and
+// produce out-of-scope output.
+func TestGenerate_HonoursScope(t *testing.T) {
+	t.Parallel()
+
+	result := demopipe.Run(t, demopipe.RunOptions{
+		Generators:    []plugin.Generator{repogen.New()},
+		Backend:       backend_golang.New(),
+		Layout:        pipeline.LayoutCentralised,
+		OutputPackage: outputPackage,
+		TargetSymbol:  "Article",
+	})
+	if result.RunErr != nil {
+		t.Fatalf("pipeline Run: %v", result.RunErr)
+	}
+	if result.Diag.HasErrors() {
+		t.Fatalf("expected no error diagnostics; got %+v", result.Diag.Diagnostics())
+	}
+
+	t.Run("Article in scope produces its repository surface", func(t *testing.T) {
+		t.Parallel()
+		for _, want := range []string{"ArticleRepository", "ArticleRepo"} {
+			if !emitContainsType(result.Store, want) {
+				t.Fatalf("expected emit store to contain %q under -target Article", want)
+			}
+		}
+	})
+
+	t.Run("User out of scope produces no repository surface", func(t *testing.T) {
+		t.Parallel()
+		for _, unwanted := range []string{"UserRepository", "UserRepo"} {
+			if emitContainsType(result.Store, unwanted) {
+				t.Fatalf("did not expect %q under -target Article scope", unwanted)
+			}
+		}
+	})
+}
+
 // TestGenerate_LeavesTargetForLayout pins the routing-layer
 // contract: the plugin emits decls with Origin set but Target
 // fields untouched. The framework's Layout phase composes

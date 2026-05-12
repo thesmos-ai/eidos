@@ -102,7 +102,7 @@ func TestPluginShape(t *testing.T) {
 func TestFilenameSuffix(t *testing.T) {
 	t.Parallel()
 
-	t.Run("non-Test mode returns the production suffix for golang", func(t *testing.T) {
+	t.Run("golang returns the test-file suffix", func(t *testing.T) {
 		t.Parallel()
 		p := mockgen.New()
 		if err := p.SetOptions(opt.New(p.OptionsSchema(), nil)); err != nil {
@@ -110,17 +110,6 @@ func TestFilenameSuffix(t *testing.T) {
 		}
 		if got, want := p.FilenameSuffix(mockgen.Language), mockgen.FilenameSuffix; got != want {
 			t.Fatalf("FilenameSuffix(%q) = %q, want %q", mockgen.Language, got, want)
-		}
-	})
-
-	t.Run("Test mode flips the suffix to the test-file form", func(t *testing.T) {
-		t.Parallel()
-		p := mockgen.New()
-		if err := p.SetOptions(opt.New(p.OptionsSchema(), map[string]string{"test": "true"})); err != nil {
-			t.Fatalf("SetOptions: %v", err)
-		}
-		if got, want := p.FilenameSuffix(mockgen.Language), mockgen.TestFilenameSuffix; got != want {
-			t.Fatalf("FilenameSuffix(Test) = %q, want %q", got, want)
 		}
 	})
 
@@ -237,6 +226,48 @@ func TestGenerate_EndToEnd(t *testing.T) {
 	})
 }
 
+// TestGenerate_HonoursScope pins the routing-layer scope contract.
+// Both the source-side and emit-side mock paths iterate through
+// scoped reader queries; under `-target Article` the source
+// Searcher interface (no match) drops out, and the emit-side
+// ArticleRepository (whose Origin is the Article source struct,
+// in scope) still produces its mock. The Article source struct
+// itself is the unit driving the scope predicate via its
+// emit-side interface lineage.
+func TestGenerate_HonoursScope(t *testing.T) {
+	t.Parallel()
+
+	result := demopipe.Run(t, demopipe.RunOptions{
+		Generators:    []plugin.Generator{repogen.New(), mockgen.New()},
+		Backend:       backend_golang.New(),
+		Layout:        pipeline.LayoutCentralised,
+		OutputPackage: outputPackage,
+		TargetSymbol:  "Article",
+	})
+	if result.RunErr != nil {
+		t.Fatalf("pipeline Run: %v", result.RunErr)
+	}
+	if result.Diag.HasErrors() {
+		t.Fatalf("expected no error diagnostics; got %+v", result.Diag.Diagnostics())
+	}
+
+	t.Run("ArticleRepositoryMock is in scope via its source-struct origin", func(t *testing.T) {
+		t.Parallel()
+		if !emitContainsStruct(result.Store, "ArticleRepositoryMock") {
+			t.Fatalf("expected ArticleRepositoryMock under -target Article")
+		}
+	})
+
+	t.Run("UserRepositoryMock and SearcherMock are out of scope", func(t *testing.T) {
+		t.Parallel()
+		for _, unwanted := range []string{"UserRepositoryMock", "SearcherMock"} {
+			if emitContainsStruct(result.Store, unwanted) {
+				t.Fatalf("did not expect %q under -target Article scope", unwanted)
+			}
+		}
+	})
+}
+
 // TestGenerate_LeavesTargetForLayout pins the routing-layer
 // contract: every emitted mock carries its source-anchored Origin
 // but no plugin-stamped Target. The framework's Layout phase
@@ -247,7 +278,7 @@ func TestGenerate_LeavesTargetForLayout(t *testing.T) {
 	t.Parallel()
 
 	t.Run(
-		"source-side mock anchors to the source interface and lands in the source emit.Package",
+		"source-side mock anchors to the source interface and lands in the <srcPkg>_test emit.Package",
 		func(t *testing.T) {
 			t.Parallel()
 			s := store.New()
@@ -273,16 +304,17 @@ func TestGenerate_LeavesTargetForLayout(t *testing.T) {
 				t.Fatalf("Generate: %v", err)
 			}
 
-			emitPkg, ok := s.Emit().Packages().ByQName(srcPkg.Path)
+			wantPath := srcPkg.Path + mockgen.TestPackageSuffix
+			emitPkg, ok := s.Emit().Packages().ByQName(wantPath)
 			if !ok {
 				t.Fatalf(
-					"expected emit.Package keyed by source path %q; got %+v",
-					srcPkg.Path,
+					"expected emit.Package keyed by %q; got %+v",
+					wantPath,
 					s.Emit().Packages().Items(),
 				)
 			}
-			if emitPkg.Name != srcPkg.Name {
-				t.Fatalf("emit.Package.Name = %q, want %q", emitPkg.Name, srcPkg.Name)
+			if want := srcPkg.Name + mockgen.TestPackageSuffix; emitPkg.Name != want {
+				t.Fatalf("emit.Package.Name = %q, want %q", emitPkg.Name, want)
 			}
 			if len(emitPkg.Structs) != 1 {
 				t.Fatalf("expected one mock struct; got %d", len(emitPkg.Structs))
@@ -298,7 +330,7 @@ func TestGenerate_LeavesTargetForLayout(t *testing.T) {
 	)
 
 	t.Run(
-		"emit-side mock anchors to the upstream interface's Origin and lands in the upstream emit.Package",
+		"emit-side mock anchors to the upstream interface's Origin and lands in the <upstream>_test emit.Package",
 		func(t *testing.T) {
 			t.Parallel()
 			s := store.New()
@@ -336,11 +368,12 @@ func TestGenerate_LeavesTargetForLayout(t *testing.T) {
 				t.Fatalf("Generate: %v", err)
 			}
 
-			emitPkg, ok := s.Emit().Packages().ByQName(epkg.Path)
+			wantPath := epkg.Path + mockgen.TestPackageSuffix
+			emitPkg, ok := s.Emit().Packages().ByQName(wantPath)
 			if !ok {
 				t.Fatalf(
 					"expected emit.Package keyed by %q; got %+v",
-					epkg.Path,
+					wantPath,
 					s.Emit().Packages().Items(),
 				)
 			}
@@ -503,9 +536,9 @@ func TestGenerate_DispatchBodyZeroReturn(t *testing.T) {
 		t.Fatalf("Generate: %v", err)
 	}
 	// The emitted mock lives under the source package's import
-	// path now that routing is owned by the framework's layout
-	// layer.
-	mock, ok := s.Emit().Structs().ByQName(pkg.Path + ".NotifierMock")
+	// path plus the test-package suffix — mockgen drops every mock
+	// in an external `<srcPkg>_test` package by default.
+	mock, ok := s.Emit().Structs().ByQName(pkg.Path + mockgen.TestPackageSuffix + ".NotifierMock")
 	if !ok {
 		t.Fatalf("emit store missing NotifierMock; got %+v", s.Emit().Structs().Items())
 	}
@@ -554,7 +587,7 @@ func TestGenerate_AnonymousParamsGetNames(t *testing.T) {
 	if err := p.Generate(ctx); err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
-	mock, ok := s.Emit().Structs().ByQName(pkg.Path + ".AnonProbeMock")
+	mock, ok := s.Emit().Structs().ByQName(pkg.Path + mockgen.TestPackageSuffix + ".AnonProbeMock")
 	if !ok {
 		t.Fatalf("emit store missing AnonProbeMock")
 	}

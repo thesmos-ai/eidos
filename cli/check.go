@@ -6,6 +6,8 @@ package cli
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -108,7 +110,7 @@ func (*CheckCommand) reportDrift(env *Env, current map[emit.Target][]byte) int {
 
 	drifted := 0
 	for _, t := range targets {
-		path := filepath.Join(env.Workdir, t.Dir, t.Filename)
+		path := resolveTargetPath(env.Workdir, t)
 		disk, err := os.ReadFile(path)
 		if errors.Is(err, os.ErrNotExist) {
 			fmt.Fprintf(env.Stdout, "drift: %s (missing from disk)\n", path)
@@ -120,7 +122,7 @@ func (*CheckCommand) reportDrift(env *Env, current map[emit.Target][]byte) int {
 			drifted++
 			continue
 		}
-		if !bytes.Equal(disk, current[t]) {
+		if !sameProvenance(disk, current[t]) {
 			fmt.Fprintf(env.Stdout, "drift: %s (content differs)\n", path)
 			drifted++
 		}
@@ -138,3 +140,131 @@ func (*CheckCommand) reportDrift(env *Env, current map[emit.Target][]byte) int {
 func joinTarget(t emit.Target) string {
 	return filepath.Join(t.Dir, t.Filename)
 }
+
+// resolveTargetPath mirrors the disk sink's path-resolution
+// contract: an absolute [emit.Target.Dir] bypasses workdir, while
+// a relative Dir joins under workdir. The Layout phase derives
+// alongside-source Dirs from `filepath.Dir(origin.Pos().File)`
+// which the Go frontend records as absolute, so the bypass is the
+// common case for the default layout.
+func resolveTargetPath(workdir string, t emit.Target) string {
+	if filepath.IsAbs(t.Dir) {
+		return filepath.Join(t.Dir, t.Filename)
+	}
+	return filepath.Join(workdir, t.Dir, t.Filename)
+}
+
+// provenanceMarker is the brand-agnostic infix every backend
+// renders into the per-file trailer: `<prefix><brand>:provenance
+// <hash>`. Drift detection extracts the hash after the marker
+// and compares the two files at the hash level rather than
+// byte-equal: the provenance hash is over body bytes only
+// (header and footer excluded), so identical bodies hash the
+// same even when run-derived header fields (Command, Plugins)
+// differ between `eidos run` and `eidos check`.
+const provenanceMarker = ":provenance "
+
+// sameProvenance reports whether the disk file's content matches
+// what the pipeline rendered in-memory under the provenance
+// model:
+//
+//   - The disk file's stamped hash matches the in-memory file's
+//     stamped hash (header-only differences like the Command line
+//     do not surface as drift; the hash is over body bytes alone).
+//   - The disk file's actual body bytes hash to the stamped value
+//     (manual edits between the header and the trailer surface
+//     as drift even when the trailer is left untouched).
+//   - The provenance line is the disk file's final line, modulo a
+//     single trailing newline (bytes appended after the trailer
+//     surface as drift).
+//
+// Files missing the marker fall back to byte-equal comparison so
+// non-eidos files (or older formats) are still handled correctly.
+func sameProvenance(disk, current []byte) bool {
+	memHash, ok := extractProvenance(current)
+	if !ok {
+		return bytes.Equal(disk, current)
+	}
+	diskHash, ok := extractProvenance(disk)
+	if !ok {
+		return false
+	}
+	if diskHash != memHash {
+		return false
+	}
+	body, ok := extractBody(disk)
+	if !ok {
+		return bytes.Equal(disk, current)
+	}
+	sum := sha256.Sum256(body)
+	if hex.EncodeToString(sum[:]) != diskHash {
+		return false
+	}
+	return !trailerHasTrailingContent(disk, diskHash)
+}
+
+// trailerHasTrailingContent reports whether bytes follow the
+// provenance trailer line on disk. A canonical rendered file
+// ends with `<prefix><brand>:provenance <hash>\n` and nothing
+// else; appended bytes (manual edits, accidental concatenation)
+// drift the file off its rendered state and must surface as
+// drift even though the stamped hash and the body hash both
+// remain coherent.
+func trailerHasTrailingContent(file []byte, hash string) bool {
+	idx := bytes.LastIndex(file, []byte(provenanceMarker+hash))
+	if idx < 0 {
+		return false
+	}
+	tail := file[idx+len(provenanceMarker)+len(hash):]
+	for len(tail) > 0 && (tail[0] == '\n' || tail[0] == '\r') {
+		tail = tail[1:]
+	}
+	return len(tail) > 0
+}
+
+// extractProvenance returns the hash stamped in the file's
+// `<prefix><brand>:provenance <hash>` trailer, or false when the
+// marker is absent.
+func extractProvenance(body []byte) (string, bool) {
+	idx := bytes.LastIndex(body, []byte(provenanceMarker))
+	if idx < 0 {
+		return "", false
+	}
+	rest := body[idx+len(provenanceMarker):]
+	end := bytes.IndexAny(rest, "\r\n")
+	if end < 0 {
+		end = len(rest)
+	}
+	return string(rest[:end]), true
+}
+
+// extractBody returns the body region of a rendered file — the
+// exact bytes the backend hashed into the provenance footer. The
+// body sits between the blank line that closes the header and
+// the leading newline of the trailer (which the footer renderer
+// emits before the end-of-content marker). Returns false when
+// either boundary is absent.
+func extractBody(file []byte) ([]byte, bool) {
+	_, afterHeader, ok := bytes.Cut(file, []byte("\n\n"))
+	if !ok {
+		return nil, false
+	}
+	beforeMarker, _, ok := bytes.Cut(afterHeader, []byte(bodyEndMarker))
+	if !ok {
+		return nil, false
+	}
+	// Walk back through the `// <brand>` prefix to the leading
+	// newline the footer renderer stamps as the body / footer
+	// boundary.
+	nl := bytes.LastIndexByte(beforeMarker, '\n')
+	if nl < 0 {
+		return nil, false
+	}
+	return beforeMarker[:nl], true
+}
+
+// bodyEndMarker is the unique substring every backend stamps at
+// the start of its provenance footer. The leading newline closes
+// the body region; the brand-bound phrase keeps the marker
+// distinct from anything a generated body would contain.
+const bodyEndMarker = ": end of generated content."

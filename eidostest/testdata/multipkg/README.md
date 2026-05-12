@@ -57,26 +57,32 @@ qualifiers, and any same-package elision must apply per-element.
 honours the directive and the builder file lands at that name
 rather than the conventional `product_builder.go`.
 
-### Generated test-package output
+### Generated test-file output
 
 `storage.Repository[T]` and `events.Handler[T]` are mocked with
-mockgen configured as `test: true`. The rendered mock files end in
-`_test.go` and declare `package storage_test` / `package
-events_test`. References from the test file back to the regular
-package's types qualify properly: `storage.Repository[T]` is *not*
-elided even though the file lives in the same directory as the
-regular `storage` package, because the test package's effective
-import identity differs from the regular package's.
+mockgen's default routing: every mock lands in a `<srcPkg>_test`
+emit.Package and the rendered file ends in `_mock_test.go`. The
+Go toolchain compiles `_test.go` files only at test time, so the
+generated mocks never reach a production binary. The external
+test-package import identity (`<pkg>_test`) differs from the
+regular package's, so references back into the regular package
+qualify rather than elide.
 
-## How the acceptance test runs
+Per-source overrides flow through the routing surface — a
+`+gen:out:mockgen <path> pkg=<name>` directive on the interface,
+or `-o <path> -p <name>` on the CLI, reshapes the destination
+when a non-default layout is needed (whitebox same-package mocks,
+production mocks in a custom location, sibling-directory routing).
 
-`go.thesmos.sh/eidos/eidostest/multipkgacceptance` builds the
-`cmd/eidos` binary, runs it against this fixture, and asserts:
+## Acceptance assertions
+
+This fixture is forward-looking documentation for the import-handling
+and generics-rendering paths. The intended acceptance suite asserts:
 
 - every generated file's import block resolves cleanly
 - `go build ./...` inside the fixture exits 0 after generation
 - the second run is byte-identical to the first (idempotency)
-- the `*_test.go` outputs declare the `_test` package and import
-  the regular package
+- mock outputs end in `_mock_test.go` and the rendered package
+  matches the `<srcPkg>_test` default
 - `events2` (or the equivalent suffixed alias) appears in
-  `api/handler_mock.go` for the legacy events import
+  `api/handler_mock_test.go` for the legacy events import

@@ -78,7 +78,8 @@ Requires Go 1.26 or later.
 
 ## Minimal example
 
-A working pipeline rendering a single struct to `out/x/x.go`:
+A working pipeline rendering one greeting struct per source struct,
+alongside each source file:
 
 ```go
 package main
@@ -88,6 +89,7 @@ import (
     "fmt"
 
     bgolang "go.thesmos.sh/eidos/backend/golang"
+    "go.thesmos.sh/eidos/core/position"
     "go.thesmos.sh/eidos/eidostest/testpipe"
     "go.thesmos.sh/eidos/emit"
     "go.thesmos.sh/eidos/emit/builder"
@@ -97,27 +99,55 @@ import (
     "go.thesmos.sh/eidos/sink"
 )
 
-// helloGenerator is a one-shot Generator that emits a single struct.
+// helloGenerator emits one `<Source>Greeting` struct per source
+// struct. It implements plugin.FilenameProvider so the routing
+// layer composes `<src-basename>_hello.go` for each rendered file,
+// and sets Origin on every emitted decl so the Layout phase can
+// resolve Dir / Package / ImportPath from the source.
 type helloGenerator struct{}
 
 func (helloGenerator) Name() string { return "hellogen" }
 
-func (g helloGenerator) Generate(ctx *plugin.GeneratorContext) error {
-    c := builder.For(g.Name(), emit.Target{Dir: "x", Filename: "x.go", Package: "x"})
-    pkg, err := c.Package("x", "x").
-        Struct("Greeting", func(s *builder.StructBuilder) {
-            s.Field("Message", emit.Builtin("string"), nil)
-        }).
-        Build()
-    if err != nil {
-        return err
+// FilenameSuffix returns the per-source suffix the routing layer
+// appends to the source basename. The plugin ships Go output today;
+// other backends receive the empty signal until matching templates
+// land. The suffix is the only output-naming hook plugins surface —
+// directory, package, and import-path are framework concerns.
+func (helloGenerator) FilenameSuffix(lang string) string {
+    if lang == "golang" {
+        return "_hello.go"
     }
-    return ctx.Store.Emit().AddPackage(pkg)
+    return ""
+}
+
+func (g helloGenerator) Generate(ctx *plugin.GeneratorContext) error {
+    c := builder.For(g.Name(), emit.Target{})
+    for _, src := range ctx.Reader.Structs().Slice() {
+        pkg, err := c.Package(src.Package, src.Package).
+            Struct(src.Name+"Greeting", func(s *builder.StructBuilder) {
+                s.Origin(src)
+                s.Field("Message", emit.Builtin("string"), nil)
+            }).
+            Build()
+        if err != nil {
+            return err
+        }
+        if err := ctx.Store.Emit().AddPackage(pkg); err != nil {
+            return err
+        }
+    }
+    return nil
 }
 
 func main() {
+    src := &node.Package{Name: "x", Path: "x"}
+    src.Structs = []*node.Struct{{
+        Name:     "User",
+        Package:  src.Path,
+        BaseNode: node.BaseNode{SourcePos: position.Pos{File: "user.go", Line: 1}},
+    }}
     p, err := pipeline.New().
-        WithFrontend(testpipe.FromNodes(&node.Package{Name: "x", Path: "x"})).
+        WithFrontend(testpipe.FromNodes(src)).
         WithGenerator(helloGenerator{}).
         WithBackend(bgolang.New()).
         WithSink(sink.NewDisk("./out")).
@@ -131,6 +161,11 @@ func main() {
     }
 }
 ```
+
+The rendered output lands at `./out/user_hello.go`. Layout
+composes the filename from the source basename (`user`) and the
+plugin's declared suffix (`_hello.go`); package and directory come
+from the source struct's package.
 
 For real Go-source input, swap `testpipe.FromNodes(...)` for
 `frontend/golang.New()` and pass package patterns to `p.Run`:
@@ -158,6 +193,11 @@ pipeline.New().
     WithPluginOptions(name string, kv map[string]string).
     WithManifestPath(path string).
     WithVerbose(v bool).
+    WithOutputLayout(layout string).         // alongside-source | centralised
+    WithOutputPackage(name string).          // pins Target.Package for every decl in scope
+    WithOutputDir(dir string).               // centralised-layout output directory
+    WithOutputFilename(filename string).     // pins Target.Filename for every decl in scope
+    WithTargetSymbol(name string).           // scope filter; matches Name or QName suffix .Name
     Build()           // (*Pipeline, error)
 ```
 
@@ -217,6 +257,11 @@ Optional capabilities a plugin may also implement:
 - `DirectiveProvider` — declares directive schemas (`AppliesTo`,
   `RequiredKeys`, `AllowedKeys`, `MutuallyExclusiveWith`,
   `PositionalArgs`).
+- `FilenameProvider` — declares the per-source filename suffix the
+  routing layer appends to each origin's source basename. **Required**
+  for any generator that emits routable decls or file-level slot
+  contributions; pure cross-cutting plugins that only attach to other
+  plugins' methods do not implement it.
 
 ### Building emit graphs
 
@@ -227,15 +272,16 @@ Plugin Generators and Annotators assemble their output through
 automatically so plugin code stays focused on intent.
 
 ```go
-// Bind plugin identity (used for Provenance.SetBy stamping on
-// slot contributions) and a default Target every decl built
-// through c will inherit.
-c := builder.For("user-repo-gen", emit.Target{
-    Dir: "users", Filename: "repo.go", Package: "users",
-})
+// Bind plugin identity for Provenance.SetBy stamping. The Target
+// argument is reserved for builder-internal threading; the routing
+// layer composes the final Target from Origin and the resolved
+// per-plugin Layout policy, so plugin code passes the zero value
+// and sets Origin on each emitted decl instead.
+c := builder.For("user-repo-gen", emit.Target{})
 
 pkg, err := c.Package("users", "example.com/users").
     Struct("Repo", func(s *builder.StructBuilder) {
+        s.Origin(src) // src is the *node.Struct this decl derives from
         s.Field("db", emit.External("database/sql", "DB"), nil)
         s.Method("Get", func(m *builder.MethodBuilder) {
             m.Receiver("r", emit.Ptr(emit.Internal(s.Node())))
@@ -284,31 +330,33 @@ func (p *debugTracer) Generate(ctx *plugin.GeneratorContext) error {
 ```
 
 A "registry" generator that lands one `registry.Register(...)`
-call per `+gen:register` struct into the target file's
-`func init() { ... }` block:
+call per `+gen:register` struct into the resolved file's
+`func init() { ... }` block, anchored to each source struct's
+Origin so the routing layer composes the destination file:
 
 ```go
 func (p *registryGen) Generate(ctx *plugin.GeneratorContext) error {
-    c := builder.For(p.Name(), emit.Target{
-        Dir: "gen", Filename: "registry.go", Package: "gen",
-    })
-    file, err := ctx.Store.Emit().FileFor(c.Target())
-    if err != nil {
-        return err
-    }
+    c := builder.For(p.Name(), emit.Target{})
     for _, s := range ctx.Reader.Structs().Where(store.WithDirective[*node.Struct]("register")).Slice() {
         stmt := emit.NewExprStmt(emit.NewCall(
             emit.NewField(emit.NewIdent("registry"), "Register"),
             emit.NewLiteralString(s.Name),
             emit.NewComposite(emit.External(s.Package, s.Name), nil),
         ))
-        if err := c.AppendInit(file, stmt, "registry."+s.Name); err != nil {
+        if err := ctx.Store.Emit().AppendOriginSlot(
+            s, "init", stmt, c.Provenance("registry."+s.Name),
+        ); err != nil {
             return err
         }
     }
     return nil
 }
 ```
+
+The Layout phase resolves each contribution's Origin to a rendered
+file using the same precedence model that routes standalone decls.
+Multiple contributions resolving to the same file compose into one
+`init` block.
 
 Ordering across plugins is capability-topological with append
 order as the tiebreaker. A later plugin that wants to position

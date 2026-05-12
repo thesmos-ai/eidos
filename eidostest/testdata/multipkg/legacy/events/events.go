@@ -22,11 +22,13 @@ type LegacyEvent struct {
 	Payload []byte
 }
 
-// LegacyDispatcher dispatches LegacyEvent values. The mock generator
-// targets it; the acceptance test wires mockgen WITHOUT `test:
-// true` here, so the rendered mock lands in the same `events`
-// package — exercising the alongside-source same-package elision
-// alongside the cross-package legacy/regular collision.
+// LegacyDispatcher dispatches LegacyEvent values. The mock
+// generator targets it; the rendered mock lands at
+// `legacy/events/events_mock_test.go` declaring `package
+// events_test` (mockgen's default external test-package
+// routing) — exercising the cross-package short-name collision
+// with the regular events package alongside the test-file
+// build-tag convention.
 //
 // +gen:mock
 type LegacyDispatcher interface {

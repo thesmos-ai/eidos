@@ -25,9 +25,11 @@ type Event[T any] struct {
 }
 
 // Handler is the generic consumer surface. The mock generator
-// targets it with the `+gen:mock` directive; the multipkg
-// acceptance test wires mockgen with `test: true` so the rendered
-// mock lands in `<src>_test.go` under the `events_test` package.
+// targets it with the `+gen:mock` directive; the rendered mock
+// lands at `events/events_mock_test.go` declaring `package
+// events_test` — mockgen's default external test-package routing.
+// The Go toolchain compiles `_test.go` files only at test time, so
+// the generated mock never ships in production builds.
 //
 // +gen:mock
 type Handler[T any] interface {

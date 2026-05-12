@@ -68,31 +68,31 @@ func routeDecls(
 	p *Pipeline,
 ) {
 	v.Structs().Range(func(e *emit.Struct) bool {
-		e.Target = composeOrZero(s, p, ps, suffixes, e.SetBy(), e.Origin(), "struct", e.QName())
+		e.Target = composeOrZero(s, p, ps, suffixes, e.SetBy(), e.Origin(), e.Package, "struct", e.QName())
 		return true
 	})
 	v.Interfaces().Range(func(e *emit.Interface) bool {
-		e.Target = composeOrZero(s, p, ps, suffixes, e.SetBy(), e.Origin(), "interface", e.QName())
+		e.Target = composeOrZero(s, p, ps, suffixes, e.SetBy(), e.Origin(), e.Package, "interface", e.QName())
 		return true
 	})
 	v.Functions().Range(func(e *emit.Function) bool {
-		e.Target = composeOrZero(s, p, ps, suffixes, e.SetBy(), e.Origin(), "function", e.QName())
+		e.Target = composeOrZero(s, p, ps, suffixes, e.SetBy(), e.Origin(), e.Package, "function", e.QName())
 		return true
 	})
 	v.Variables().Range(func(e *emit.Variable) bool {
-		e.Target = composeOrZero(s, p, ps, suffixes, e.SetBy(), e.Origin(), "variable", e.QName())
+		e.Target = composeOrZero(s, p, ps, suffixes, e.SetBy(), e.Origin(), e.Package, "variable", e.QName())
 		return true
 	})
 	v.Constants().Range(func(e *emit.Constant) bool {
-		e.Target = composeOrZero(s, p, ps, suffixes, e.SetBy(), e.Origin(), "constant", e.QName())
+		e.Target = composeOrZero(s, p, ps, suffixes, e.SetBy(), e.Origin(), e.Package, "constant", e.QName())
 		return true
 	})
 	v.Enums().Range(func(e *emit.Enum) bool {
-		e.Target = composeOrZero(s, p, ps, suffixes, e.SetBy(), e.Origin(), "enum", e.QName())
+		e.Target = composeOrZero(s, p, ps, suffixes, e.SetBy(), e.Origin(), e.Package, "enum", e.QName())
 		return true
 	})
 	v.Aliases().Range(func(e *emit.Alias) bool {
-		e.File = composeOrZero(s, p, ps, suffixes, e.SetBy(), e.Origin(), "alias", e.QName())
+		e.File = composeOrZero(s, p, ps, suffixes, e.SetBy(), e.Origin(), e.Package, "alias", e.QName())
 		return true
 	})
 }
@@ -115,6 +115,7 @@ func composeOrZero(
 	suffixes map[string]string,
 	setBy string,
 	origin node.Node,
+	emitPkgPath string,
 	kind, qname string,
 ) emit.Target {
 	if origin == nil {
@@ -129,7 +130,7 @@ func composeOrZero(
 			ErrMissingFilenameProvider.Error(), kind, qname, setBy)
 		return emit.Target{}
 	}
-	t, rl, ok := composeTarget(s, p, setBy, suffix, origin)
+	t, rl, ok := composeTarget(s, p, setBy, suffix, origin, emitPkgPath)
 	if !ok {
 		return emit.Target{}
 	}
@@ -141,8 +142,10 @@ func composeOrZero(
 // origin) pair. Layer order, lowest priority first:
 //
 //  1. Framework default: alongside-source layout — Dir from
-//     filepath.Dir(origin.Pos().File); Package + ImportPath from the
-//     origin's source package.
+//     filepath.Dir(origin.Pos().File); Package + ImportPath from
+//     the emit-side package the plugin emitted the decl into (when
+//     known) or from the origin's source package (slot tuples,
+//     synthetic decls).
 //  2. Plugin filename suffix: Filename = <src-basename><suffix>.
 //  3. Resolved layout policy: switches to centralised when policy
 //     selects it; under alongside-source a non-empty policy.Package
@@ -151,6 +154,12 @@ func composeOrZero(
 //  5. CLI -o: overrides Filename for every routed decl in scope.
 //  6. CLI -p (folded into policy.Package): wins for Package
 //     unconditionally when set.
+//
+// emitPkgPath identifies the upstream [emit.Package] the decl
+// lives in (the path key the store indexed it under). Empty for
+// origin-anchored slot contributions, which have no upstream
+// emit.Package; alongside-source routing then falls back to the
+// origin's source package for Package / ImportPath.
 //
 // composeTarget is the single helper both decl routing and pending
 // slot-tuple routing call so the two paths cannot drift. The
@@ -162,9 +171,11 @@ func composeTarget(
 	p *Pipeline,
 	pluginName, suffix string,
 	origin node.Node,
+	emitPkgPath string,
 ) (emit.Target, manifest.ResolvedLayout, bool) {
 	policy := p.LayoutPolicyFor(pluginName)
 	srcPkg := originSourcePackage(s, origin)
+	emitPkg := emitPackageByPath(s, emitPkgPath)
 	srcDir, basename := originSourceDirBasename(origin)
 
 	var t emit.Target
@@ -206,7 +217,19 @@ func composeTarget(
 	case LayoutAlongsideSource:
 		t.Dir = srcDir
 		rl.ResolvedFrom["dir"] = manifest.LayerFramework
-		if srcPkg != nil {
+		// Package / ImportPath: the upstream emit.Package the plugin
+		// chose wins over the origin's source package — this lets
+		// generators land output in sibling packages (mockgen's
+		// `<srcPkg>_test`, custom mocks/<pkg>, etc.) without the
+		// framework hardcoding language-specific conventions. Slot
+		// contributions and synthetic decls have no upstream
+		// emit.Package and fall back to the source package so
+		// per-file slots still resolve into the source's directory.
+		switch {
+		case emitPkg != nil:
+			t.Package = emitPkg.Name
+			t.ImportPath = emitPkg.Path
+		case srcPkg != nil:
 			t.Package = srcPkg.Name
 			t.ImportPath = srcPkg.Path
 		}
@@ -225,16 +248,45 @@ func composeTarget(
 		return emit.Target{}, manifest.ResolvedLayout{}, false
 	}
 
-	// +gen:out directive on origin overrides Filename.
-	if fn, ok := outDirectiveFilename(origin); ok {
-		t.Filename = fn
-		rl.ResolvedFrom["filename"] = manifest.LayerDirective
+	// +gen:out directive on origin overrides per-decl Target
+	// fields. Plugin-scoped directives (`plugin=<name>`) apply to
+	// the matching plugin only; unscoped directives apply to every
+	// plugin targeting the origin. A non-empty pkg= arg pins
+	// Target.Package + Target.ImportPath through the directive
+	// precedence layer; the value-with-directory form stacks a
+	// relative path onto Target.Dir.
+	if spec, ok := selectOutDirective(outDirectivesFor(origin), pluginName); ok {
+		dir, filename := splitOutDirectivePath(spec.Path)
+		if filename != "" {
+			t.Filename = filename
+			rl.ResolvedFrom["filename"] = manifest.LayerDirective
+		}
+		if dir != "" {
+			t.Dir = filepath.Join(t.Dir, dir)
+			rl.ResolvedFrom["dir"] = manifest.LayerDirective
+		}
+		if spec.Package != "" {
+			t.Package = spec.Package
+			t.ImportPath = spec.Package
+			rl.ResolvedFrom["package"] = manifest.LayerDirective
+		}
 	}
 
-	// CLI -o overrides Filename for every decl in scope.
-	if p.OutputFilename() != "" {
-		t.Filename = p.OutputFilename()
-		rl.ResolvedFrom["filename"] = manifest.LayerCLI
+	// CLI -o overrides Filename for every decl in scope. A path
+	// with a directory component stacks the relative path onto
+	// Target.Dir — symmetrical to the directive's path-aware form
+	// — so `go:generate eidos run -target Foo -o test/foo.go`
+	// produces `<origin-dir>/test/foo.go` per scope.
+	if cli := p.OutputFilename(); cli != "" {
+		dir, filename := splitOutDirectivePath(cli)
+		if filename != "" {
+			t.Filename = filename
+			rl.ResolvedFrom["filename"] = manifest.LayerCLI
+		}
+		if dir != "" {
+			t.Dir = filepath.Join(t.Dir, dir)
+			rl.ResolvedFrom["dir"] = manifest.LayerCLI
+		}
 	}
 
 	rl.Package = t.Package
@@ -273,7 +325,11 @@ func materialiseOriginSlots(
 				tup.SlotName, setBy)
 			continue
 		}
-		target, rl, ok := composeTarget(s, p, setBy, suffix, tup.Origin)
+		// Slot tuples have no upstream emit.Package — the
+		// contribution becomes part of a file Layout creates
+		// during materialisation. Pass empty emitPkgPath so
+		// composeTarget falls back to source-package routing.
+		target, rl, ok := composeTarget(s, p, setBy, suffix, tup.Origin, "")
 		if !ok {
 			continue
 		}
@@ -547,19 +603,101 @@ func originSourceDirBasename(origin node.Node) (dir, basename string) {
 	return d, base
 }
 
-// outDirectiveFilename returns the first positional argument of the
-// `+gen:out` directive on n, or empty + false when n carries no
-// such directive. The Layout phase calls this for both decl
-// routing and slot-tuple routing so the directive's effect applies
-// uniformly to whichever path routes the host origin.
-func outDirectiveFilename(n node.Node) (string, bool) {
+// emitPackageByPath returns the [emit.Package] indexed under path
+// in the store's emit view, or nil when no package is registered
+// under that path. Layout calls this to read the upstream
+// emit.Package's Name (which carries the plugin's intended
+// package identity for the rendered file) without coupling to the
+// store's package-bucket internals.
+func emitPackageByPath(s *store.Store, path string) *emit.Package {
+	if path == "" {
+		return nil
+	}
+	pkg, _ := s.Emit().Packages().ByQName(path)
+	return pkg
+}
+
+// outDirectiveSpec captures the parsed shape of a single `+gen:out`
+// directive: the positional path (filename or relative-to-origin
+// dir + filename), the optional `plugin=<name>` scope filter, and
+// the optional `pkg=<name>` package override. The Layout phase
+// resolves the directive's positional value into Target.Dir and
+// Target.Filename via [splitOutDirectivePath] and applies the
+// package override against Target.Package + Target.ImportPath.
+type outDirectiveSpec struct {
+	Path       string
+	PluginName string
+	Package    string
+}
+
+// outDirectivesFor returns every `+gen:out` directive attached to
+// n in source order, parsed into the [outDirectiveSpec] shape.
+// Directives without a positional value are skipped silently —
+// the schema requires the path argument and a bare `+gen:out` is
+// a no-op contributor.
+func outDirectivesFor(n node.Node) []outDirectiveSpec {
+	var specs []outDirectiveSpec
 	for _, d := range n.Directives() {
 		if d.Name != OutDirective {
 			continue
 		}
-		if len(d.Args) > 0 {
-			return d.Args[0], true
+		if len(d.Args) == 0 {
+			continue
+		}
+		specs = append(specs, outDirectiveSpec{
+			Path:       d.Args[0],
+			PluginName: d.Value("plugin"),
+			Package:    d.Value("pkg"),
+		})
+	}
+	return specs
+}
+
+// selectOutDirective picks the most specific [outDirectiveSpec] in
+// specs that applies to pluginName. Specificity rule: a directive
+// carrying `plugin=<name>` matching pluginName wins over any
+// unscoped directive (which itself applies to every plugin).
+// Returns (zero, false) when no directive applies.
+func selectOutDirective(specs []outDirectiveSpec, pluginName string) (outDirectiveSpec, bool) {
+	var (
+		scoped, unscoped outDirectiveSpec
+		haveScoped       bool
+		haveUnscoped     bool
+	)
+	for _, s := range specs {
+		switch s.PluginName {
+		case pluginName:
+			scoped = s
+			haveScoped = true
+		case "":
+			unscoped = s
+			haveUnscoped = true
 		}
 	}
-	return "", false
+	if haveScoped {
+		return scoped, true
+	}
+	if haveUnscoped {
+		return unscoped, true
+	}
+	return outDirectiveSpec{}, false
+}
+
+// splitOutDirectivePath splits a directive's positional value into
+// the relative directory under the origin's source directory and
+// the rendered filename. Values without a directory component
+// route the file into the origin's own directory (the legacy
+// `+gen:out filename.go` behaviour); values with one or more
+// directory segments stack on top of the origin's directory so
+// `+gen:out test/handler.go` next to `foo/iface.go` lands the
+// file at `foo/test/handler.go`. Absolute paths in the directive
+// value are interpreted relative to the origin's source directory
+// (the leading separator is stripped) — the directive cannot
+// escape the source tree.
+func splitOutDirectivePath(value string) (dir, filename string) {
+	value = filepath.ToSlash(value)
+	value = strings.TrimLeft(value, "/")
+	dir, filename = filepath.Split(value)
+	dir = strings.TrimRight(filepath.ToSlash(dir), "/")
+	return dir, filename
 }

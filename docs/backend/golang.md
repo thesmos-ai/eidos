@@ -168,9 +168,11 @@ Alias, Enum) with their `Target` set to the same file. The backend renders
 them at layout item 6, sorted by capability-topo of the producing plugin
 then by `QName()`. Same-`QName()` duplicates → `ErrDuplicateEntity`.
 
-**Mechanism 2 — Explicit `emit.File` with slots.** The first generator to
-need file-level injection creates an `emit.File` for the Target via
-`store.EmitFileFor(target)`; later generators look it up and append:
+**Mechanism 2 — Origin-anchored slots on `emit.File`.** Plugins attach
+file-level contributions through `EmitView.AppendOriginSlot(origin,
+slotName, item, prov)`. The Layout phase resolves each origin to its
+target file using the standard precedence model, then materialises
+the contribution into the named slot on that file:
 
 | Slot | Renders at | Item Kind |
 |---|---|---|
@@ -178,6 +180,13 @@ need file-level injection creates an `emit.File` for the Target via
 | `File.Init()` | Layout item 7 (rendered as `func init() { … }` body) | Stmts |
 | `File.Bottom()` | Layout item 8 (after decls) | Decls |
 | `File.ImportsSlot()` | Drained into `writer.ImportSet` before any template fires | Imports |
+
+`AppendOriginSlot` rejects nil origins, nil items, and empty slot
+names synchronously. Non-empty custom slot names are accepted —
+plugin-defined emit kinds may declare their own slots through
+`emit.File.Slot`. Multiple plugins anchoring contributions to the
+same origin compose into one file in capability-topological order
+across plugins, FIFO of registration order within each plugin.
 
 Per-host slots on structured kinds merge similarly: typed direct content
 first, then slot contributions re-grouped by plugin topo:

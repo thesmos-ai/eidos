@@ -76,7 +76,7 @@ func TestExplainCommand_EntitySelector(t *testing.T) {
 		if code := cmd.Execute(t.Context(), env); code != cli.ExitUserError {
 			t.Fatalf("Execute = %d, want ExitUserError", code)
 		}
-		if !strings.Contains(stderr.String(), "resolves to no emit entity") {
+		if !strings.Contains(stderr.String(), "resolves to no source or emit entity") {
 			t.Fatalf("expected not-found diagnostic; got %q", stderr.String())
 		}
 	})

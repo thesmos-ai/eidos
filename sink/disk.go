@@ -4,6 +4,7 @@
 package sink
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -69,6 +70,16 @@ func (d *Disk) Write(target emit.Target, body []byte) error {
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
+
+	// Skip the write when the destination already carries identical
+	// bytes — the rename-into-place pattern below would refresh
+	// mtime and trigger downstream rebuild watchers even though the
+	// file's content is unchanged. Idempotency is a load-bearing
+	// property: re-running the pipeline against unchanged inputs
+	// must not touch the disk.
+	if existing, err := os.ReadFile(full); err == nil && bytes.Equal(existing, body) {
+		return nil
+	}
 
 	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // generated dirs need group/other-read
 		return fmt.Errorf("sink: mkdir %s: %w", dir, err)

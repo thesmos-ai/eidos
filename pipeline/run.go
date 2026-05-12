@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -389,7 +390,9 @@ func (p *Pipeline) commandHeader() string {
 
 // commandLine returns the CLI-style rendering of the current
 // process's arguments, used as the [plugin.BackendContext.Command]
-// default. When the host has no positional arguments (typically
+// default. The binary's basename leads (e.g. `eidos run ./...`)
+// so the rendered `// Command:` header is copy-pasteable back into
+// a shell. When the host has no positional arguments (typically
 // library / test invocations), returns "(library)" — a stable
 // marker that signals programmatic use without leaking
 // test-runner flags into the generated output.
@@ -402,7 +405,7 @@ func commandLine() string {
 	if len(os.Args) <= 1 {
 		return "(library)"
 	}
-	return strings.Join(os.Args[1:], " ")
+	return filepath.Base(os.Args[0]) + " " + strings.Join(os.Args[1:], " ")
 }
 
 // logPhaseStart writes a verbose-mode Info diagnostic announcing
