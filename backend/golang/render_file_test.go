@@ -258,6 +258,33 @@ func TestFileCompose_ImportsSlotRegistersBeforeBody(t *testing.T) {
 	})
 }
 
+// TestFileCompose_DirectFileImports covers the
+// directly-attached-imports branch of preRenderImports — entries
+// on [emit.File.Imports] (as opposed to ImportsSlot) register
+// through the writer's [writer.ImportSet] and surface in the
+// rendered file. Uses a side-effect import (`_`) so goimports
+// keeps the path even though no decl references it.
+func TestFileCompose_DirectFileImports(t *testing.T) {
+	t.Parallel()
+
+	t.Run("file.Imports staged blank import surfaces in the rendered import block", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		f := bindFile(t, ctx, target)
+		f.Imports = append(f.Imports,
+			&emit.Import{Path: "embed", Alias: "_"},
+		)
+		addEmitPackage(t, ctx, emitPackage("x", emitStructWithFields(
+			"x", "X", target, fieldSpec{name: "F", builtin: "int"},
+		)))
+		body := string(assertRenderSucceeds(t, ctx, mem, d, target))
+		if !strings.Contains(body, `_ "embed"`) {
+			t.Fatalf("expected staged blank import `_ \"embed\"` in body; got:\n%s", body)
+		}
+	})
+}
+
 // TestFileCompose_Goldens pins canonical multi-plugin output for
 // the two flagship file-composition scenarios — a shared Target
 // with two plugin contributions and a three-plugin init block —

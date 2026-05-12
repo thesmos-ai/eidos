@@ -92,6 +92,37 @@ func TestRenderStmt_Variants(t *testing.T) {
 			want: "if ok {",
 		},
 		{
+			name: "if with init clause",
+			body: []*emit.Stmt{emit.NewIfInit(
+				emit.NewAssign(
+					[]*emit.Expr{{ExprKind: emit.ExprIdent, Name: "x"}},
+					":=",
+					[]*emit.Expr{{ExprKind: emit.ExprLiteral, LitKind: emit.LitInt, RawText: "5"}},
+				),
+				&emit.Expr{
+					ExprKind: emit.ExprBinary, Op: ">",
+					Left:  &emit.Expr{ExprKind: emit.ExprIdent, Name: "x"},
+					Right: &emit.Expr{ExprKind: emit.ExprLiteral, LitKind: emit.LitInt, RawText: "0"},
+				},
+				[]*emit.Stmt{emit.NewReturn()},
+				nil,
+			)},
+			want: "if x := 5; x > 0 {",
+		},
+		{
+			name: "if/else-if chain",
+			body: []*emit.Stmt{emit.NewIfElse(
+				&emit.Expr{ExprKind: emit.ExprIdent, Name: "a"},
+				[]*emit.Stmt{emit.NewReturn()},
+				[]*emit.Stmt{emit.NewIfElse(
+					&emit.Expr{ExprKind: emit.ExprIdent, Name: "b"},
+					[]*emit.Stmt{emit.NewReturn()},
+					[]*emit.Stmt{emit.NewReturn()},
+				)},
+			)},
+			want: "} else if b {",
+		},
+		{
 			name: "for with condition only",
 			body: []*emit.Stmt{emit.NewFor(
 				&emit.Expr{ExprKind: emit.ExprIdent, Name: "cond"},
@@ -175,6 +206,30 @@ func TestRenderStmt_Variants(t *testing.T) {
 				},
 			)},
 			want: "switch x {",
+		},
+		{
+			name: "switch with init clause",
+			body: []*emit.Stmt{emit.NewSwitchInit(
+				emit.NewAssign(
+					[]*emit.Expr{{ExprKind: emit.ExprIdent, Name: "x"}},
+					":=",
+					[]*emit.Expr{{ExprKind: emit.ExprLiteral, LitKind: emit.LitInt, RawText: "1"}},
+				),
+				&emit.Expr{ExprKind: emit.ExprIdent, Name: "x"},
+				[]*emit.Stmt{emit.NewDefault([]*emit.Stmt{emit.NewReturn()})},
+			)},
+			want: "switch x := 1; x {",
+		},
+		{
+			name: "bare switch (no cond)",
+			body: []*emit.Stmt{emit.NewSwitch(
+				nil,
+				[]*emit.Stmt{emit.NewCase(
+					[]*emit.Expr{{ExprKind: emit.ExprIdent, Name: "ok"}},
+					[]*emit.Stmt{emit.NewReturn()},
+				)},
+			)},
+			want: "switch {",
 		},
 		{
 			name: "defer call",

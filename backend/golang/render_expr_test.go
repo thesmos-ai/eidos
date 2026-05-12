@@ -311,4 +311,30 @@ func TestRenderExpr_UnknownKind(t *testing.T) {
 			t.Fatalf("ErrUnsupportedExpr must satisfy errors.Is reflexivity")
 		}
 	})
+
+	t.Run("out-of-range LitKind returns ErrUnsupportedExpr", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		addEmitPackage(t, ctx, &emit.Package{
+			Name: "x", Path: "x",
+			Variables: []*emit.Variable{{
+				Name: "X", Package: "x", Target: target,
+				Init: &emit.Expr{
+					ExprKind: emit.ExprLiteral,
+					LitKind:  emit.LiteralKind(9999),
+					RawText:  "?",
+				},
+			}},
+		})
+		if err := mustNew(t).Render(ctx); err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		if _, ok := mem.Get(target); ok {
+			t.Fatalf("render must not produce output on unknown literal kind")
+		}
+		if !diagnosticsContain(d, diag.Error, "unsupported Expr") {
+			t.Fatalf("expected ErrUnsupportedExpr diagnostic; got %+v", d.Diagnostics())
+		}
+	})
 }

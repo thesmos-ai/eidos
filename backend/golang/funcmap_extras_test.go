@@ -8,8 +8,11 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/meta"
+	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/plugin"
 )
 
@@ -136,6 +139,183 @@ const {{ .Name }} = {{ renderExpr .Value }}
 	}
 	if !strings.Contains(body, "// explain: emit.constant") {
 		t.Fatalf("expected explain line carrying the kind; got:\n%s", body)
+	}
+}
+
+// TestFuncmapExtras_FallbackPaths exercises the branches of the
+// Naming/String funcmap entries that the happy-path tests skip:
+// `exported` with empty input, `default` returning the original
+// (non-zero) value, and `coalesce` returning nil when every
+// argument is zero. Each helper renders a sentinel substring the
+// assertion locates verbatim.
+func TestFuncmapExtras_FallbackPaths(t *testing.T) {
+	t.Parallel()
+
+	body := renderWithPluginTemplate(t,
+		`{{ define "emit.constant" -}}
+// exportedEmpty: [{{ exported "" }}]
+// defaultReal:   [{{ default "real" "fallback" }}]
+// defaultNil:    [{{ default nil "fallback" }}]
+// coalesceAll:   [{{ coalesce "" "" }}]
+const {{ .Name }} = {{ renderExpr .Value }}
+{{- end -}}`)
+	for _, want := range []string{
+		"// exportedEmpty: []",
+		"// defaultReal:   [real]",
+		// `default nil` reaches isZero's nil-interface guard.
+		"// defaultNil:    [fallback]",
+		// coalesce returns nil when every value is zero;
+		// text/template renders an unset interface as "<no value>".
+		"// coalesceAll:   [<no value>]",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("expected %q in body; got:\n%s", want, body)
+		}
+	}
+}
+
+// TestFuncmapExtras_MetaMismatch covers the type-mismatch and
+// unset-key branches of the Meta-read helpers: metaBool reading a
+// string-valued key returns false, metaStr reading a bool-valued
+// key returns the empty string, and meta/hasMeta on an unset name
+// return nil/false respectively.
+func TestFuncmapExtras_MetaMismatch(t *testing.T) {
+	t.Parallel()
+
+	body := renderWithPluginTemplateUsing(t,
+		`{{ define "emit.constant" -}}
+// metaBoolMismatch: {{ metaBool . "test-kind" }}
+// metaStrMismatch:  [{{ metaStr . "test-exported" }}]
+// metaUnset:        [{{ meta . "test-missing" }}]
+// hasMetaUnset:     {{ hasMeta . "test-missing" }}
+const {{ .Name }} = {{ renderExpr .Value }}
+{{- end -}}`,
+		func(c *emit.Constant) {
+			testMetaKindKey.SetManual(c.Meta(), "primary", "extrasprobe")
+			testMetaExportedKey.SetManual(c.Meta(), true, "extrasprobe")
+		})
+	for _, want := range []string{
+		"// metaBoolMismatch: false",
+		"// metaStrMismatch:  []",
+		"// metaUnset:        [<no value>]",
+		"// hasMetaUnset:     false",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("expected %q in body; got:\n%s", want, body)
+		}
+	}
+}
+
+// TestFuncmapExtras_NilHost covers the nil-host guard in each
+// Meta-read helper (metaValue, metaBool, metaStr, hasMeta) by
+// passing the template's `nil` literal — text/template binds it to
+// the interface parameter as the typed-nil [emit.Node].
+func TestFuncmapExtras_NilHost(t *testing.T) {
+	t.Parallel()
+
+	body := renderWithPluginTemplate(t,
+		`{{ define "emit.constant" -}}
+// metaNil:     [{{ meta nil "k" }}]
+// metaBoolNil: {{ metaBool nil "k" }}
+// metaStrNil:  [{{ metaStr nil "k" }}]
+// hasMetaNil:  {{ hasMeta nil "k" }}
+// originNil:   [{{ origin nil }}]
+// explainNil:  {{ explain nil }}
+const {{ .Name }} = {{ renderExpr .Value }}
+{{- end -}}`)
+	for _, want := range []string{
+		"// metaNil:     [<no value>]",
+		"// metaBoolNil: false",
+		"// metaStrNil:  []",
+		"// hasMetaNil:  false",
+		"// originNil:   []",
+		"// explainNil:  (nil)",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("expected %q in body; got:\n%s", want, body)
+		}
+	}
+}
+
+// TestFuncmapExtras_OriginVariants exercises the three positive
+// branches of `origin`: a complete file+line pair renders as
+// "file:line", a file-only origin (Line == 0) drops the suffix,
+// and a synthetic origin (File == "") returns the empty string.
+func TestFuncmapExtras_OriginVariants(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		pos  position.Pos
+		want string
+	}{
+		{
+			name: "file and line",
+			pos:  position.Pos{File: "pkg/source.go", Line: 42},
+			want: "// origin: [pkg/source.go:42]",
+		},
+		{
+			name: "file only",
+			pos:  position.Pos{File: "pkg/source.go"},
+			want: "// origin: [pkg/source.go]",
+		},
+		{
+			name: "empty file",
+			pos:  position.Pos{},
+			want: "// origin: []",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			body := renderWithPluginTemplateUsing(t,
+				`{{ define "emit.constant" -}}
+// origin: [{{ origin . }}]
+const {{ .Name }} = {{ renderExpr .Value }}
+{{- end -}}`,
+				func(c *emit.Constant) {
+					c.OriginNode = &node.Constant{
+						BaseNode: node.BaseNode{SourcePos: tc.pos},
+					}
+				})
+			if !strings.Contains(body, tc.want) {
+				t.Fatalf("expected %q in body; got:\n%s", tc.want, body)
+			}
+		})
+	}
+}
+
+// TestFuncmapExtras_ExplainRich covers the directive-count and
+// meta-count append branches of `explain` by seeding the host with
+// both a directive list and a metadata entry. The assertion
+// inspects the rendered explain line for both counters.
+func TestFuncmapExtras_ExplainRich(t *testing.T) {
+	t.Parallel()
+
+	body := renderWithPluginTemplateUsing(t,
+		`{{ define "emit.constant" -}}
+// explain: {{ explain . }}
+const {{ .Name }} = {{ renderExpr .Value }}
+{{- end -}}`,
+		func(c *emit.Constant) {
+			c.OriginNode = &node.Constant{
+				BaseNode: node.BaseNode{
+					SourcePos: position.Pos{File: "pkg/source.go", Line: 7},
+				},
+			}
+			c.DirectiveList = []*directive.Directive{
+				{Name: directive.Name("gen:probe")},
+			}
+			testMetaKindKey.SetManual(c.Meta(), "primary", "extrasprobe")
+		})
+	for _, want := range []string{
+		"from=pkg/source.go:7",
+		"directives=1",
+		"meta=1",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("expected %q in body; got:\n%s", want, body)
+		}
 	}
 }
 

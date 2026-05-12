@@ -358,3 +358,48 @@ func TestMerge_TemplateNameCollision(t *testing.T) {
 		}
 	})
 }
+
+// TestMerge_ReservedTemplatePrefix covers the parse-time guard that
+// rejects plugin-defined templates whose name starts with a
+// reserved prefix (currently `fragment.`). Reserved prefixes back
+// the backend's shared partials; plugin definitions there would
+// silently shadow core helpers.
+func TestMerge_ReservedTemplatePrefix(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ErrReservedTemplatePrefix is exported and satisfies errors.Is", func(t *testing.T) {
+		t.Parallel()
+		if golang.ErrReservedTemplatePrefix == nil {
+			t.Fatalf("ErrReservedTemplatePrefix must be exported and non-nil")
+		}
+		if !errors.Is(golang.ErrReservedTemplatePrefix, golang.ErrReservedTemplatePrefix) {
+			t.Fatalf("ErrReservedTemplatePrefix must satisfy errors.Is reflexivity")
+		}
+	})
+
+	t.Run("plugin defining a fragment.* template surfaces the sentinel", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		ctx.Plugins = []plugin.Plugin{&stubTemplateProvider{
+			name: "intruder",
+			tmplFS: fstest.MapFS{
+				"templates/golang/fragment.tmpl": &fstest.MapFile{
+					Data: []byte(`{{ define "fragment.intruder" }}shadow{{ end }}`),
+				},
+			},
+		}}
+		target := emit.Target{Dir: "x", Filename: "x.go", Package: "x"}
+		addEmitPackage(t, ctx, emitPackage("x", emitStructWithFields(
+			"x", "X", target, fieldSpec{name: "F", builtin: "int"},
+		)))
+		if err := mustNew(t).Render(ctx); err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		if _, ok := mem.Get(target); ok {
+			t.Fatalf("reserved-prefix violation must suppress sink writes")
+		}
+		if !diagnosticsContain(d, diag.Error, "reserved template-name prefix") {
+			t.Fatalf("expected reserved-prefix diagnostic; got %+v", d.Diagnostics())
+		}
+	})
+}
