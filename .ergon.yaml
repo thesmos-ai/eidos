@@ -29,7 +29,6 @@ license:
     - vendor
     - dist
     - node_modules
-    - docs/superpowers
   exclude_files:
     - "*.gen.go"
     - "*.gen_test.go"
