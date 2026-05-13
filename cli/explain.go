@@ -192,7 +192,7 @@ type selector struct {
 // an unhelpful empty trace.
 func parseSelector(raw string) (selector, error) {
 	if raw == "" {
-		return selector{}, errors.New("empty selector")
+		return selector{}, errors.New("cli: empty selector")
 	}
 	if anchor, mod, ok := strings.Cut(raw, "#"); ok {
 		if anchor == "" || mod == "" {

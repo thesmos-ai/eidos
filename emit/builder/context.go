@@ -12,13 +12,13 @@ import (
 
 // ErrNilHost is returned by the cross-cutting slot helpers when the
 // host emit value passed in is nil. Callers compare with [errors.Is].
-var ErrNilHost = errors.New("emit/builder: nil host")
+var ErrNilHost = errors.New("builder: nil host")
 
 // ErrUnsupportedHost is returned by the cross-cutting slot helpers
 // when the supplied host doesn't expose the requested slot (e.g.
 // AppendField on an *emit.Interface). Callers compare with
 // [errors.Is]; the wrapped message names the offending kind.
-var ErrUnsupportedHost = errors.New("emit/builder: unsupported host kind")
+var ErrUnsupportedHost = errors.New("builder: unsupported host kind")
 
 // Context binds the plugin-author identity and the default
 // [emit.Target] for a sequence of builder calls. A plugin creates

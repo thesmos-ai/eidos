@@ -18,7 +18,7 @@ import (
 // discriminator value (every documented variant is wired). The
 // wrapped message names the offending kind so diagnostics
 // attribute the gap precisely.
-var ErrUnsupportedExpr = errors.New("backend/golang: unsupported Expr")
+var ErrUnsupportedExpr = errors.New("golang: unsupported Expr")
 
 // renderExpr produces the Go source spelling for an [emit.Expr].
 // Every documented [emit.ExprKind] variant is supported. Nil input

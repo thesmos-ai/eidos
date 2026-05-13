@@ -338,7 +338,7 @@ func (l *lexer) readQuoted() (string, error) {
 		case '\\':
 			l.pos++
 			if l.eof() {
-				return "", errors.New("unterminated escape in quoted string")
+				return "", errors.New("directive: unterminated escape in quoted string")
 			}
 			esc := l.src[l.pos]
 			switch esc {
@@ -360,7 +360,7 @@ func (l *lexer) readQuoted() (string, error) {
 			l.pos++
 		}
 	}
-	return "", errors.New("unterminated quoted string")
+	return "", errors.New("directive: unterminated quoted string")
 }
 
 // readArg reads one argument from the current position. Returns the

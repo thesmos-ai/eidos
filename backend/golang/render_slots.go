@@ -34,7 +34,7 @@ var ErrDuplicateEntity = store.ErrDuplicateEntity
 // wrapped message names the offending helper and the expected
 // host type so the diagnostic points the plugin author at the
 // concrete fix.
-var ErrNilHost = errors.New("backend/golang: nil host passed to funcmap helper")
+var ErrNilHost = errors.New("golang: nil host passed to funcmap helper")
 
 // nilHostErrf returns a wrapped [ErrNilHost] naming the offending
 // helper and the host type it expected. Centralised so every

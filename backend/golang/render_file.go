@@ -17,7 +17,7 @@ import (
 // (the per-Target render loop in [Backend.Render]) distinguish
 // the empty case from a render failure and skip silently rather
 // than surfacing a diagnostic.
-var ErrEmptyTarget = errors.New("backend/golang: target is empty after pre-render")
+var ErrEmptyTarget = errors.New("golang: target is empty after pre-render")
 
 // fileFor returns the [emit.File] within entities for the supplied
 // Target — at most one per Target by the [store.EmitView.FileFor]

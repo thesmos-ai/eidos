@@ -16,7 +16,7 @@ import (
 // author can diagnose the misuse (typical cause: invoking
 // `{{ slot . "name" }}` against a sub-element such as a Field
 // that doesn't own slots).
-var ErrSlotHostUnsupported = errors.New("backend/golang: value does not own slots")
+var ErrSlotHostUnsupported = errors.New("golang: value does not own slots")
 
 // slot is the canonical funcmap accessor for named slots on any
 // emit value that satisfies [emit.SlotHost]. Plugin templates use

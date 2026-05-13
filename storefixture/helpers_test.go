@@ -6,8 +6,8 @@ package storefixture_test
 import (
 	"testing"
 
-	"go.thesmos.sh/eidos/storefixture"
 	"go.thesmos.sh/eidos/node"
+	"go.thesmos.sh/eidos/storefixture"
 )
 
 // requireQName fails the test if the produced node's qualified name

@@ -18,7 +18,7 @@ import (
 // Backends and tooling match against this sentinel when they need
 // to recognise "two things wanted to be the one thing" regardless
 // of which layer detected the collision.
-var ErrDuplicateEntity = errors.New("duplicate entity")
+var ErrDuplicateEntity = errors.New("store: duplicate entity")
 
 // ErrDuplicateQName is returned when an Add* call attempts to record
 // a value whose qualified name collides with one already present in

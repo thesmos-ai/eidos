@@ -82,4 +82,4 @@ var parsePlaceholders = func() map[string]any {
 // errPlaceholderInvoked surfaces if a placeholder closure is ever
 // reached at execute time. Indicates a backend bug — execution
 // without a per-Target clone of the template set.
-var errPlaceholderInvoked = errors.New("backend/golang: template func placeholder invoked; clone before execute")
+var errPlaceholderInvoked = errors.New("golang: template func placeholder invoked; clone before execute")

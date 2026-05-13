@@ -11,8 +11,8 @@ import (
 	"sort"
 	"testing"
 
-	"go.thesmos.sh/eidos/testpipe"
 	"go.thesmos.sh/eidos/node"
+	"go.thesmos.sh/eidos/testpipe"
 )
 
 // goldenRoot is the absolute path of the testdata/golden directory,

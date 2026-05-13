@@ -6,8 +6,8 @@ package storefixture_test
 import (
 	"testing"
 
-	"go.thesmos.sh/eidos/storefixture"
 	"go.thesmos.sh/eidos/node"
+	"go.thesmos.sh/eidos/storefixture"
 )
 
 func TestNamed(t *testing.T) {

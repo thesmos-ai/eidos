@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"go.thesmos.sh/eidos/testpipe"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/testpipe"
 )
 
 // fileAssertion drives one captured file through a freshly-built

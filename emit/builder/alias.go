@@ -17,7 +17,7 @@ import (
 // the surrounding alias is a true alias (`type X = Y`). Go's
 // grammar forbids methods on true aliases; the resulting graph
 // would render as invalid source. Callers compare with [errors.Is].
-var ErrAliasMethodForbidden = errors.New("emit/builder: methods are not allowed on a true alias (type X = Y)")
+var ErrAliasMethodForbidden = errors.New("builder: methods are not allowed on a true alias (type X = Y)")
 
 // AliasBuilder configures an [emit.Alias] as part of a
 // [PackageBuilder]'s accumulating package. Spawned by

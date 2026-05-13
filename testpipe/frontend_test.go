@@ -6,9 +6,9 @@ package testpipe_test
 import (
 	"testing"
 
+	"go.thesmos.sh/eidos/store"
 	"go.thesmos.sh/eidos/storefixture"
 	"go.thesmos.sh/eidos/testpipe"
-	"go.thesmos.sh/eidos/store"
 )
 
 func TestFromNodes(t *testing.T) {

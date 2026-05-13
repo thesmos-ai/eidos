@@ -26,7 +26,7 @@ import (
 // Plugins use [plugin.TemplateProvider.TemplateOverrides] for
 // intentional replacement of an existing entry — extensions are for
 // genuinely-new names only.
-var ErrTemplateFuncCollision = errors.New("backend/golang: template func collision")
+var ErrTemplateFuncCollision = errors.New("golang: template func collision")
 
 // ErrReservedFuncName is returned by the funcmap-override pass when
 // a plugin attempts to override a reserved canonical entry — the
@@ -38,7 +38,7 @@ var ErrTemplateFuncCollision = errors.New("backend/golang: template func collisi
 // The reserved set is computed from the merged funcmap shipped by
 // the backend; it grows when the backend ships additional
 // canonical helpers.
-var ErrReservedFuncName = errors.New("backend/golang: reserved funcmap entry overridden")
+var ErrReservedFuncName = errors.New("golang: reserved funcmap entry overridden")
 
 // ErrTemplateNameCollision is returned by the template-parse pass
 // when two plugins both ship a template under the same name. The
@@ -50,7 +50,7 @@ var ErrReservedFuncName = errors.New("backend/golang: reserved funcmap entry ove
 // name (`sagagen.saga`, `repogen.repository`) so collisions across
 // plugins are rare; this sentinel surfaces the case when two
 // plugins claim the same emit kind by accident.
-var ErrTemplateNameCollision = errors.New("backend/golang: template name collision")
+var ErrTemplateNameCollision = errors.New("golang: template name collision")
 
 // ErrReservedTemplatePrefix is returned when a plugin ships a
 // template whose name uses a reserved prefix. The `fragment.`
@@ -58,7 +58,7 @@ var ErrTemplateNameCollision = errors.New("backend/golang: template name collisi
 // backend currently ships any — plugin-defined emit kinds must
 // pick a different namespace (typically `<pluginname>.<kind>`)
 // to avoid colliding with future core partials.
-var ErrReservedTemplatePrefix = errors.New("backend/golang: reserved template-name prefix")
+var ErrReservedTemplatePrefix = errors.New("golang: reserved template-name prefix")
 
 // reservedTemplatePrefixes lists the template-name prefixes core
 // holds for its own use. Plugin templates whose `define` name

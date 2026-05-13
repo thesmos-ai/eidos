@@ -7,8 +7,8 @@ import (
 	"errors"
 	"testing"
 
-	"go.thesmos.sh/eidos/storefixture"
 	"go.thesmos.sh/eidos/store"
+	"go.thesmos.sh/eidos/storefixture"
 )
 
 func TestNew(t *testing.T) {

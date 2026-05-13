@@ -15,7 +15,6 @@ import (
 
 	backend_golang "go.thesmos.sh/eidos/backend/golang"
 	"go.thesmos.sh/eidos/eidostest/demopipe"
-	"go.thesmos.sh/eidos/testpipe"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/pipeline"
 	"go.thesmos.sh/eidos/plugin"
@@ -27,6 +26,7 @@ import (
 	"go.thesmos.sh/eidos/reference/repogen"
 	"go.thesmos.sh/eidos/reference/shapewriter"
 	"go.thesmos.sh/eidos/sink"
+	"go.thesmos.sh/eidos/testpipe"
 )
 
 // outputPackage is the destination every emit-bound plugin routes

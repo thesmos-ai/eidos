@@ -16,7 +16,7 @@ import (
 // render — typically an out-of-range discriminator value (every
 // documented variant is wired). The wrapped message names the
 // offending kind so diagnostics attribute the gap precisely.
-var ErrUnsupportedStmt = errors.New("backend/golang: unsupported Stmt")
+var ErrUnsupportedStmt = errors.New("golang: unsupported Stmt")
 
 // renderStmt produces the Go source spelling for an [emit.Stmt].
 // Every documented [emit.StmtKind] variant is supported. Nil input

@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"go.thesmos.sh/eidos/core/position"
-	"go.thesmos.sh/eidos/storefixture"
 	"go.thesmos.sh/eidos/node"
+	"go.thesmos.sh/eidos/storefixture"
 )
 
 func TestBuilder_Interface(t *testing.T) {

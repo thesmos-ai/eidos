@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"go.thesmos.sh/eidos/testpipe"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/testpipe"
 )
 
 // stubBackendWith returns a stubBackend pre-seeded with the supplied

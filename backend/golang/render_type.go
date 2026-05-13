@@ -20,7 +20,7 @@ import (
 // target kind whose name can't yet be extracted. The wrapped
 // message names the concrete Go type so diagnostics attribute the
 // gap precisely.
-var ErrUnsupportedRef = errors.New("backend/golang: unsupported Ref")
+var ErrUnsupportedRef = errors.New("golang: unsupported Ref")
 
 // renderType produces the Go source spelling for r. Supported kinds:
 //

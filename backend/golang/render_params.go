@@ -17,7 +17,7 @@ import (
 // parameters or results, the names must either all be present or
 // all be absent"). The wrapped message names the offending entity
 // so generators can locate and fix the inconsistency.
-var ErrMixedNamedParams = errors.New("backend/golang: param list mixes named and unnamed entries")
+var ErrMixedNamedParams = errors.New("golang: param list mixes named and unnamed entries")
 
 // renderParams produces the parenthesised parameter list of a Go
 // function or method signature. Each entry is `Name renderType(Type)`

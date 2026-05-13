@@ -10,11 +10,11 @@ import (
 	"go.thesmos.sh/eidos/cache"
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/opt"
-	"go.thesmos.sh/eidos/storefixture"
-	"go.thesmos.sh/eidos/testpipe"
 	"go.thesmos.sh/eidos/pipeline"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/sink"
+	"go.thesmos.sh/eidos/storefixture"
+	"go.thesmos.sh/eidos/testpipe"
 )
 
 // minimalBackend returns a stubBackend wired with the supplied

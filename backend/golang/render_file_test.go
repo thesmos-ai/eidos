@@ -9,10 +9,10 @@ import (
 	"testing"
 
 	"go.thesmos.sh/eidos/backend/golang"
-	"go.thesmos.sh/eidos/testpipe"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/store"
+	"go.thesmos.sh/eidos/testpipe"
 )
 
 // TestFileCompose_SharedTargetTwoPlugins covers the happy-path of

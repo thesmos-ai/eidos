@@ -295,7 +295,7 @@ func TestExplainCommand_ProtoServiceShape(t *testing.T) {
 	t.Run("explain against a proto-derived service renders the Kind line and streaming meta", func(t *testing.T) {
 		t.Parallel()
 		env, stdout, _ := freshEnv(t, "eidos")
-		streamServer := meta.NewKey("proto.service.rpc.stream.server", meta.BoolParser)
+		streamServer := meta.EnsureKey("proto.service.rpc.stream.server", meta.BoolParser)
 		// SayHellos models the server-streaming RPC's emitted
 		// Method shape: one positional param, one return ref, and
 		// the streaming-meta stamp the protobuf frontend produces.
@@ -334,7 +334,7 @@ func TestExplainCommand_ProtoServiceShape(t *testing.T) {
 	t.Run("explain on an RPC member surfaces its streaming meta", func(t *testing.T) {
 		t.Parallel()
 		env, stdout, _ := freshEnv(t, "eidos")
-		streamServer := meta.NewKey("proto.service.rpc.stream.server.member", meta.BoolParser)
+		streamServer := meta.EnsureKey("proto.service.rpc.stream.server.member", meta.BoolParser)
 		stream := &node.Method{Name: "SayHellos"}
 		streamServer.Set(stream.Meta(), true, "protobuf")
 		iface := &node.Interface{

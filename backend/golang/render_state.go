@@ -19,7 +19,7 @@ import (
 // template is registered for an entity's [emit.Node.Kind]. The
 // wrapping error names the offending kind so the diagnostic is
 // actionable without a stack trace.
-var ErrTemplateMissing = errors.New("backend/golang: no template registered for kind")
+var ErrTemplateMissing = errors.New("golang: no template registered for kind")
 
 // renderState carries the per-Target rendering context: a cloned
 // template tree with funcmap closures bound to this state, a fresh

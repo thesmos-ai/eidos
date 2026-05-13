@@ -16,7 +16,7 @@ import (
 // [After] (or the zero-value Append default) match an existing
 // case, so this sentinel is unreachable at runtime under the
 // current code. Callers compare with [errors.Is].
-var ErrUnknownInsertPos = errors.New("emit/builder: unknown insert position")
+var ErrUnknownInsertPos = errors.New("builder: unknown insert position")
 
 // posKind discriminates the [InsertPos] variants. The variants
 // mirror the operations exposed on [emit.Slot]:
