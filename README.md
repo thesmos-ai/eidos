@@ -174,6 +174,28 @@ For real Go-source input, swap `testpipe.FromNodes(...)` for
 p.Run(ctx, "./...")
 ```
 
+Proto-source pipelines register the proto3 frontend at
+`frontend/protobuf` plus the `protogo` bridge annotator at
+`bridge/protogo`; the bridge stamps Go-namespaced translation
+meta on proto-derived nodes so the existing Go backend renders
+compilable Go without learning anything proto-specific:
+
+```go
+pipeline.New().
+    WithFrontend(protobuf.New()).
+    WithAnnotator(protogo.New()).
+    WithBackend(backend_golang.New()).
+    Build()
+```
+
+The bridge-annotator pattern generalises to any source-language
+→ target-language pair: a future `protorust` / `prototypescript`
+follows the same shape (annotator stamps target-language meta;
+the matching target backend reads it). The framework stays
+language-neutral; per-pair translation lives in the bridge
+plugin alongside the frontend. See `frontend/protobuf/doc.go`
+and `bridge/protogo/doc.go` for the per-package contract.
+
 ## Public API surface
 
 ### Composing a pipeline
