@@ -119,6 +119,32 @@ type RunOptions struct {
 	// [cache.NewNone] when nil. Tests verifying cache
 	// consumption pass a recording cache here.
 	Cache cache.Cache
+
+	// Layout selects the routing layout the pipeline uses for the
+	// run — either [pipeline.LayoutAlongsideSource] (the framework
+	// default; rendered files land beside the originating source)
+	// or [pipeline.LayoutCentralised] (rendered files land in a
+	// shared directory). Empty defers to the framework default.
+	Layout string
+
+	// OutputPackage pins [emit.Target.Package] for every emitted
+	// decl in scope and supplies the shared package name centralised
+	// layouts require. Empty leaves the per-decl default in place.
+	OutputPackage string
+
+	// OutputDir sets the rendered output directory under
+	// centralised layout. Ignored under alongside-source. Empty
+	// defers to [OutputPackage] when centralised is selected.
+	OutputDir string
+
+	// Command pins the literal string the backend stamps into the
+	// `Command:` header line of every rendered file. The empty
+	// default leaves the framework's [os.Args]-derived value in
+	// place; tests asserting against committed baselines across
+	// processes set this to a stable string so the header doesn't
+	// vary with the test binary's invocation arguments. Maps to
+	// [pipeline.Builder.WithCommand].
+	Command string
 }
 
 // Result captures the outcome of a [Run] call.
@@ -184,6 +210,18 @@ func Run(t *testing.T, opts RunOptions) Result {
 		WithSink(opts.Sink).
 		WithCache(opts.Cache).
 		WithPluginOptions(fe.Name(), feOpts)
+	if opts.Layout != "" {
+		b = b.WithOutputLayout(opts.Layout)
+	}
+	if opts.OutputPackage != "" {
+		b = b.WithOutputPackage(opts.OutputPackage)
+	}
+	if opts.OutputDir != "" {
+		b = b.WithOutputDir(opts.OutputDir)
+	}
+	if opts.Command != "" {
+		b = b.WithCommand(opts.Command)
+	}
 	for _, a := range opts.Annotators {
 		b = b.WithAnnotator(a)
 	}

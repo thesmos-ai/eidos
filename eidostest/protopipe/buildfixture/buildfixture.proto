@@ -18,6 +18,7 @@ import "google/protobuf/timestamp.proto";
 //
 // +gen:builder
 // +gen:repo
+// +gen:register
 message User {
   string name = 1;
   optional int32 age = 2;
