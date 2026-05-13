@@ -120,7 +120,12 @@ func (s *renderState) renderExpr(e *emit.Expr) (string, error) {
 	case emit.ExprRaw:
 		return e.RawText, nil
 	case emit.ExprExternal:
-		alias, err := s.imports.Imp(e.Pkg)
+		// Cross-language frontends thread the source-language path
+		// through e.Pkg; the bridge-imports map resolves it to the
+		// Go-canonical import path with the same translation
+		// [renderState.renderType] applies. Go-source pipelines see
+		// no bridge meta and the path passes through verbatim.
+		alias, err := s.imports.Imp(s.resolveImportPath(e.Pkg))
 		if err != nil {
 			return "", fmt.Errorf("backend/golang: renderExpr ExternalRef: %w", err)
 		}

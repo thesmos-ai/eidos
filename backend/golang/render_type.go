@@ -49,7 +49,14 @@ func (s *renderState) renderType(r emit.Ref) (string, error) {
 	case *emit.BuiltinRef:
 		return typed.Name, nil
 	case *emit.ExternalRef:
-		alias, err := s.imports.Imp(typed.Package)
+		// Cross-language frontends thread the source-language path
+		// through emit.ExternalRef.Package (proto's
+		// `eidos.test.buildfixture`); the bridge-imports map
+		// resolves that to the Go-canonical import path so the
+		// rendered import block carries a path go/build accepts.
+		// Go-source pipelines see no bridge meta and the path passes
+		// through verbatim.
+		alias, err := s.imports.Imp(s.resolveImportPath(typed.Package))
 		if err != nil {
 			return "", fmt.Errorf("backend/golang: renderType: %w", err)
 		}

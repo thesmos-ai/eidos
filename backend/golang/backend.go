@@ -12,7 +12,9 @@ import (
 
 	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/plugin"
+	"go.thesmos.sh/eidos/store"
 	"go.thesmos.sh/eidos/writer"
 )
 
@@ -21,6 +23,31 @@ import (
 // Plugin authors reference it when supplying backend-specific
 // options via [pipeline.Builder.WithPluginOptions].
 const Name = "backend.golang"
+
+// collectBridgeImports walks every source-side [node.Package] in
+// s and records the pairs where the cross-language bridge stamped
+// `go.import` meta on the package. The returned map is keyed by
+// the source package's Path (the source-language qualifier — proto
+// qualifier for proto-input pipelines, the Go import path for
+// Go-input pipelines). Go-source packages stamp nothing, so the
+// map stays empty for Go-only pipelines and the render-site
+// translation collapses to a no-op.
+//
+// The walk runs once per [Backend.Render] call. Per-Target render
+// states share the resulting map; concurrent reads are safe by
+// virtue of the map's post-build immutability.
+func collectBridgeImports(s *store.Store) map[string]string {
+	out := map[string]string{}
+	s.Nodes().Packages().Range(func(p *node.Package) bool {
+		got, ok := goImportKey.Get(p.Meta())
+		if !ok || got == "" {
+			return true
+		}
+		out[p.Path] = got
+		return true
+	})
+	return out
+}
 
 // Language is the target-language identifier shared between the
 // backend, plugin-supplied template providers, and downstream
@@ -74,9 +101,11 @@ func (b *Backend) Render(ctx *plugin.BackendContext) error {
 		return nil
 	}
 	pluginOrder := pluginOrderFrom(ctx)
+	bridgeImports := collectBridgeImports(ctx.Store)
 	for _, target := range ctx.Store.Emit().ByTarget().Keys() {
 		entities := ctx.Store.Emit().ByTarget().Get(target)
 		state := newRenderState(merged.tmpl, pluginOrder, merged.extensions, merged.overrides)
+		state.bridgeImports = bridgeImports
 		// Forward the target's own import path + short name to the
 		// per-file import set. The path enables same-package
 		// elision ([emit.ExternalRef] / [emit.ExprExternal]
@@ -85,7 +114,15 @@ func (b *Backend) Render(ctx *plugin.BackendContext) error {
 		// cross-package import whose derived alias would shadow the
 		// file's own `package <name>` clause falls back to a
 		// numeric-suffixed alias.
-		state.imports.SetSelf(target.ImportPath, target.Package)
+		//
+		// Cross-language frontends produce Target.ImportPath in the
+		// source language's qualifier form (proto's
+		// `eidos.test.buildfixture`); the same translation the
+		// ExternalRef render-site applies runs here so a self-
+		// reference under a bridge-stamped source package still
+		// elides correctly against the rendered file's Go-canonical
+		// import path.
+		state.imports.SetSelf(state.resolveImportPath(target.ImportPath), target.Package)
 		body, tracked, err := renderFile(state, target, entities, packageDocsFor(ctx, target))
 		if err != nil {
 			if errors.Is(err, ErrEmptyTarget) {

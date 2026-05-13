@@ -58,6 +58,37 @@ type renderState struct {
 	// (typical for direct backend tests); contributions then render
 	// in raw append order.
 	pluginOrder []string
+
+	// bridgeImports maps each source-side path that carries a
+	// bridge-stamped `go.import` value to the Go import path the
+	// bridge composed. Cross-language frontends (the protobuf
+	// frontend, future variants) populate node.Package.Path with the
+	// source language's qualifier — `eidos.test.buildfixture` for
+	// proto — which isn't a valid Go import path. Reference plugins
+	// thread that qualifier through emit.ExternalRef.Package
+	// verbatim; the renderer translates here so the rendered import
+	// block and same-package elision both read the Go form. The map
+	// is populated once at [Backend.Render] entry from the source
+	// store; Go-source pipelines see an empty map and the per-ref
+	// translation collapses to a no-op.
+	bridgeImports map[string]string
+}
+
+// resolveImportPath returns the Go-canonical import path for a
+// source-language path. When path matches a source package whose
+// bridge meta stamped `go.import`, the helper returns that Go
+// path. Otherwise path passes through verbatim. Centralising the
+// lookup at one site lets callers (SetSelf, [renderState.renderType])
+// translate consistently without re-implementing the bridge-meta
+// read.
+func (s *renderState) resolveImportPath(path string) string {
+	if path == "" {
+		return ""
+	}
+	if mapped, ok := s.bridgeImports[path]; ok && mapped != "" {
+		return mapped
+	}
+	return path
 }
 
 // newRenderState clones root, attaches a fresh funcmap whose

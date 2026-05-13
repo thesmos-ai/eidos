@@ -34,3 +34,12 @@ type User struct {
 type User_Profile struct {
 	Bio string
 }
+
+// GetUserRequest mirrors the request message for the proto
+// UserService.GetUser RPC. The rendered mockgen output
+// references this type by name; the stub gives the rendered
+// `_mock_test.go` an existing target so `go vet` against the
+// fixture directory succeeds.
+type GetUserRequest struct {
+	ID string
+}

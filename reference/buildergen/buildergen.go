@@ -28,6 +28,7 @@ import (
 	"unicode"
 
 	"go.thesmos.sh/eidos/core/directive"
+	"go.thesmos.sh/eidos/core/meta"
 	"go.thesmos.sh/eidos/core/opt"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/emit/builder"
@@ -36,6 +37,35 @@ import (
 	"go.thesmos.sh/eidos/priority"
 	"go.thesmos.sh/eidos/reference/internal/refconv"
 )
+
+// goNameKey is the cross-language bridge-stamped `go.name` meta
+// key. Bridge annotators (the protogo bridge for proto→Go,
+// future protorust / prototypescript variants) stamp the
+// Go-side rendered identifier on each source field; this plugin
+// consults the stamp through [effectiveFieldName] so generated
+// setters, composite keys, and the export filter all operate on
+// the rendered Go form rather than the source-language form.
+// [meta.EnsureKey] resolves to the same registry singleton
+// regardless of declaration site, so the plugin shares the key
+// with the backend's render-site rule and any other consumer.
+//
+//nolint:gochecknoglobals // cross-package registry-singleton key
+var goNameKey = meta.EnsureKey("go.name", meta.StringParser)
+
+// effectiveFieldName returns the Go-rendered identifier for f.
+// A bridge-stamped `go.name` on the field's meta bag wins;
+// absent any stamp (Go-source pipelines) the function falls back
+// to f.Name verbatim. The helper is the single substitution
+// site every f.Name reference inside buildergen routes through
+// so the export check, the setter method name, the builder's
+// internal field identifier, and the composite-literal key all
+// agree on the rendered form.
+func effectiveFieldName(f *node.Field) string {
+	if got, ok := goNameKey.Get(f.Meta()); ok && got != "" {
+		return got
+	}
+	return f.Name
+}
 
 // Name is the plugin's stable identifier surfaced through
 // [plugin.Plugin.Name].
@@ -253,16 +283,16 @@ func (p *Plugin) emitOne(pkg *builder.PackageBuilder, src *node.Struct, srcRefBa
 			// route the rendered field name through the bridge-aware
 			// [fieldNameFor] rule, substituting the source field's
 			// translated identifier for the builder's intentionally-
-			// unexported `fieldIdent(f.Name)` form — a mismatch with
+			// unexported `fieldIdent(...)` form — a mismatch with
 			// the setter body that assigns to that identifier. Type
 			// provenance still flows through [refconv.FromNode], which
 			// threads the source TypeRef's OriginNode so the bridge's
 			// `go.type` override resolves at render time.
-			b.Field(fieldIdent(f.Name), refconv.FromNode(f.Type), nil)
+			b.Field(fieldIdent(effectiveFieldName(f)), refconv.FromNode(f.Type), nil)
 		}
 		recv := func() emit.Ref { return emit.Ptr(emit.Internal(b.Node(), typeArgs...)) }
 		for _, f := range exported {
-			fieldName := f.Name
+			fieldName := effectiveFieldName(f)
 			fieldType := f.Type
 			b.Method("With"+fieldName, func(m *builder.MethodBuilder) {
 				m.Receiver("b", recv())
@@ -322,26 +352,40 @@ func isGoKeyword(id string) bool {
 // order. Unexported fields are skipped — the emitted `With<Field>`
 // surface mirrors what a user-authored builder for the type could
 // reach.
+//
+// The export check runs against [effectiveFieldName] so proto-
+// source fields with the bridge-stamped PascalCase Go identifier
+// pass the same upper-case-first rule a Go-source PascalCase
+// field would. Without the substitution, snake_case proto field
+// names would be filtered out and the rendered builder would
+// carry no setters.
 func exportedFields(s *node.Struct) []*node.Field {
 	return s.FieldsWith(func(f *node.Field) bool {
-		return f.Name != "" && unicode.IsUpper(rune(f.Name[0]))
+		name := effectiveFieldName(f)
+		return name != "" && unicode.IsUpper(rune(name[0]))
 	})
 }
 
 // buildComposite returns the keyed composite-literal expression the
 // `Build` method's return statement constructs. Each exported field
 // maps to `<FieldName>: b.<builderFieldIdent>`, where
-// `<builderFieldIdent>` is [fieldIdent] of the source field name —
-// the same keyword-safe identifier the builder struct declares for
-// its accumulating field. The composite's type renders through the
-// supplied srcRef so generic instantiations carry their type-arg
-// list through Build.
+// `<builderFieldIdent>` is [fieldIdent] of the rendered Go-side
+// name — the same keyword-safe identifier the builder struct
+// declares for its accumulating field. The composite's type
+// renders through the supplied srcRef so generic instantiations
+// carry their type-arg list through Build.
+//
+// The composite key is the rendered Go-side name resolved via
+// [effectiveFieldName] so proto-source fields land on the Go
+// struct's PascalCase field rather than the source's snake_case
+// form.
 func buildComposite(srcRef emit.Ref, exported []*node.Field) *emit.Expr {
 	keys := make([]string, 0, len(exported))
 	vals := make([]*emit.Expr, 0, len(exported))
 	for _, f := range exported {
-		keys = append(keys, f.Name)
-		vals = append(vals, emit.NewField(emit.NewIdent("b"), fieldIdent(f.Name)))
+		name := effectiveFieldName(f)
+		keys = append(keys, name)
+		vals = append(vals, emit.NewField(emit.NewIdent("b"), fieldIdent(name)))
 	}
 	return emit.NewCompositeKeyed(srcRef, keys, vals)
 }

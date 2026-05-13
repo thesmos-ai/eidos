@@ -10,31 +10,43 @@ option go_package = "go.thesmos.sh/eidos/eidostest/protopipe/buildfixture;buildf
 import "google/protobuf/timestamp.proto";
 
 // User exercises the three nontrivial composition rules the
-// protogo bridge handles: a well-known reference (CreatedAt),
-// an optional field (Age), and a nested-message reference
-// (Profile).
-//
-// Field identifiers are intentionally declared in PascalCase to
-// scope the toolchain compile check to bridge-translation
-// regressions (scalar / well-known / optional / nested rules).
-// Reference plugins consult source-side field names for their
-// directive surface today; proto-style snake_case identifiers
-// would route through a downstream plugin-side normalization
-// step that is orthogonal to the bridge's translation rules and
-// belongs in its own coverage story.
+// protogo bridge handles end-to-end: a well-known reference
+// (created_at), an optional field (age), and a nested-message
+// reference (profile_ref). Field identifiers follow the proto
+// snake_case convention so reference plugins exercise their
+// bridge-stamped go.name awareness against realistic source.
 //
 // +gen:builder
+// +gen:repo
 message User {
-  string Name = 1;
-  optional int32 Age = 2;
-  google.protobuf.Timestamp CreatedAt = 3;
-  Profile ProfileRef = 4;
+  string name = 1;
+  optional int32 age = 2;
+  google.protobuf.Timestamp created_at = 3;
+  Profile profile_ref = 4;
 
-  // Profile is the nested message referenced via the ProfileRef
-  // field above. The rendered Go output uses the underscore-
-  // joined form `User_Profile` per the bridge's nested-name
-  // convention.
+  // Profile is the nested message referenced via the
+  // profile_ref field above. The rendered Go output uses the
+  // underscore-joined form `User_Profile` per the bridge's
+  // nested-name convention.
   message Profile {
-    string Bio = 1;
+    string bio = 1;
   }
 }
+
+// GetUserRequest carries the lookup key for the canonical
+// unary RPC the fixture exposes.
+message GetUserRequest {
+  string id = 1;
+}
+
+// UserService is the proto-service fixture covering the
+// mockgen path: a single unary RPC whose request and response
+// types live in this same package. The rendered mock files
+// land alongside the source, so the toolchain compile check
+// confirms mockgen's proto-input output is buildable.
+//
+// +gen:mock
+service UserService {
+  rpc GetUser(GetUserRequest) returns (User);
+}
+
