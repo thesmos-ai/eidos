@@ -192,6 +192,32 @@ func attachEnumDocs(
 	}
 }
 
+// attachOneofDocs walks the source-location index for oo and
+// stamps any leading comments onto the synthesized interface's
+// DocLines, plus any `+gen:` directives parsed from the same
+// block onto its DirectiveList. Trailing same-line comments on
+// the oneof's opening brace land under [MetaOneofTrailingDoc],
+// the per-host-kind trailing-doc key consumers filter on.
+func attachOneofDocs(
+	ctx *plugin.FrontendContext, iface *node.Interface,
+	fd protoreflect.FileDescriptor, oo protoreflect.OneofDescriptor,
+) {
+	sl := fd.SourceLocations().ByDescriptor(oo)
+	docs, trailing := docLinesAndTrailing(sl)
+	if len(docs) > 0 {
+		iface.DocLines = append(iface.DocLines, docs...)
+	}
+	pos := position.Pos{File: fd.Path(), Line: sl.StartLine + 1, Column: sl.StartColumn + 1}
+	if dirs := directivesFor(ctx, sl, pos); len(dirs) > 0 {
+		iface.DirectiveList = append(iface.DirectiveList, dirs...)
+	}
+	if trailing != "" {
+		MetaOneofTrailingDoc.SetAt(
+			iface.Meta(), trailing, meta.AuthorityPlugin, FrontendName, pos,
+		)
+	}
+}
+
 // attachInterfaceDocs walks the source-location index for sd and
 // stamps any leading comments onto iface.DocLines plus any
 // trailing same-line comment under [MetaServiceTrailingDoc].

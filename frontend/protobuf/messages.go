@@ -58,6 +58,18 @@ func appendMessageStruct(
 	stampMessageReserved(s, fd, md)
 	attachStructDocs(ctx, s, fd, md)
 	pkg.Structs = append(pkg.Structs, s)
+	// The order below is load-bearing:
+	//   1. The host Struct is appended first so back-pointer
+	//      stamps in synthesizeOneofs can target s directly.
+	//   2. synthesizeOneofs runs at the current depth so nested
+	//      messages don't inherit the outer's synthesized
+	//      interfaces (each oneof attaches to its host).
+	//   3. appendNestedEnums runs before recursion so enum
+	//      declarations precede the nested-message Structs in
+	//      source order across the produced graph.
+	//   4. Recursion into md.Messages() descends into the next
+	//      depth with the dot-joined parent prefix.
+	synthesizeOneofs(ctx, pkg, s, fd, md, name)
 	appendNestedEnums(ctx, pkg, fd, md, name)
 	nested := md.Messages()
 	for i := range nested.Len() {
@@ -124,13 +136,41 @@ func stampFieldMeta(f *node.Field, desc protoreflect.FieldDescriptor, pos positi
 	}
 }
 
-// convertFieldType returns the [node.TypeRef] for desc. Scalar
-// kinds produce a [node.TypeRefNamed] whose Name is the proto
-// source surface verbatim. Message- and enum-typed fields produce
-// a [node.TypeRefNamed] whose Name is the dot-joined declaration
-// path within the producing package; Package is the source
-// package qualifier the referenced type lives in.
+// convertFieldType returns the [node.TypeRef] for desc.
+//
+// Cardinality is checked before kind: `map<K, V>` fields surface
+// as [node.TypeRefMap] reading the key and value element kinds
+// from the synthetic entry message; `repeated <X>` fields wrap
+// the element kind in a [node.TypeRefSlice]. Scalar fields keep
+// the proto source surface verbatim. Message- and enum-typed
+// fields produce a named ref whose Package is the declaring
+// file's package qualifier and whose Name is the dot-joined
+// declaration path.
 func convertFieldType(desc protoreflect.FieldDescriptor) *node.TypeRef {
+	switch {
+	case desc.IsMap():
+		entry := desc.Message()
+		return &node.TypeRef{
+			TypeKind: node.TypeRefMap,
+			MapKey:   elementTypeRef(entry.Fields().ByName("key")),
+			MapValue: elementTypeRef(entry.Fields().ByName("value")),
+		}
+	case desc.IsList():
+		return &node.TypeRef{
+			TypeKind: node.TypeRefSlice,
+			Elem:     elementTypeRef(desc),
+		}
+	default:
+		return elementTypeRef(desc)
+	}
+}
+
+// elementTypeRef returns the per-element [node.TypeRef] for desc.
+// The helper drives the scalar / message / enum dispatch that
+// applies regardless of whether the field carries map or repeated
+// cardinality — the composite wrappers in [convertFieldType] call
+// through here for each component element.
+func elementTypeRef(desc protoreflect.FieldDescriptor) *node.TypeRef {
 	switch desc.Kind() {
 	case protoreflect.MessageKind, protoreflect.GroupKind:
 		return namedTypeRef(desc.Message().ParentFile(), desc.Message().FullName())

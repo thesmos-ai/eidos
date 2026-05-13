@@ -286,6 +286,136 @@ func TestConvert_FieldNamedTypes(t *testing.T) {
 	})
 }
 
+// TestConvert_Messages_NestedNameCollision pins the dot-joined
+// naming rule under leaf-name collision: two nested messages
+// declared in different outer messages may share a leaf name
+// without colliding in the produced Structs slice. User.Profile
+// and Org.Profile both surface as distinct dot-joined entries.
+func TestConvert_Messages_NestedNameCollision(t *testing.T) {
+	t.Parallel()
+
+	t.Run("two outers with same-named nested message produce distinct dot-joined Structs", func(t *testing.T) {
+		t.Parallel()
+		env := loadFixture(t, "messages", "./...")
+		if env.diag.HasErrors() {
+			t.Fatalf("expected no error diagnostics; got %+v", env.diag.Diagnostics())
+		}
+		pkg := requireSinglePackage(t, env)
+		if findStruct(pkg, "User.Profile") == nil {
+			t.Fatalf("Struct %q missing; got %+v", "User.Profile", structNames(pkg))
+		}
+		if findStruct(pkg, "Org.Profile") == nil {
+			t.Fatalf("Struct %q missing; got %+v", "Org.Profile", structNames(pkg))
+		}
+	})
+}
+
+// TestConvert_FieldCompositeTypes covers the composite TypeRef
+// shapes: `repeated X` fields produce a TypeRefSlice wrapping
+// the element type; `map<K, V>` fields produce a TypeRefMap
+// carrying typed key + value refs. Element-kind dispatch covers
+// scalar, message, and enum element types via the shared
+// elementTypeRef helper.
+func TestConvert_FieldCompositeTypes(t *testing.T) {
+	t.Parallel()
+
+	env := loadFixture(t, "messages", "./...")
+	if env.diag.HasErrors() {
+		t.Fatalf("expected no error diagnostics; got %+v", env.diag.Diagnostics())
+	}
+	pkg := requireSinglePackage(t, env)
+	user := findStruct(pkg, "User")
+
+	t.Run("repeated scalar field produces TypeRefSlice wrapping a scalar element", func(t *testing.T) {
+		t.Parallel()
+		tags := user.FieldByName("tags")
+		if tags == nil {
+			t.Fatalf("field tags missing on User")
+		}
+		if tags.Type.TypeKind != node.TypeRefSlice {
+			t.Fatalf("tags Type.TypeKind = %v, want TypeRefSlice", tags.Type.TypeKind)
+		}
+		if tags.Type.Elem == nil {
+			t.Fatalf("tags Type.Elem is nil; want a TypeRef")
+		}
+		if tags.Type.Elem.Name != "string" {
+			t.Fatalf("tags Type.Elem.Name = %q, want %q", tags.Type.Elem.Name, "string")
+		}
+	})
+
+	t.Run("repeated enum field wraps a named-ref to the enum", func(t *testing.T) {
+		t.Parallel()
+		statuses := user.FieldByName("statuses")
+		if statuses == nil {
+			t.Fatalf("field statuses missing on User")
+		}
+		if statuses.Type.TypeKind != node.TypeRefSlice {
+			t.Fatalf("statuses Type.TypeKind = %v, want TypeRefSlice", statuses.Type.TypeKind)
+		}
+		elem := statuses.Type.Elem
+		if elem == nil || elem.TypeKind != node.TypeRefNamed {
+			t.Fatalf("statuses element TypeRef = %+v, want TypeRefNamed", elem)
+		}
+		if elem.Name != "Status" {
+			t.Fatalf("statuses element Name = %q, want %q", elem.Name, "Status")
+		}
+		if elem.Package != pkg.Path {
+			t.Fatalf("statuses element Package = %q, want %q", elem.Package, pkg.Path)
+		}
+	})
+
+	t.Run("repeated message field wraps a named-ref element", func(t *testing.T) {
+		t.Parallel()
+		friends := user.FieldByName("friends")
+		if friends == nil {
+			t.Fatalf("field friends missing on User")
+		}
+		if friends.Type.TypeKind != node.TypeRefSlice {
+			t.Fatalf("friends Type.TypeKind = %v, want TypeRefSlice", friends.Type.TypeKind)
+		}
+		elem := friends.Type.Elem
+		if elem == nil || elem.TypeKind != node.TypeRefNamed {
+			t.Fatalf("friends element TypeRef = %+v, want TypeRefNamed", elem)
+		}
+		if elem.Name != "User.Profile" {
+			t.Fatalf("friends element Name = %q, want %q", elem.Name, "User.Profile")
+		}
+		if elem.Package != pkg.Path {
+			t.Fatalf("friends element Package = %q, want %q", elem.Package, pkg.Path)
+		}
+	})
+
+	t.Run("map<K,V> field produces TypeRefMap with typed key + value", func(t *testing.T) {
+		t.Parallel()
+		attrs := user.FieldByName("attrs")
+		if attrs == nil {
+			t.Fatalf("field attrs missing on User")
+		}
+		if attrs.Type.TypeKind != node.TypeRefMap {
+			t.Fatalf("attrs Type.TypeKind = %v, want TypeRefMap", attrs.Type.TypeKind)
+		}
+		if attrs.Type.MapKey == nil || attrs.Type.MapKey.Name != "string" {
+			t.Fatalf("attrs MapKey = %+v, want TypeRefNamed(string)", attrs.Type.MapKey)
+		}
+		if attrs.Type.MapValue == nil || attrs.Type.MapValue.Name != "int32" {
+			t.Fatalf("attrs MapValue = %+v, want TypeRefNamed(int32)", attrs.Type.MapValue)
+		}
+	})
+
+	t.Run("synthetic map-entry message is filtered from the produced Structs slice", func(t *testing.T) {
+		t.Parallel()
+		// protocompile synthesises a hidden message named
+		// `User.AttrsEntry` for the map<string,int32> field; the
+		// converter must drop it so consumers don't see the
+		// implementation detail.
+		for _, s := range pkg.Structs {
+			if s.Name == "User.AttrsEntry" {
+				t.Fatalf("synthetic map-entry Struct %q should not surface", s.Name)
+			}
+		}
+	})
+}
+
 // TestConvert_MessageReservedAndTrailingDoc covers message-level
 // reserved-range meta plus the message-level trailing comment.
 // Reserved tag numbers expand into an int slice (single numbers

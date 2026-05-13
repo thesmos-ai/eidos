@@ -44,14 +44,45 @@ message User { // primary account
   Status status = 5;
   // profile references the nested Profile message.
   Profile profile = 6;
+  // tags exercises the repeated-scalar surface — the converter
+  // wraps the element type in a TypeRefSlice.
+  repeated string tags = 12;
+  // friends exercises a repeated message field; the slice wraps
+  // a TypeRefNamed referencing the nested Profile.
+  repeated Profile friends = 13;
+  // statuses exercises a repeated enum field — the converter
+  // wraps a named ref to the file-level Status enum.
+  repeated Status statuses = 15;
+  // attrs exercises the map<K,V> surface — the converter
+  // produces a TypeRefMap reading key + value from the synthetic
+  // entry message.
+  map<string, int32> attrs = 14;
 
   reserved 7, 9 to 11;
   reserved "obsolete_email";
 
   // Profile is nested under User; the converter emits it as a
-  // Struct named "User.Profile" in the same package.
+  // Struct named "User.Profile" in the same package. The nested
+  // oneof exercises the dot-then-underscore naming convention:
+  // the synthesized interface lands at `User.Profile_contact`.
   message Profile {
     string nickname = 1;
+    oneof contact {
+      string email = 2;
+      string phone = 3;
+    }
+  }
+}
+
+// Org exercises the nested-name collision rule: it declares its
+// own nested `Profile` distinct from `User.Profile`. The two
+// nested messages share a leaf name but resolve to distinct
+// Struct entries (`User.Profile` and `Org.Profile`) without
+// collision.
+message Org {
+  string name = 1;
+  message Profile {
+    string motto = 1;
   }
 }
 
@@ -61,7 +92,9 @@ message User { // primary account
 // the composite-type translation surface and is not surfaced by
 // the per-message converter.
 message Container {
-  oneof choice {
+  // choice picks between a text and a numeric payload.
+  // +gen:debug
+  oneof choice { // pick-one
     string text = 1;
     int32 number = 2;
   }

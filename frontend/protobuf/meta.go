@@ -208,6 +208,35 @@ var (
 		"proto.service.rpc.stream.server",
 		meta.BoolParser,
 	) //nolint:gochecknoglobals // typed registry-singleton key
+
+	// MetaOneofInterface stamps the qualified name of the
+	// synthesized [node.Interface] on every variant [node.Field]
+	// belonging to a oneof group. Consumers walk from a variant
+	// field to its interface by reading this key.
+	MetaOneofInterface = meta.NewKey(
+		"proto.oneof.interface",
+		meta.StringParser,
+	) //nolint:gochecknoglobals // typed registry-singleton key
+
+	// MetaOneofMessage stamps the qualified name of the host
+	// [node.Struct] on the synthesized oneof [node.Interface].
+	// Consumers walk from the interface back to its host message
+	// by reading this key.
+	MetaOneofMessage = meta.NewKey(
+		"proto.oneof.message",
+		meta.StringParser,
+	) //nolint:gochecknoglobals // typed registry-singleton key
+
+	// MetaOneofTrailingDoc stamps the trailing same-line comment
+	// attached to a oneof's opening brace on the synthesized
+	// [node.Interface]. Lives under its own per-host-kind key
+	// rather than reusing the message-level surface so consumers
+	// that filter trailing-doc by host kind see the oneof entries
+	// without dispatching on shape.
+	MetaOneofTrailingDoc = meta.NewKey(
+		"proto.oneof.trailing_doc",
+		meta.StringParser,
+	) //nolint:gochecknoglobals // typed registry-singleton key
 )
 
 // int32SliceParser decodes a JSON-encoded int32 slice from raw.
