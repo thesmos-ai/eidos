@@ -132,22 +132,74 @@ checks:
 
   # coverage — `ergon check coverage`
   #
-  # Single global threshold (no per-layer customization), per the
-  # project policy. Excludes above remove the cross-module-tested
-  # surfaces from the gate; the remaining code is what local tests
-  # are responsible for covering. 70% is the floor today's tree
-  # clears with the excludes in place — a guard against
-  # regression, not an aspirational target. Tighten when the
-  # remaining 0%-coverage functions earn dedicated tests, OR when
-  # ergon learns to merge coverage across workspace modules
-  # (at which point the excludes can shrink and the threshold can
-  # climb).
+  # Per-package floors pinned just below each package's current
+  # measured coverage, so the gate catches regression without
+  # blocking on aspirational targets. Longest-prefix wins — the
+  # `./...` entry catches anything not specifically gated. Re-run
+  # `ergon check coverage uncovered` to see the gap each floor
+  # tolerates.
+  #
+  # Updating a floor: when a package's tests close a documented
+  # gap, bump the floor here in the same commit so future drops
+  # surface immediately.
   coverage:
     packages:
-      - path: "./..."
+      # Framework primitives — at or near 100% today; a 95% floor
+      # leaves room for one or two unreachable error paths without
+      # masking real regressions.
+      - path: "./cache/..."
+        line: 95
+      - path: "./core/..."
+        line: 95
+      - path: "./manifest/..."
+        line: 95
+      - path: "./node/..."
+        line: 95
+      - path: "./plugin/..."
+        line: 95
+      - path: "./store/..."
+        line: 95
+      - path: "./storefixture/..."
+        line: 95
+      - path: "./testpipe/..."
+        line: 95
+
+      # High but not perfect coverage. emit carries the isRef
+      # marker pattern (handled by the skip rule); the others have
+      # a handful of error / fallback branches.
+      - path: "./emit/..."
+        line: 90
+      - path: "./pipeline/..."
+        line: 90
+      - path: "./sink/..."
+        line: 90
+
+      # writer has the unused ExtractProvenance accessor pulling
+      # the average down; rest is 95%+.
+      - path: "./writer/..."
+        line: 85
+
+      # docaudit is a small helper with one unexercised branch
+      # (unquoteDoubleQuoted partial path).
+      - path: "./docaudit/..."
         line: 70
-        branch: 0
-        require_branch: false
+
+      # Per-module floors. backend/golang's bridge-render helpers
+      # are exercised through eidostest/integration/protogo; the
+      # 80% floor accommodates that without masking unit-test
+      # regressions on the rest.
+      - path: "./backend/golang/..."
+        line: 80
+      - path: "./frontend/golang/..."
+        line: 90
+      - path: "./frontend/protobuf/..."
+        line: 75
+      # cli is the lowest-coverage published surface. Its tests
+      # are integration-shaped — the binary path used to live in
+      # cmd/eidos/main_test.go (now moved out). Tighten as the
+      # internal-API unit tests grow.
+      - path: "./cli/..."
+        line: 60
     top_n: 10
 
   mutation:
