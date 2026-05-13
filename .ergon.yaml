@@ -4,12 +4,14 @@
 # defaults. Inline comments document why each non-default value
 # was chosen so reviewers can challenge or extend the policy.
 
+# Project identity — used in help banners and as the directory
+# name for cached artifacts (.eidos/, .coverage/, …).
 name: eidos
 
-# Module set discovered via go.work — ergon's auto-detection covers
-# the eight-module split (root + backend/golang + bridge/protogo +
-# cli + eidostest + frontend/{golang,protobuf} + reference) without
-# hand-listing.
+# Module set discovered via go.work — ergon's auto-detection
+# covers the eight-module split (root + backend/golang +
+# bridge/protogo + cli + eidostest + frontend/{golang,protobuf} +
+# reference) without hand-listing.
 modules: []
 
 # bootstrap — `ergon bootstrap`
@@ -21,37 +23,34 @@ license:
   config_file: .go-license.yml
   # docs/superpowers is the internal-only working state per the
   # project's documented contributor rule ("never commit, never
-  # reference"). .gitignore already drops it, but listing it here
-  # keeps `ergon license` from walking a path that may exist on a
+  # reference"). .gitignore drops it; listing it here keeps
+  # `ergon license` from walking a path that may exist on a
   # contributor's checkout from an earlier state.
   exclude_dirs:
     - .git
     - vendor
     - dist
     - node_modules
+    - docs/superpowers
   exclude_files:
     - "*.gen.go"
     - "*.gen_test.go"
 
-# markdown — markdownlint-cli2 invocation shared by `ergon fmt` and
-# `ergon lint md`
+# markdown — markdownlint-cli2 invocation shared by `ergon fmt`
+# (auto-fix) and `ergon lint md` (reporting only)
 markdown:
   globs:
     - "**/*.md"
     - "#vendor"
     - "#dist"
     - "#node_modules"
-    # Same rationale as the license exclusion: docs/superpowers is
-    # internal-only and intentionally not committed; skip it from
-    # markdownlint so the gate stays green on contributor checkouts
-    # that retain it.
+    # Same rationale as the license exclusion above.
     - "#docs/superpowers"
 
-# test — `ergon test` and its subcommands
-#
-# Defaults preserved: count=3 (catches flake), timeout=10m (long
-# enough for the full reference-acceptance pass), fuzz_time=30s
-# (bounded CI run; bump locally with FUZZ_TIME=5m).
+# test — `ergon test` and its subcommands. Defaults preserved:
+# count=3 catches flake, timeout=10m covers the full
+# reference-acceptance pass, fuzz_time=30s bounds CI without
+# preventing deeper local runs (bump via FUZZ_TIME=5m).
 test:
   cpu: 4
   count: 3
@@ -64,111 +63,97 @@ test:
 bench:
   baseline_path: bench/baseline.txt
   thresholds:
-    # 5% time regressions on significant deltas fail; insignificant
-    # benchstat-reported (~) shifts never gate. Tight enough to
-    # catch the kind of accidental complexity bumps a code review
-    # would otherwise miss.
+    # 5% time-significant deltas hard-fail; benchstat-reported
+    # insignificant (`~`) shifts never gate.
     time_percent: 5
-    # B/op is advisory only; struct-padding rearrangements shift
-    # this metric under unrelated refactors. 10% headroom keeps
-    # the warning from firing on every PR.
+    # B/op is advisory only; struct-padding shifts the metric
+    # under unrelated refactors. 10% keeps warnings useful.
     bytes_percent: 10
-    # Allocations/op is a contract — any positive change is a
-    # regression, period. 0% threshold means: don't grow alloc
-    # count without an explicit baseline bump.
+    # Allocations/op is a contract: any positive change is a
+    # regression. 0% means an explicit baseline bump is required
+    # to grow the allocation count.
     allocs_percent: 0
+
+# release — `ergon release`. Empty list = inherit the global module
+# set from go.work for releases.
+release:
+  modules: []
 
 # checks — `ergon check` umbrella
 checks:
-  # File-level exclusions applied to coverage AND mutation. Paths
-  # are repository-relative globs.
+  # Path globs both coverage AND mutation ignore. The reasons are
+  # human-facing so reviewers can challenge new excludes on PR.
   excludes:
     - path: "**/testdata/**"
       reason: |
-        Test inputs, not subjects of coverage. The frameworks load
-        these under packages.Load / protocompile; the files are
+        Test inputs, not subjects of coverage. Frameworks load
+        these via packages.Load / protocompile; the files are
         fixtures, not production code.
-    - path: "pluginfixture/**"
-      reason: |
-        Sample Go types loaded as fixture input by tests in
-        downstream modules. Carries no logic to test directly;
-        coverage of zero is correct.
-    - path: "eidostest/**"
-      reason: |
-        Cross-module integration test harness. Its tests cover the
-        framework modules (via demopipe / protopipe / integration
-        suites), not itself; gating eidostest's own coverage would
-        gate the wrong thing.
     - path: "**/buildfixture/**"
       reason: |
         Go-buildable proto-bridge fixture inside the protopipe
-        harness. Same rationale as pluginfixture — input to a
-        toolchain compile check, not subject to coverage.
+        harness. Input to the toolchain compile check, not a
+        subject of coverage.
+    - path: "pluginfixture/**"
+      reason: |
+        Sample Go types loaded as fixture input by tests in
+        downstream modules. No logic to test; 0% is correct.
+    - path: "eidostest/**"
+      reason: |
+        Cross-module integration test harness. Its tests cover
+        framework modules (via demopipe / protopipe / integration
+        suites), not itself.
+    - path: "bridge/protogo/**"
+      reason: |
+        Bridge annotator is exercised end-to-end by
+        eidostest/integration/protogo/. Local coverage looks low
+        because the suite that exercises it lives downstream;
+        exclude until cross-module coverage merging exists.
+    - path: "reference/**"
+      reason: |
+        Reference plugin behavior is gated by
+        eidostest/integration/<plugin>/. Same cross-module
+        coverage limitation as bridge/protogo.
     - path: "**/*.gen.go"
-      reason: generated code; covered by the generator's own tests.
+      reason: generated code; the generator's own tests cover it.
     - path: "**/*.gen_test.go"
       reason: generated test code; same.
 
-  skips: []
+  # Structural skip rules: function name + file pattern. Applied
+  # to coverage AND mutation. Reserved for genuinely
+  # untestable-by-design surfaces.
+  skips:
+    - label: interface-marker
+      func_glob: isRef
+      file_glob: "**/*_ref.go"
+      # Interface-marker methods on emit.Ref variants. They exist
+      # to satisfy the Ref interface and never have a callable
+      # path — 0% coverage is by design.
 
   # coverage — `ergon check coverage`
   #
-  # Coverage is measured per-module. Reference plugins and the
-  # protogo bridge are exercised primarily by integration tests
-  # that live in eidostest/integration/<plugin>/ (per the
-  # multi-module split that broke the test ↔ harness cycle); their
-  # local coverage looks low because most of their tests moved
-  # downstream. Until cross-module coverage merging lands, those
-  # paths gate at a lower floor.
+  # Single global threshold (no per-layer customization), per the
+  # project policy. Excludes above remove the cross-module-tested
+  # surfaces from the gate; the remaining code is what local tests
+  # are responsible for covering. 70% is the floor today's tree
+  # clears with the excludes in place — a guard against
+  # regression, not an aspirational target. Tighten when the
+  # remaining 0%-coverage functions earn dedicated tests, OR when
+  # ergon learns to merge coverage across workspace modules
+  # (at which point the excludes can shrink and the threshold can
+  # climb).
   coverage:
-    # Coverage gating is intentionally disabled — leave packages
-    # empty so `ergon check coverage` short-circuits with a notice.
-    #
-    # Background: ergon's gate is per-function-per-module. The
-    # multi-module split relocated cross-cutting integration tests
-    # into eidostest/integration/ to break the test ↔ harness
-    # cycle. Those tests exercise plenty of functions in
-    # bridge/protogo, reference/*, and the cross-module surface
-    # of backend/golang and frontend/protobuf — but the per-module
-    # coverage measurement doesn't see them, so the gate would
-    # fire on real-but-cross-module-tested code.
-    #
-    # Re-enable when one of the following lands:
-    #   - ergon learns to merge coverage across workspace modules
-    #   - a separate eidostest-driven coverage pass produces a
-    #     unified report
-    #
-    # Starter set of per-package thresholds, populated below as
-    # YAML comments. When re-enabling the gate, uncomment and
-    # tune to the post-merge reality.
-    #
-    # packages:
-    #   - { path: cache/...,            line: 90 }
-    #   - { path: core/...,             line: 95 }
-    #   - { path: emit/...,             line: 80 }  # isRef markers 0% by design
-    #   - { path: manifest/...,         line: 95 }
-    #   - { path: node/...,             line: 95 }
-    #   - { path: pipeline/...,         line: 85 }
-    #   - { path: plugin/...,           line: 95 }
-    #   - { path: sink/...,             line: 85 }
-    #   - { path: store/...,            line: 95 }
-    #   - { path: writer/...,           line: 85 }
-    #   - { path: docaudit/...,         line: 65 }
-    #   - { path: storefixture/...,     line: 90 }
-    #   - { path: testpipe/...,         line: 90 }
-    #   - { path: backend/golang/...,   line: 50 }  # bridge helpers exercised cross-module
-    #   - { path: frontend/golang/...,  line: 75 }
-    #   - { path: frontend/protobuf/..., line: 75 }
-    #   - { path: bridge/protogo/...,   line: 20 }  # mostly cross-module
-    #   - { path: cli/...,              line: 60 }
-    #   - { path: reference/...,        line: 0  }  # all tests in eidostest/integration/
-    packages: []
+    packages:
+      - path: "./..."
+        line: 70
+        branch: 0
+        require_branch: false
     top_n: 10
 
   mutation:
-    # Mutation testing not yet wired into the project's gate. Empty
-    # list short-circuits the check; enable per-layer when the
-    # mutation-testing story is ready.
+    # Mutation testing not yet wired into the project's gate.
+    # Empty list short-circuits the check. Enable per-layer when
+    # the mutation-testing story matures.
     packages: []
     gremlins:
       workers: 2
@@ -178,20 +163,17 @@ checks:
   # error-prefix — `ergon check error-prefix`
   #
   # Convention: every errors.New / fmt.Errorf sentinel begins with
-  # "<pkg-name>: " where <pkg-name> matches the `package` clause of
-  # the declaring file. Avoids the "two packages, same generic
-  # error string" debugging trap that comes up in multi-module
-  # repos where many packages declare an `Err…` of the same shape.
+  # "<pkg-name>: " where <pkg-name> matches the `package` clause
+  # of the declaring file. Avoids the "two packages, same generic
+  # error string" debugging trap in multi-module repos.
   error_prefix:
     target_dirs: ["."]
 
   # commit-msg — `ergon check commit-msg <file>`
   #
-  # Type list matches the project's conventional-commit usage as
-  # seen in `git log`: feat / fix / test / docs / refactor / chore
-  # are common; perf / build / ci / revert are reserved for the
-  # cases they describe. No type for "release"; the release tool
-  # uses chore.
+  # Type list matches the project's conventional-commit usage in
+  # `git log`. 80-byte subject ceiling (default 72) accommodates
+  # the project's existing scoped subjects without rephrasing.
   commit_msg:
     types:
       - feat
@@ -204,10 +186,4 @@ checks:
       - perf
       - build
       - revert
-    # 80-byte ceiling instead of the default 72: several existing
-    # commit subjects in the eidos history are 73–78 bytes
-    # ("feat(frontend/protobuf): messages, enums, scalar fields +
-    # per-construct meta") and reflect real scope rather than
-    # verbose phrasing. 80 keeps subjects compatible with terminal
-    # widths while accommodating the scoped-prefix style.
     max_subject_length: 80
