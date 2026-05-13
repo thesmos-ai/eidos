@@ -152,15 +152,18 @@ func (*Plugin) FilenameSuffix(lang string) string {
 	return ""
 }
 
-// Directives declares the `+gen:mock` / `-gen:mock` schema. Positive
-// directives opt source-side interfaces in; negated directives skip
-// emit-side interfaces that would otherwise be mocked.
+// Directives declares the `+gen:mock` / `-gen:mock` schema.
+// Positive directives opt source-side interfaces in; negated
+// directives skip emit-side interfaces that would otherwise be
+// mocked. A negated directive on a source-side method skips that
+// individual method when its parent interface still opts in.
 func (*Plugin) Directives() []directive.Schema {
 	return []directive.Schema{
 		directive.NewSchema(DirectiveName).
 			On(node.KindInterface).
+			On(node.KindMethod).
 			On(directive.Kind("emit.interface")).
-			Describe("Opts a source interface into mock generation (+) or skips an emit interface (-).").
+			Describe("Opts a source interface into mock generation (+) or skips an emit interface or single method (-).").
 			Build(),
 	}
 }
@@ -361,6 +364,12 @@ func (p *Plugin) emitForSourceInterface(
 ) {
 	sigs := make([]methodSig, 0, len(i.Methods))
 	for _, m := range i.Methods {
+		if m.HasNegatedDirective(DirectiveName) {
+			// Per-method opt-out: the directive on this source
+			// method skips it without affecting other methods on
+			// the same interface.
+			continue
+		}
 		params := make([]paramSig, 0, len(m.Params))
 		for _, mp := range m.Params {
 			params = append(params, paramSig{name: mp.Name, typ: refconv.FromNode(mp.Type)})

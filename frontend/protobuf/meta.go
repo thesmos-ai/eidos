@@ -176,6 +176,38 @@ var (
 		"proto.enum_variant.trailing_doc",
 		meta.StringParser,
 	) //nolint:gochecknoglobals // typed registry-singleton key
+
+	// MetaServiceTrailingDoc stamps the trailing same-line comment
+	// attached to a service declaration. Absent on services
+	// without such a comment.
+	MetaServiceTrailingDoc = meta.NewKey(
+		"proto.service.trailing_doc",
+		meta.StringParser,
+	) //nolint:gochecknoglobals // typed registry-singleton key
+
+	// MetaRPCTrailingDoc stamps the trailing same-line comment
+	// attached to an `rpc` declaration. Absent on RPCs without
+	// such a comment.
+	MetaRPCTrailingDoc = meta.NewKey(
+		"proto.service.rpc.trailing_doc",
+		meta.StringParser,
+	) //nolint:gochecknoglobals // typed registry-singleton key
+
+	// MetaRPCStreamClient stamps true on methods whose request
+	// side is declared `stream`. Absent on unary and
+	// server-streaming RPCs.
+	MetaRPCStreamClient = meta.NewKey(
+		"proto.service.rpc.stream.client",
+		meta.BoolParser,
+	) //nolint:gochecknoglobals // typed registry-singleton key
+
+	// MetaRPCStreamServer stamps true on methods whose response
+	// side is declared `stream`. Absent on unary and
+	// client-streaming RPCs.
+	MetaRPCStreamServer = meta.NewKey(
+		"proto.service.rpc.stream.server",
+		meta.BoolParser,
+	) //nolint:gochecknoglobals // typed registry-singleton key
 )
 
 // int32SliceParser decodes a JSON-encoded int32 slice from raw.

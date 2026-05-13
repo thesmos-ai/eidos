@@ -1,0 +1,19 @@
+// external.proto declares a sibling proto package the main file
+// imports so the service-method translation exercises cross-package
+// request/response references. The frontend records the imported
+// file path and emits one node.Package per qualifier; Greeter's
+// Echo RPC threads the cross-package message through Params /
+// Returns to verify the namedTypeRef resolution.
+syntax = "proto3";
+
+package eidos.protobuf.testdata.services.external;
+
+// ExternalRequest is the cross-package input form.
+message ExternalRequest {
+  string token = 1;
+}
+
+// ExternalResponse is the cross-package output form.
+message ExternalResponse {
+  string echo = 1;
+}

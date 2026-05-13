@@ -1,0 +1,55 @@
+// greeter.proto is the canonical services fixture exercising the
+// service → Interface mapping and the four streaming flavours.
+// The Greeter service covers a unary RPC plus client-streaming,
+// server-streaming, and bidirectional-streaming variants so the
+// per-method streaming meta is exercised positively and the
+// per-host trailing-doc + directive surfaces have a target.
+syntax = "proto3";
+
+package eidos.protobuf.testdata.services;
+
+import "external.proto";
+
+// HelloRequest carries the canonical greeting payload.
+message HelloRequest {
+  string name = 1;
+}
+
+// HelloReply carries the canonical greeting response.
+message HelloReply {
+  string message = 1;
+}
+
+// Greeter is the demo service. The trailing comment below lands
+// in proto.service.trailing_doc; the +gen:mock directive lands
+// on the Interface's DirectiveList.
+// +gen:mock
+service Greeter { // canonical greeter
+  // SayHello is the unary RPC the compilability check renders
+  // against the Go toolchain.
+  rpc SayHello(HelloRequest) returns (HelloReply); // unary
+  // SayHellos streams greetings from the server.
+  rpc SayHellos(HelloRequest) returns (stream HelloReply);
+  // CollectNames streams names from the client. The per-RPC
+  // -gen:mock directive opts this single method out of mockgen
+  // while leaving the other RPCs on Greeter mocked normally.
+  // -gen:mock
+  rpc CollectNames(stream HelloRequest) returns (HelloReply);
+  // Chat streams in both directions.
+  rpc Chat(stream HelloRequest) returns (stream HelloReply);
+  // Echo threads a cross-package request / response pair so the
+  // service-method translation exercises a TypeRefNamed whose
+  // Package differs from the declaring service's.
+  rpc Echo(eidos.protobuf.testdata.services.external.ExternalRequest)
+      returns (eidos.protobuf.testdata.services.external.ExternalResponse);
+}
+
+// SilentService exercises the -gen:mock negative directive: the
+// service is well-formed but the directive opts it out of the
+// mockgen gate. The integration test confirms no mock emit
+// struct surfaces for SilentService while Greeter's mock still
+// lands.
+// -gen:mock
+service SilentService {
+  rpc Quiet(HelloRequest) returns (HelloReply);
+}

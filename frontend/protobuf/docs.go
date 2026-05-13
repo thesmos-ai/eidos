@@ -192,6 +192,55 @@ func attachEnumDocs(
 	}
 }
 
+// attachInterfaceDocs walks the source-location index for sd and
+// stamps any leading comments onto iface.DocLines plus any
+// trailing same-line comment under [MetaServiceTrailingDoc].
+// Service-level directives parsed from the leading comments
+// populate iface.DirectiveList.
+func attachInterfaceDocs(
+	ctx *plugin.FrontendContext, iface *node.Interface,
+	fd protoreflect.FileDescriptor, sd protoreflect.ServiceDescriptor,
+) {
+	sl := fd.SourceLocations().ByDescriptor(sd)
+	docs, trailing := docLinesAndTrailing(sl)
+	if len(docs) > 0 {
+		iface.DocLines = append(iface.DocLines, docs...)
+	}
+	pos := position.Pos{File: fd.Path(), Line: sl.StartLine + 1, Column: sl.StartColumn + 1}
+	if dirs := directivesFor(ctx, sl, pos); len(dirs) > 0 {
+		iface.DirectiveList = append(iface.DirectiveList, dirs...)
+	}
+	if trailing != "" {
+		MetaServiceTrailingDoc.SetAt(
+			iface.Meta(), trailing, meta.AuthorityPlugin, FrontendName, pos,
+		)
+	}
+}
+
+// attachRPCDocs walks the source-location index for md and stamps
+// any leading comments onto m.DocLines plus any trailing same-line
+// comment under [MetaRPCTrailingDoc]. RPC-level directives parsed
+// from the leading comments populate m.DirectiveList.
+func attachRPCDocs(
+	ctx *plugin.FrontendContext, m *node.Method,
+	fd protoreflect.FileDescriptor, md protoreflect.MethodDescriptor,
+) {
+	sl := fd.SourceLocations().ByDescriptor(md)
+	docs, trailing := docLinesAndTrailing(sl)
+	if len(docs) > 0 {
+		m.DocLines = append(m.DocLines, docs...)
+	}
+	pos := position.Pos{File: fd.Path(), Line: sl.StartLine + 1, Column: sl.StartColumn + 1}
+	if dirs := directivesFor(ctx, sl, pos); len(dirs) > 0 {
+		m.DirectiveList = append(m.DirectiveList, dirs...)
+	}
+	if trailing != "" {
+		MetaRPCTrailingDoc.SetAt(
+			m.Meta(), trailing, meta.AuthorityPlugin, FrontendName, pos,
+		)
+	}
+}
+
 // attachVariantDocs walks the source-location index for vd and
 // stamps any leading comments onto v.DocLines plus any trailing
 // same-line comment under [MetaEnumVariantTrailingDoc]. Variant-

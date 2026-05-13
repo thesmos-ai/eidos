@@ -284,6 +284,87 @@ func TestParseSelector(t *testing.T) {
 	}
 }
 
+// TestExplainCommand_ProtoServiceShape covers the source-anchored
+// explain path against a proto-flavoured service: a Greeter
+// node.Interface carrying streaming meta on its methods renders
+// the Kind line, the methods, and the meta keys downstream
+// tooling expects when inspecting a proto-derived RPC.
+func TestExplainCommand_ProtoServiceShape(t *testing.T) {
+	t.Parallel()
+
+	t.Run("explain against a proto-derived service renders the Kind line and streaming meta", func(t *testing.T) {
+		t.Parallel()
+		env, stdout, _ := freshEnv(t, "eidos")
+		streamServer := meta.NewKey("proto.service.rpc.stream.server", meta.BoolParser)
+		// SayHellos models the server-streaming RPC's emitted
+		// Method shape: one positional param, one return ref, and
+		// the streaming-meta stamp the protobuf frontend produces.
+		stream := &node.Method{Name: "SayHellos"}
+		streamServer.Set(stream.Meta(), true, "protobuf")
+		iface := &node.Interface{
+			Name: "Greeter", Package: "eidos.protobuf.testdata.services",
+			Methods: []*node.Method{
+				{Name: "SayHello"},
+				stream,
+			},
+		}
+		pkg := &node.Package{
+			Name: "services", Path: "eidos.protobuf.testdata.services",
+			Interfaces: []*node.Interface{iface},
+		}
+		cmd := &cli.ExplainCommand{Config: cli.ExplainConfig{
+			Plugins: []plugin.Plugin{
+				sourceFrontend{name: "fe", pkg: pkg},
+				stubBackend{name: "be", lang: "stub"},
+			},
+			Selector: "services.Greeter",
+		}}
+		if code := cmd.Execute(t.Context(), env); code != cli.ExitOK {
+			t.Fatalf("Execute = %d, want ExitOK", code)
+		}
+		out := stdout.String()
+		if !strings.Contains(out, "interface") {
+			t.Fatalf("expected Kind line for interface; got:\n%s", out)
+		}
+		if !strings.Contains(out, "Greeter") {
+			t.Fatalf("expected service name in output; got:\n%s", out)
+		}
+	})
+
+	t.Run("explain on an RPC member surfaces its streaming meta", func(t *testing.T) {
+		t.Parallel()
+		env, stdout, _ := freshEnv(t, "eidos")
+		streamServer := meta.NewKey("proto.service.rpc.stream.server.member", meta.BoolParser)
+		stream := &node.Method{Name: "SayHellos"}
+		streamServer.Set(stream.Meta(), true, "protobuf")
+		iface := &node.Interface{
+			Name: "Greeter", Package: "eidos.protobuf.testdata.services",
+			Methods: []*node.Method{stream},
+		}
+		pkg := &node.Package{
+			Name: "services", Path: "eidos.protobuf.testdata.services",
+			Interfaces: []*node.Interface{iface},
+		}
+		cmd := &cli.ExplainCommand{Config: cli.ExplainConfig{
+			Plugins: []plugin.Plugin{
+				sourceFrontend{name: "fe", pkg: pkg},
+				stubBackend{name: "be", lang: "stub"},
+			},
+			Selector: "services.Greeter.SayHellos",
+		}}
+		if code := cmd.Execute(t.Context(), env); code != cli.ExitOK {
+			t.Fatalf("Execute = %d, want ExitOK; stdout:\n%s", code, stdout.String())
+		}
+		out := stdout.String()
+		if !strings.Contains(out, "SayHellos") {
+			t.Fatalf("expected method name in output; got:\n%s", out)
+		}
+		if !strings.Contains(out, "proto.service.rpc.stream.server.member = true") {
+			t.Fatalf("expected streaming meta rendered; got:\n%s", out)
+		}
+	})
+}
+
 // TestExplainCommand_ConfigError covers the user-error path.
 func TestExplainCommand_ConfigError(t *testing.T) {
 	t.Parallel()

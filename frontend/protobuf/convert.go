@@ -52,6 +52,7 @@ func convertFiles(
 		// contributes from inside its braces.
 		convertEnums(ctx, pkg, fd)
 		convertMessages(ctx, pkg, fd)
+		convertServices(ctx, pkg, fd)
 	}
 	for _, qualifier := range order {
 		pkg := pkgs[qualifier]
