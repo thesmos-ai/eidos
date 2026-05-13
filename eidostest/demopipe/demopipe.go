@@ -208,12 +208,16 @@ func Run(t *testing.T, opts RunOptions) Result {
 }
 
 // frontendOptionsFor merges the harness's default frontend options
-// (`dir=<fixture root>`) with caller-supplied overrides. Callers
-// that pre-populate Dir win — the harness only fills the slot when
-// caller didn't.
+// with caller-supplied overrides. Defaults pin `dir=<fixture root>`
+// and `ignore_workspace=true` so the loader walks the fixture's
+// own go.mod boundary independent of any enclosing go.work in the
+// developer's checkout. Callers that pre-populate either key win.
 func frontendOptionsFor(t *testing.T, opts RunOptions) map[string]string {
 	t.Helper()
-	out := map[string]string{"dir": FixtureRoot(t)}
+	out := map[string]string{
+		"dir":              FixtureRoot(t),
+		"ignore_workspace": "true",
+	}
 	maps.Copy(out, opts.FrontendOptions)
 	return out
 }

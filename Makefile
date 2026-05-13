@@ -3,7 +3,7 @@
         bench-baseline bench-regression \
         tidy check-tidy \
         check check-coverage check-vuln \
-        build clean release
+        build clean
 
 # ─── Colors ──────────────────────────────────────────────────────
 BLUE   := $(shell printf "\033[0;36m")
@@ -17,9 +17,13 @@ GO      := go
 FLAGS   ?=
 
 # ─── Module directories ─────────────────────────────────────────
-# Eidos is a single Go module; foreach_module preserves the shape
-# the rest of the targets expect without forking targets per layout.
-MODULES := .
+# Eidos is split into several Go modules coordinated by go.work.
+# foreach_module iterates each one so the per-target work
+# (`go test ./...`, `go vet ./...`, `go mod tidy`, …) runs in
+# every module's scope rather than leaking across boundaries.
+# Order matters for human readability: root first, then language
+# adapters, then test harness.
+MODULES := . ./backend/golang ./bridge/protogo ./cli ./eidostest ./frontend/golang ./frontend/protobuf ./reference
 
 # ─── Paths ───────────────────────────────────────────────────────
 BIN_DIR      := bin
@@ -41,12 +45,6 @@ BENCH_COUNT      ?= 6
 # FUZZ_TIME is the per-target wall-clock budget for `go test -fuzz`.
 # Default keeps a CI run bounded; bump locally with FUZZ_TIME=5m.
 FUZZ_TIME        ?= 30s
-
-# ─── Build variables ─────────────────────────────────────────────
-VERSION    ?= dev
-COMMIT     ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-BUILD_TIME ?= $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
-LDFLAGS    := -ldflags="-X go.thesmos.sh/eidos/internal/version.buildVersion=$(VERSION) -X go.thesmos.sh/eidos/internal/version.buildCommit=$(COMMIT) -X go.thesmos.sh/eidos/internal/version.buildDate=$(BUILD_TIME)"
 
 # ─── License header ──────────────────────────────────────────────
 GO_FILES := $(shell find . -type f -name '*.go' \
@@ -96,9 +94,8 @@ help:
 	@echo "  check-vuln         Run govulncheck across all modules"
 	@echo ""
 	@echo "$(GREEN)Building:$(NC)"
-	@echo "  build              Build the eidos binary into $(BIN_DIR)/"
+	@echo "  build              Compile every module's source (sanity check)"
 	@echo "  clean              Remove build artifacts and caches"
-	@echo "  release            Tag the current commit as VERSION (e.g. make release VERSION=v0.1.0)"
 	@echo ""
 	@echo "$(YELLOW)Modules:$(NC) $(MODULES)"
 	@echo "$(YELLOW)Flags:$(NC)   FLAGS=\"-run TestFoo\"          extra flags for test commands"
@@ -134,14 +131,13 @@ install:
 	@echo "$(GREEN)Done$(NC)"
 
 # ─── Code generation ─────────────────────────────────────────────
-# `eidos generate` self-bootstraps: install the binary first so any
-# `//go:generate eidos run …` directive in the tree finds it on PATH,
-# then run go generate, then regenerate any testdata golden fixtures.
+# `go generate ./...` runs in each module. The reference binary
+# `eidos` lives in a separate repo; consumers running //go:generate
+# directives that invoke `eidos` install it themselves via
+# `go install go.thesmos.sh/eidos-cmd/eidos@latest` (or similar).
 
 generate:
-	@echo "$(BLUE)Building eidos binary...$(NC)"
-	$(GO) install ./cmd/eidos/
-	@echo "$(BLUE)Running code generation...$(NC)"
+	@echo "$(BLUE)Running code generation across modules...$(NC)"
 	$(call foreach_module,$(GO) generate ./...)
 	@echo "$(BLUE)Regenerating testdata golden files...$(NC)"
 	@dirs=$$(grep -rl '//go:generate' --include='*.go' \
@@ -297,14 +293,15 @@ check-vuln:
 	$(call foreach_module,govulncheck ./...)
 
 # ─── Building ────────────────────────────────────────────────────
-# Single binary: cmd/eidos. Spec §13 requires it to be a thin
-# wrapper (~10 lines) over the library; consumers building their
-# own binary embed `cli.Run` directly and don't need this target.
+# Eidos is a library family — no binary lives in this repo. The
+# reference binary moved to its own repository (consumers embed
+# `cli.Run` directly when writing their own CLI). `build` is kept
+# as a sanity-check target that compiles every module's source
+# without producing artifacts.
 
 build:
-	@echo "$(BLUE)Building eidos -> $(BIN_DIR)/eidos...$(NC)"
-	@mkdir -p $(BIN_DIR)
-	$(GO) build $(LDFLAGS) -o $(BIN_DIR)/eidos ./cmd/eidos/
+	@echo "$(BLUE)Compiling every module (no artifacts produced)...$(NC)"
+	$(call foreach_module,$(GO) build ./...)
 	@echo "$(GREEN)Done$(NC)"
 
 # ─── Cleanup ─────────────────────────────────────────────────────
@@ -323,26 +320,29 @@ tidy:
 	$(call foreach_module,$(GO) mod tidy)
 
 check-tidy: tidy
-	@if ! git diff --quiet -- go.mod go.sum; then \
-		echo "$(RED)go mod tidy produced changes. Run 'make tidy' and commit.$(NC)"; \
-		git diff --stat -- go.mod go.sum; \
-		exit 1; \
-	fi
+	@dirty=0; \
+	for mod in $(MODULES); do \
+		if ! git diff --quiet -- $$mod/go.mod $$mod/go.sum 2>/dev/null; then \
+			echo "$(RED)$$mod: go mod tidy produced changes. Run 'make tidy' and commit.$(NC)"; \
+			git diff --stat -- $$mod/go.mod $$mod/go.sum; \
+			dirty=1; \
+		fi; \
+	done; \
+	test "$$dirty" -eq 0
 
 # ─── Release ─────────────────────────────────────────────────────
-# Single-module project: one tag per release. Usage:
-#   make release VERSION=v0.1.0
+# Multi-module release coordination lives in a separate tool
+# (moved out of this repo). It reads go.work, infers per-module
+# bumps from conventional commits since each module's last tag,
+# and creates the annotated tags. This target is intentionally
+# stubbed so accidental invocations surface the new flow.
 
 release:
-ifndef VERSION
-	$(error VERSION is required. Usage: make release VERSION=v0.1.0)
-endif
-	@echo "$(BLUE)Tagging $(VERSION)...$(NC)"
-	@git tag -a $(VERSION) -m "Release $(VERSION)"
-	@echo "$(GREEN)Tagged $(VERSION)$(NC)"
-	@echo "$(YELLOW)Push with: git push origin $(VERSION)$(NC)"
+	@echo "$(YELLOW)Release tagging moved to the external release tool.$(NC)"
+	@echo "$(YELLOW)Run that tool from the repo root; it discovers modules via go.work.$(NC)"
+	@exit 1
 
 # ─── CI gate ─────────────────────────────────────────────────────
 
-check: generate check-tidy lint test check-coverage
+check: check-tidy lint test check-coverage
 	@echo "$(GREEN)All checks passed$(NC)"

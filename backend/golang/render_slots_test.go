@@ -12,7 +12,7 @@ import (
 
 	"go.thesmos.sh/eidos/backend/golang"
 	"go.thesmos.sh/eidos/core/diag"
-	"go.thesmos.sh/eidos/eidostest/testpipe"
+	"go.thesmos.sh/eidos/testpipe"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/plugin"
 )

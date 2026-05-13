@@ -15,7 +15,7 @@ import (
 
 	backend_golang "go.thesmos.sh/eidos/backend/golang"
 	"go.thesmos.sh/eidos/eidostest/demopipe"
-	"go.thesmos.sh/eidos/eidostest/testpipe"
+	"go.thesmos.sh/eidos/testpipe"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/pipeline"
 	"go.thesmos.sh/eidos/plugin"

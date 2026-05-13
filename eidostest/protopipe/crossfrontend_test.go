@@ -67,7 +67,7 @@ func TestCrossFrontend_MarkerScope(t *testing.T) {
 		}
 		if err := gf.Load(&plugin.FrontendContext{
 			Store: s, Diag: d, Registry: registry, Parser: parser, Cache: nopCache,
-			Pattern: "go.thesmos.sh/eidos/eidostest/pluginfixture",
+			Pattern: "go.thesmos.sh/eidos/pluginfixture",
 		}); err != nil {
 			t.Fatalf("golang Load: %v", err)
 		}
@@ -81,7 +81,7 @@ func TestCrossFrontend_MarkerScope(t *testing.T) {
 			switch p.Path {
 			case "eidos.protobuf.testdata.simple":
 				protoPkg = p
-			case "go.thesmos.sh/eidos/eidostest/pluginfixture":
+			case "go.thesmos.sh/eidos/pluginfixture":
 				goPkg = p
 			}
 			return true
@@ -137,7 +137,7 @@ func TestCrossFrontend_BridgeAuditScope(t *testing.T) {
 		}
 		if err := gf.Load(&plugin.FrontendContext{
 			Store: s, Diag: d, Registry: registry, Parser: parser, Cache: nopCache,
-			Pattern: "go.thesmos.sh/eidos/eidostest/pluginfixture",
+			Pattern: "go.thesmos.sh/eidos/pluginfixture",
 		}); err != nil {
 			t.Fatalf("golang Load: %v", err)
 		}
@@ -236,9 +236,11 @@ func assertNoMetaPrefix(t *testing.T, pkg *node.Package, prefix, descriptor stri
 
 // repositoryRoot resolves the absolute path of the eidos repo
 // root. The test's working directory is the package directory by
-// default; the helper walks up to the directory carrying go.mod
-// so the cross-frontend pattern resolution finds the same module
-// regardless of where `go test` is invoked from.
+// default; the helper walks up to the directory carrying
+// `go.work` (the workspace root). Walking up for `go.mod` would
+// stop at the nearest module — fine in a single-module repo, but
+// in the multi-module workspace the nearest go.mod is this test's
+// own module, not the repo root.
 func repositoryRoot(t *testing.T) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
@@ -247,11 +249,11 @@ func repositoryRoot(t *testing.T) string {
 	}
 	dir := filepath.Dir(file)
 	for dir != "/" {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+		if _, err := os.Stat(filepath.Join(dir, "go.work")); err == nil {
 			return dir
 		}
 		dir = filepath.Dir(dir)
 	}
-	t.Fatalf("go.mod not found above %s", file)
+	t.Fatalf("go.work not found above %s", file)
 	return ""
 }

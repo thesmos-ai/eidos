@@ -23,6 +23,7 @@ func TestFrontend_OptionsSchema(t *testing.T) {
 			"skip_cgo_files":       true,
 			"skip_generated_files": true,
 			"dir":                  true,
+			"ignore_workspace":     true,
 		}
 		for _, f := range schema.Fields {
 			if !want[f.Name] {
@@ -44,6 +45,7 @@ func TestFrontend_OptionsSchema(t *testing.T) {
 			"skip_cgo_files":       "true",
 			"skip_generated_files": "true",
 			"dir":                  "",
+			"ignore_workspace":     "false",
 		}
 		for _, f := range schema.Fields {
 			want, ok := defaults[f.Name]

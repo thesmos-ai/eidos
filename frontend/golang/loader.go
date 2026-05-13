@@ -6,6 +6,7 @@ package golang
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
@@ -57,6 +58,16 @@ func loadPattern(ctx *plugin.FrontendContext, opts Options) error {
 		Mode:  loadMode,
 		Tests: opts.IncludeTests,
 		Dir:   opts.Dir,
+	}
+	if opts.IgnoreWorkspace {
+		// `GOWORK=off` makes packages.Load respect the loaded
+		// directory's own go.mod boundary rather than any enclosing
+		// go.work. Required when the configured Dir points at a
+		// self-contained fixture module that intentionally lives
+		// outside the workspace; off by default so in-workspace
+		// loading picks up replace directives and cross-module
+		// visibility from go.work.
+		cfg.Env = append(os.Environ(), "GOWORK=off")
 	}
 	if tags := strings.TrimSpace(opts.BuildTags); tags != "" {
 		cfg.BuildFlags = []string{"-tags=" + tags}

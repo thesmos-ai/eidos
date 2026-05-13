@@ -8,7 +8,7 @@ import (
 	"runtime"
 	"testing"
 
-	"go.thesmos.sh/eidos/eidostest/docaudit"
+	"go.thesmos.sh/eidos/docaudit"
 )
 
 // TestDocAuditCoversEveryMetaKey pins that every meta key the

@@ -11,7 +11,7 @@ import (
 	"sort"
 	"testing"
 
-	"go.thesmos.sh/eidos/eidostest/testpipe"
+	"go.thesmos.sh/eidos/testpipe"
 	"go.thesmos.sh/eidos/node"
 )
 

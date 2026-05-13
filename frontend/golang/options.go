@@ -51,6 +51,17 @@ type Options struct {
 	// supply an absolute path so the loader resolves patterns against
 	// that module's build graph rather than the parent process's.
 	Dir string `json:"dir" eidos:"dir,default="`
+
+	// IgnoreWorkspace, when true, sets `GOWORK=off` in the loader's
+	// environment so `packages.Load` respects the loaded directory's
+	// own go.mod boundary rather than any enclosing go.work. The
+	// default keeps workspace awareness on — consumers loading
+	// in-workspace packages (the common case) get replace-directive
+	// resolution and cross-module visibility for free. Harnesses
+	// driving the frontend at a self-contained fixture module that
+	// intentionally lives outside the workspace flip this to true so
+	// the workspace doesn't reject the fixture's path.
+	IgnoreWorkspace bool `json:"ignore_workspace" eidos:"ignore_workspace,default=false"`
 }
 
 // optionsSchema is the reflected option schema cached at package
