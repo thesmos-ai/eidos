@@ -15,6 +15,7 @@ import (
 	backend_golang "go.thesmos.sh/eidos/backend/golang"
 	"go.thesmos.sh/eidos/bridge/protogo"
 	"go.thesmos.sh/eidos/eidostest/protopipe"
+	"go.thesmos.sh/eidos/manifest"
 	"go.thesmos.sh/eidos/pipeline"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/reference/auditweaver"
@@ -23,6 +24,7 @@ import (
 	"go.thesmos.sh/eidos/reference/mockgen"
 	"go.thesmos.sh/eidos/reference/registrygen"
 	"go.thesmos.sh/eidos/reference/repogen"
+	"go.thesmos.sh/eidos/reference/shapewriter"
 	"go.thesmos.sh/eidos/sink"
 )
 
@@ -99,6 +101,108 @@ func TestEndToEnd_Proto(t *testing.T) {
 			t.Fatalf("expected exactly one func init() block; got:\n%s", body)
 		}
 	})
+
+	t.Run("shape-writer detects User under +gen:writer and skips GetUserRequest", func(t *testing.T) {
+		t.Parallel()
+		user, ok := result.Store.Nodes().Structs().ByQName("eidos.test.buildfixture.User")
+		if !ok {
+			t.Fatalf("User missing from node store")
+		}
+		if detected, _ := shapewriter.Detected.Get(user.Meta()); !detected {
+			t.Fatalf("User should be detected as writer-shaped via +gen:writer")
+		}
+		req, ok := result.Store.Nodes().Structs().ByQName("eidos.test.buildfixture.GetUserRequest")
+		if !ok {
+			t.Fatalf("GetUserRequest missing from node store")
+		}
+		if detected, _ := shapewriter.Detected.Get(req.Meta()); detected {
+			t.Fatalf("GetUserRequest should not be detected as writer-shaped")
+		}
+	})
+}
+
+// TestEndToEnd_ProtoManifest pins that the pipeline writes a
+// manifest entry for every routed file when a manifest path is
+// configured. Each entry carries the documented attribution
+// fields (Target, Plugins, Hash, ResolvedLayout) so downstream
+// drift-check / prune commands have the input they need. The
+// assertion stays language-neutral — it asserts manifest
+// structure, not Go-specific content, and the same shape would
+// hold for any frontend that produces rendered output.
+func TestEndToEnd_ProtoManifest(t *testing.T) {
+	t.Parallel()
+
+	manifestPath := filepath.Join(t.TempDir(), "manifest.json")
+	mem := sink.NewMemory()
+	result := runProtoPluginsWithManifest(t, mem, manifestPath)
+	if result.Diag.HasErrors() {
+		t.Fatalf("expected no error diagnostics; got %+v", result.Diag.Diagnostics())
+	}
+	if result.RunErr != nil {
+		t.Fatalf("pipeline Run: %v", result.RunErr)
+	}
+
+	m, err := manifest.Read(manifestPath)
+	if err != nil {
+		t.Fatalf("manifest.Read: %v", err)
+	}
+	wantCount := mem.Len()
+	if got := len(m.Outputs); got != wantCount {
+		t.Fatalf("manifest records %d outputs; want %d (sink writes)", got, wantCount)
+	}
+	for _, out := range m.Outputs {
+		if out.Target.Filename == "" {
+			t.Errorf("manifest entry missing Filename: %+v", out)
+		}
+		if out.Hash == "" {
+			t.Errorf("manifest entry %s missing Hash", out.Target.JoinPath())
+		}
+		if len(out.Plugins) == 0 {
+			t.Errorf("manifest entry %s missing Plugins attribution", out.Target.JoinPath())
+		}
+		if out.ResolvedLayout == nil {
+			t.Errorf("manifest entry %s missing ResolvedLayout block", out.Target.JoinPath())
+		}
+	}
+}
+
+// runProtoPluginsWithManifest mirrors runAllProtoPlugins but
+// threads the manifest path through to the pipeline. Lives at
+// this scope so the manifest test stays a single-line call site.
+func runProtoPluginsWithManifest(t *testing.T, mem sink.Sink, manifestPath string) protopipe.Result {
+	t.Helper()
+	return protopipe.Run(t, protopipe.RunOptions{
+		SourceDir: protoFixtureRoot(t),
+		Annotators: []plugin.Annotator{
+			protogo.New(),
+			shapewriter.New(),
+		},
+		Generators: []plugin.Generator{
+			repogen.New(),
+			buildergen.New(),
+			mockgen.New(),
+			debugweaver.New(),
+			auditweaver.New(),
+			registrygen.New(),
+		},
+		Backend:       backend_golang.New(),
+		Sink:          mem,
+		Layout:        pipeline.LayoutCentralised,
+		OutputPackage: protoOutputPackage,
+		Command:       "go test (referenceacceptance, proto manifest)",
+		ManifestPath:  manifestPath,
+		PluginOptions: map[string]map[string]string{
+			registrygen.Name: {
+				"register_package": "registry",
+				"register_func":    "Register",
+			},
+			auditweaver.Name: {
+				"package": "audit",
+				"func":    "Record",
+				"format":  "%s",
+			},
+		},
+	})
 }
 
 // TestEndToEnd_ProtoByteStable runs the full proto pipeline twice
@@ -139,8 +243,11 @@ func TestEndToEnd_ProtoByteStable(t *testing.T) {
 func runAllProtoPlugins(t *testing.T) protopipe.Result {
 	t.Helper()
 	return protopipe.Run(t, protopipe.RunOptions{
-		SourceDir:  protoFixtureRoot(t),
-		Annotators: []plugin.Annotator{protogo.New()},
+		SourceDir: protoFixtureRoot(t),
+		Annotators: []plugin.Annotator{
+			protogo.New(),
+			shapewriter.New(),
+		},
 		Generators: []plugin.Generator{
 			repogen.New(),
 			buildergen.New(),

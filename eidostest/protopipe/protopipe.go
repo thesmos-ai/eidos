@@ -145,6 +145,12 @@ type RunOptions struct {
 	// vary with the test binary's invocation arguments. Maps to
 	// [pipeline.Builder.WithCommand].
 	Command string
+
+	// ManifestPath, when set, instructs the pipeline to write the
+	// per-run manifest at this absolute path. Maps to
+	// [pipeline.Builder.WithManifestPath]. Empty leaves the
+	// pipeline's manifest path unconfigured (no manifest written).
+	ManifestPath string
 }
 
 // Result captures the outcome of a [Run] call.
@@ -221,6 +227,9 @@ func Run(t *testing.T, opts RunOptions) Result {
 	}
 	if opts.Command != "" {
 		b = b.WithCommand(opts.Command)
+	}
+	if opts.ManifestPath != "" {
+		b = b.WithManifestPath(opts.ManifestPath)
 	}
 	for _, a := range opts.Annotators {
 		b = b.WithAnnotator(a)
