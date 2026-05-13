@@ -15,9 +15,13 @@ import (
 	"go.thesmos.sh/eidos/bridge/protogo"
 	"go.thesmos.sh/eidos/eidostest/protopipe"
 	"go.thesmos.sh/eidos/plugin"
+	"go.thesmos.sh/eidos/reference/auditweaver"
 	"go.thesmos.sh/eidos/reference/buildergen"
+	"go.thesmos.sh/eidos/reference/debugweaver"
 	"go.thesmos.sh/eidos/reference/mockgen"
+	"go.thesmos.sh/eidos/reference/registrygen"
 	"go.thesmos.sh/eidos/reference/repogen"
+	"go.thesmos.sh/eidos/reference/shapewriter"
 	"go.thesmos.sh/eidos/sink"
 )
 
@@ -44,23 +48,41 @@ func TestToolchain_GoBuildAgainstRenderedOutput(t *testing.T) {
 
 	mem := sink.NewMemory()
 	result := protopipe.Run(t, protopipe.RunOptions{
-		SourceDir:  fixtureDir,
-		Pattern:    "./...",
-		Annotators: []plugin.Annotator{protogo.New()},
+		SourceDir: fixtureDir,
+		Pattern:   "./...",
+		Annotators: []plugin.Annotator{
+			protogo.New(),
+			shapewriter.New(),
+		},
 		Generators: []plugin.Generator{
 			buildergen.New(),
 			repogen.New(),
 			mockgen.New(),
+			registrygen.New(),
+			debugweaver.New(),
+			auditweaver.New(),
 		},
 		Backend: backend_golang.New(),
 		Sink:    mem,
+		PluginOptions: map[string]map[string]string{
+			registrygen.Name: {
+				"register_package": "go.thesmos.sh/eidos/eidostest/protopipe/buildfixture/registry",
+				"register_func":    "Register",
+			},
+			auditweaver.Name: {
+				"package": "go.thesmos.sh/eidos/eidostest/protopipe/buildfixture/audit",
+				"func":    "Record",
+				"format":  "%s",
+			},
+		},
 	})
-	if result.RunErr != nil {
-		t.Fatalf("pipeline Run: %v", result.RunErr)
-	}
 	if result.Diag.HasErrors() {
 		t.Fatalf("pipeline produced error diagnostics: %+v", result.Diag.Diagnostics())
 	}
+	if result.RunErr != nil {
+		t.Fatalf("pipeline Run: %v", result.RunErr)
+	}
+	assertShapeWriterDetectedUser(t, result)
 
 	rendered := writeRenderedFilesInto(t, mem, fixtureDir)
 	if len(rendered) == 0 {
@@ -122,10 +144,41 @@ func assertBuilderExercisesBridge(t *testing.T, rendered []string) {
 		"type UserServiceMock struct",
 		"func (m *UserServiceMock) GetUser(arg0 buildfixture.GetUserRequest) buildfixture.User",
 		`"go.thesmos.sh/eidos/eidostest/protopipe/buildfixture"`,
+		// Enum reference + cross-package message reference exercise
+		// the bridge's same-package enum rendering and the
+		// cross-package proto-qualifier → Go-import translation
+		// against a non-well-known reference. The expected
+		// rendered forms are `Status` (same-package, no alias) and
+		// `extras.Tag` (cross-package, alias-qualified).
+		"func (b *UserBuilder) WithState(value Status)",
+		"func (b *UserBuilder) WithExtrasTag(value extras.Tag)",
+		`"go.thesmos.sh/eidos/eidostest/protopipe/buildfixture/extras"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("rendered output missing %q\n--- rendered ---\n%s", want, body)
 		}
+	}
+}
+
+// assertShapeWriterDetectedUser pins that the shapewriter
+// annotator stamped [shapewriter.Detected]=true on the proto-
+// derived User struct under the `+gen:writer` directive override.
+// Proto messages carry no Go-side method set, so heuristic
+// detection alone never matches; the directive forces the stamp
+// and exercises the cross-frontend reach of the shape-detector
+// bucket.
+func assertShapeWriterDetectedUser(t *testing.T, result protopipe.Result) {
+	t.Helper()
+	user, ok := result.Store.Nodes().Structs().ByQName("eidos.test.buildfixture.User")
+	if !ok {
+		t.Fatalf("proto-derived User struct missing from store")
+	}
+	detected, ok := shapewriter.Detected.Get(user.Meta())
+	if !ok {
+		t.Fatalf("shape.writer.detected missing on User")
+	}
+	if !detected {
+		t.Fatalf("expected shape.writer.detected=true on User (forced via +gen:writer); got false")
 	}
 }
 

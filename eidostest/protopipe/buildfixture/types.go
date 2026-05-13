@@ -3,12 +3,34 @@
 
 package buildfixture
 
-import "google.golang.org/protobuf/types/known/timestamppb"
+import (
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"go.thesmos.sh/eidos/eidostest/protopipe/buildfixture/extras"
+)
+
+// Status mirrors the fixture proto's `enum Status`. proto3
+// enums map to int32-underlied Go types per the protoc-gen-go
+// convention; the bridge stamps go.type / go.import meta on
+// enum-typed type-refs so the rendered output references this
+// type by name.
+type Status int32
+
+// Status variant constants mirror the proto-declared values.
+// The bridge does not currently emit the variant constants
+// (they live on the source-side node.EnumVariant entries); the
+// stubs declare them so test-package code can reference the
+// canonical names without a hand-rolled package.
+const (
+	StatusUnknown Status = 0
+	StatusActive  Status = 1
+	StatusBanned  Status = 2
+)
 
 // User mirrors the fixture proto's `message User`. The field
 // types match the Go-side forms the protogo bridge composes
-// through the scalar, well-known, optional-wrap, and nested-
-// reference rules.
+// through the scalar, well-known, optional-wrap, nested-
+// reference, enum-reference, and cross-package-reference rules.
 //
 // ProfileRef is a value-typed reference to the nested message
 // rather than the pointer-typed form protoc-gen-go emits.
@@ -22,6 +44,8 @@ type User struct {
 	Age        *int32
 	CreatedAt  *timestamppb.Timestamp
 	ProfileRef User_Profile
+	State      Status
+	ExtrasTag  extras.Tag
 }
 
 // User_Profile mirrors the fixture proto's nested `message
