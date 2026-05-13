@@ -227,11 +227,11 @@ func composeTarget(
 		// per-file slots still resolve into the source's directory.
 		switch {
 		case emitPkg != nil:
-			t.Package = bridgePackageNameOr(emitPkg.Origin(), emitPkg.Name)
-			t.ImportPath = bridgePackageImportOr(emitPkg.Origin(), emitPkg.Path)
+			t.Package = emitPkg.Name
+			t.ImportPath = emitPkg.Path
 		case srcPkg != nil:
-			t.Package = bridgePackageNameOr(srcPkg, srcPkg.Name)
-			t.ImportPath = bridgePackageImportOr(srcPkg, srcPkg.Path)
+			t.Package = srcPkg.Name
+			t.ImportPath = srcPkg.Path
 		}
 		rl.ResolvedFrom["package"] = manifest.LayerFramework
 		// A non-empty policy.Package under alongside-source pins
