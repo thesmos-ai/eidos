@@ -13,6 +13,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# ergon drives every Makefile target (`make check`, `make test-race`,
+# …). Pin the version so the gate is reproducible; bump intentionally.
+env:
+  ERGON_VERSION: v1.3.0
+
 jobs:
   check:
     name: check
@@ -28,6 +33,9 @@ jobs:
           go-version: "1.26"
           check-latest: true
           cache: true
+
+      - name: Install ergon
+        run: go install github.com/thesm-os/ergon/cmd/ergon@${{ env.ERGON_VERSION }}
 
       - name: Install development tools
         run: make bootstrap
@@ -47,6 +55,9 @@ jobs:
           go-version: "1.26"
           check-latest: true
           cache: true
+
+      - name: Install ergon
+        run: go install github.com/thesm-os/ergon/cmd/ergon@${{ env.ERGON_VERSION }}
 
       - name: Run tests under the race detector
         run: make test-race
