@@ -56,7 +56,7 @@ var commonInitialisms = map[string]bool{
 	"XSS":   true,
 }
 
-// goFieldName returns the Go-idiomatic PascalCase identifier for
+// GoFieldName returns the Go-idiomatic PascalCase identifier for
 // a proto-style snake_case name. The rule splits on underscores,
 // title-cases each segment, then promotes any segment that is a
 // recognised initialism to its uppercase form (`id` → `ID`,
@@ -69,7 +69,7 @@ var commonInitialisms = map[string]bool{
 //	"created_at"  → "CreatedAt"
 //	"http_status" → "HTTPStatus"
 //	"id"          → "ID"
-func goFieldName(name string) string {
+func GoFieldName(name string) string {
 	if name == "" {
 		return ""
 	}
@@ -90,7 +90,7 @@ func goFieldName(name string) string {
 	return b.String()
 }
 
-// goPackageName returns the Go package clause derived from a
+// GoPackageName returns the Go package clause derived from a
 // proto package qualifier or from a `go_package` option value.
 // The input forms it handles:
 //
@@ -102,8 +102,8 @@ func goFieldName(name string) string {
 // The result is the identifier the Go backend emits in the
 // `package <X>` clause. Empty input produces empty output;
 // callers fall back to the proto package qualifier when
-// goPackageName returns empty.
-func goPackageName(value string) string {
+// GoPackageName returns empty.
+func GoPackageName(value string) string {
 	if value == "" {
 		return ""
 	}
@@ -119,11 +119,11 @@ func goPackageName(value string) string {
 	return value
 }
 
-// goImportPath returns the Go import path from a
+// GoImportPath returns the Go import path from a
 // `go_package` option value. The semicolon-suffix form
 // (`pkg/path;name`) trims the trailing identifier; the bare
 // path form returns unchanged. Empty input produces empty output.
-func goImportPath(value string) string {
+func GoImportPath(value string) string {
 	if value == "" {
 		return ""
 	}

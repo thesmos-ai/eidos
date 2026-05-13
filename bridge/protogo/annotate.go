@@ -51,7 +51,7 @@ func stampFieldName(f *node.Field) {
 	if _, ok := MetaGoName.Get(f.Meta()); ok {
 		return
 	}
-	MetaGoName.Set(f.Meta(), goFieldName(f.Name), Name)
+	MetaGoName.Set(f.Meta(), GoFieldName(f.Name), Name)
 }
 
 // stampFieldType records [MetaGoType] on f.Type using the
@@ -184,12 +184,12 @@ func stampPackageMeta(pkg *node.Package, ps *diag.PluginSink) {
 		)
 	}
 	if _, ok := MetaGoImport.Get(pkg.Meta()); !ok {
-		if path := goImportPath(rawOption); path != "" {
+		if path := GoImportPath(rawOption); path != "" {
 			MetaGoImport.Set(pkg.Meta(), path, Name)
 		}
 	}
 	if _, ok := MetaGoName.Get(pkg.Meta()); !ok {
-		name := goPackageName(rawOption)
+		name := GoPackageName(rawOption)
 		if name == "" {
 			name = pkg.Name
 		}

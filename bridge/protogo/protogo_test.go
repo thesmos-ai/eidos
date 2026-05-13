@@ -4,15 +4,19 @@
 package protogo_test
 
 import (
-	"path/filepath"
-	"runtime"
+	"strings"
 	"testing"
 
+	backend_golang "go.thesmos.sh/eidos/backend/golang"
 	"go.thesmos.sh/eidos/bridge/protogo"
+	"go.thesmos.sh/eidos/core/diag"
 	"go.thesmos.sh/eidos/eidostest/protopipe"
 	"go.thesmos.sh/eidos/frontend/protobuf"
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/plugin"
+	"go.thesmos.sh/eidos/reference/mockgen"
+	"go.thesmos.sh/eidos/sink"
+	"go.thesmos.sh/eidos/store"
 )
 
 // TestAnnotate_StampsGoNameOnFields covers the field-name
@@ -264,117 +268,125 @@ func TestAnnotate_FrontendMarkerScope(t *testing.T) {
 }
 
 // TestAnnotate_Idempotency covers the bridge-idempotency
-// contract: a pre-stamped go.type / go.name wins over the
-// table-driven value. The test builds a minimal source-side
-// graph in-process, pre-stamps the override, runs the bridge,
-// and asserts the override survived.
+// contract: a pre-stamped go.type wins over the bridge's
+// table-driven value, and a second pass produces no change. The
+// test builds a minimal source-side store and drives the public
+// [plugin.Annotator.Annotate] surface so the contract is checked
+// through the same boundary downstream consumers cross.
 func TestAnnotate_Idempotency(t *testing.T) {
 	t.Parallel()
 
-	t.Run("pre-stamped go.type on a TypeRef survives the bridge's stamping pass", func(t *testing.T) {
+	t.Run("pre-stamped go.type on a TypeRef survives Annotate", func(t *testing.T) {
 		t.Parallel()
-		ref := &node.TypeRef{TypeKind: node.TypeRefNamed, Name: "int32"}
 		const override = "fixture-override"
+		s, ref := buildSyntheticProtoStore(t)
 		protogo.MetaGoType.Set(ref.Meta(), override, "fixture-test")
-		// Drive the same helper the annotator's per-struct walk
-		// uses against a minimal struct containing the pre-stamped
-		// ref. The idempotency guard in stampFieldType /
-		// stampTypeRef short-circuits when go.type already exists;
-		// this test pins that guard against a regression.
-		f := &node.Field{Name: "scalar", Type: ref}
-		s := &node.Struct{Name: "Container", Fields: []*node.Field{f}}
-		protogo.AnnotateStructForTest(s)
+		annotateOnce(t, s)
 		got, ok := protogo.MetaGoType.Get(ref.Meta())
 		if !ok || got != override {
-			t.Fatalf(
-				"override lost; go.type = (%q, %v), want %q (the bridge should respect the pre-stamp)",
-				got, ok, override,
-			)
+			t.Fatalf("override lost; go.type = (%q, %v), want %q", got, ok, override)
 		}
 	})
 
-	t.Run("pre-stamped go.type wins over the bridge's table-driven value", func(t *testing.T) {
+	t.Run("two Annotate passes produce identical meta", func(t *testing.T) {
 		t.Parallel()
-		pkgs := runProtogo(t, "messages")
-		main := findPackage(t, pkgs, "eidos.protobuf.testdata.messages")
-		user := findStruct(main, "User")
-		id := user.FieldByName("id")
-		const override = "fixture-override"
-		// Pre-stamp on a fresh meta bag to simulate the user-
-		// override case. Run the bridge's annotateStruct path
-		// indirectly by stamping again — the second stamp
-		// shouldn't replace the override because the
-		// stampTypeRef early-return guard preserves it.
-		protogo.MetaGoType.Set(id.Type.Meta(), override, "fixture-test")
-		// At this point the bridge has already run once in
-		// runProtogo. Stamping the override locally simulates a
-		// fixture-side override. The earlier stamp from the
-		// bridge has been replaced; the next idempotency check
-		// is structural — re-running the bridge against this
-		// same node graph would not undo the override.
-		got, ok := protogo.MetaGoType.Get(id.Type.Meta())
-		if !ok || got != override {
-			t.Fatalf("go.type override lost; got (%q, %v)", got, ok)
+		s, ref := buildSyntheticProtoStore(t)
+		annotateOnce(t, s)
+		first, ok := protogo.MetaGoType.Get(ref.Meta())
+		if !ok {
+			t.Fatalf("first pass did not stamp go.type on the scalar ref")
+		}
+		annotateOnce(t, s)
+		second, ok := protogo.MetaGoType.Get(ref.Meta())
+		if !ok || second != first {
+			t.Fatalf("second pass changed go.type; first=%q second=(%q, %v)", first, second, ok)
 		}
 	})
 }
 
-// runProtogo drives the protobuf frontend against the named
-// fixture, registers the protogo bridge as an annotator, and
-// returns the resulting node packages.
-func runProtogo(t *testing.T, fixture string) []*node.Package {
-	t.Helper()
-	root := fixtureRoot(t, fixture)
-	result := protopipe.Run(t, protopipe.RunOptions{
-		SourceDir:  root,
-		Annotators: []plugin.Annotator{protogo.New()},
-	})
-	if result.Diag.HasErrors() {
-		t.Fatalf("expected no error diagnostics; got %+v", result.Diag.Diagnostics())
-	}
-	var pkgs []*node.Package
-	result.Store.Nodes().Packages().Range(func(p *node.Package) bool {
-		pkgs = append(pkgs, p)
-		return true
-	})
-	return pkgs
-}
+// TestRender_BridgeAffectsGoOutput pins the end-to-end render
+// effect: with the protogo bridge registered, mockgen's emitted
+// mock for a proto service references the Go-side translated
+// type names rather than the bare proto-source names. The
+// rendered output is captured through the in-memory sink and
+// grep-checked for the expected Go-side identifiers.
+func TestRender_BridgeAffectsGoOutput(t *testing.T) {
+	t.Parallel()
 
-// findPackage returns the package whose Path matches path; fails
-// the test when no match.
-func findPackage(t *testing.T, pkgs []*node.Package, path string) *node.Package {
-	t.Helper()
-	for _, p := range pkgs {
-		if p.Path == path {
-			return p
+	t.Run("mockgen output threads through protogo's translation tables", func(t *testing.T) {
+		t.Parallel()
+		mem := sink.NewMemory()
+		root := fixtureRoot(t, "services")
+		result := protopipe.Run(t, protopipe.RunOptions{
+			SourceDir:  root,
+			Annotators: []plugin.Annotator{protogo.New()},
+			Generators: []plugin.Generator{mockgen.New()},
+			Backend:    backend_golang.New(),
+			Sink:       mem,
+		})
+		if result.Diag.HasErrors() {
+			t.Fatalf("expected no error diagnostics; got %+v", result.Diag.Diagnostics())
 		}
-	}
-	paths := make([]string, 0, len(pkgs))
-	for _, p := range pkgs {
-		paths = append(paths, p.Path)
-	}
-	t.Fatalf("package %q missing; got %+v", path, paths)
-	return nil
-}
-
-// findStruct returns the Struct whose Name matches name on pkg.
-func findStruct(pkg *node.Package, name string) *node.Struct {
-	for _, s := range pkg.Structs {
-		if s.Name == name {
-			return s
+		body := collectSinkBody(mem)
+		if !strings.Contains(body, "GreeterMock") {
+			t.Fatalf("expected GreeterMock in rendered output; got:\n%s", body)
 		}
-	}
-	return nil
+		if !strings.Contains(body, "HelloRequest") {
+			t.Fatalf("expected HelloRequest reference; got:\n%s", body)
+		}
+	})
 }
 
-// fixtureRoot resolves the absolute path of the
-// frontend/protobuf/testdata/<name> directory.
-func fixtureRoot(t *testing.T, name string) string {
+// buildSyntheticProtoStore returns a fresh [store.Store]
+// populated with one proto-marked [node.Package] carrying one
+// [node.Struct] with one scalar [node.Field]. The returned
+// TypeRef is the scalar field's type — callers stamp meta on it
+// directly to set up idempotency assertions.
+//
+// The synthetic graph carries the cross-frontend marker so the
+// protogo bridge's iteration filter accepts the package, but no
+// other proto-meta is present; the test focuses the contract on
+// the per-TypeRef idempotency guard without standing up a full
+// fixture.
+func buildSyntheticProtoStore(t *testing.T) (*store.Store, *node.TypeRef) {
 	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatalf("runtime.Caller failed")
+	ref := &node.TypeRef{TypeKind: node.TypeRefNamed, Name: "int32"}
+	f := &node.Field{Name: "scalar", Type: ref}
+	srcStruct := &node.Struct{
+		Name:    "Container",
+		Package: "eidos.test.synthetic",
+		Fields:  []*node.Field{f},
 	}
-	repoRoot := filepath.Dir(filepath.Dir(filepath.Dir(file)))
-	return filepath.Join(repoRoot, "frontend", "protobuf", "testdata", name)
+	pkg := &node.Package{
+		Name:    "synthetic",
+		Path:    "eidos.test.synthetic",
+		Structs: []*node.Struct{srcStruct},
+	}
+	protobuf.MetaFrontend.Set(pkg.Meta(), protobuf.FrontendName, "fixture-test")
+	s := store.New()
+	if err := s.Nodes().AddPackage(pkg); err != nil {
+		t.Fatalf("AddPackage: %v", err)
+	}
+	return s, ref
+}
+
+// annotateOnce runs the bridge's [plugin.Annotator.Annotate]
+// against s exactly once and fails the test on any error
+// diagnostic. The helper centralises the AnnotatorContext shape
+// so idempotency subtests stay focused on the contract instead
+// of the wiring.
+func annotateOnce(t *testing.T, s *store.Store) {
+	t.Helper()
+	d := diag.New()
+	bridge := protogo.New()
+	if err := bridge.Annotate(&plugin.AnnotatorContext{
+		Store:  s,
+		Reader: store.NewReader(s),
+		Diag:   d,
+	}); err != nil {
+		t.Fatalf("bridge.Annotate: %v", err)
+	}
+	if d.HasErrors() {
+		t.Fatalf("expected no error diagnostics; got %+v", d.Diagnostics())
+	}
 }

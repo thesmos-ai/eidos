@@ -1,12 +1,16 @@
 // Copyright Thesmos B.V. 2026
 // SPDX-License-Identifier: MIT
 
-package protogo
+package protogo_test
 
-import "testing"
+import (
+	"testing"
+
+	"go.thesmos.sh/eidos/bridge/protogo"
+)
 
 // TestGoFieldName_Initialisms covers the initialism preservation
-// rule the goFieldName helper applies. Each row asserts one
+// rule [protogo.GoFieldName] applies. Each row asserts one
 // snake_case → PascalCase translation under a documented
 // initialism segment.
 func TestGoFieldName_Initialisms(t *testing.T) {
@@ -27,17 +31,17 @@ func TestGoFieldName_Initialisms(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.in+" → "+tc.want, func(t *testing.T) {
 			t.Parallel()
-			if got := goFieldName(tc.in); got != tc.want {
-				t.Fatalf("goFieldName(%q) = %q, want %q", tc.in, got, tc.want)
+			if got := protogo.GoFieldName(tc.in); got != tc.want {
+				t.Fatalf("GoFieldName(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})
 	}
 }
 
-// TestGoPackageName covers the three resolution paths the
-// helper supports: semicolon-suffix (the proto3-spec form),
-// slash-form (path/to/pkg → pkg), and dot-form (dotted proto
-// qualifier → last segment).
+// TestGoPackageName covers the three resolution paths
+// [protogo.GoPackageName] supports: semicolon-suffix (the
+// proto3-spec form), slash-form (path/to/pkg → pkg), and
+// dot-form (dotted proto qualifier → last segment).
 func TestGoPackageName(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -52,15 +56,16 @@ func TestGoPackageName(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.in+" → "+tc.want, func(t *testing.T) {
 			t.Parallel()
-			if got := goPackageName(tc.in); got != tc.want {
-				t.Fatalf("goPackageName(%q) = %q, want %q", tc.in, got, tc.want)
+			if got := protogo.GoPackageName(tc.in); got != tc.want {
+				t.Fatalf("GoPackageName(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})
 	}
 }
 
-// TestGoImportPath covers the semicolon-suffix trim rule. The
-// non-semicolon path returns the value unchanged.
+// TestGoImportPath covers the semicolon-suffix trim rule
+// [protogo.GoImportPath] implements. The non-semicolon path
+// returns the value unchanged.
 func TestGoImportPath(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -73,8 +78,8 @@ func TestGoImportPath(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.in+" → "+tc.want, func(t *testing.T) {
 			t.Parallel()
-			if got := goImportPath(tc.in); got != tc.want {
-				t.Fatalf("goImportPath(%q) = %q, want %q", tc.in, got, tc.want)
+			if got := protogo.GoImportPath(tc.in); got != tc.want {
+				t.Fatalf("GoImportPath(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})
 	}
