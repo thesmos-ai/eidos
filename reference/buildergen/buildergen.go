@@ -247,6 +247,17 @@ func (p *Plugin) emitOne(pkg *builder.PackageBuilder, src *node.Struct, srcRefBa
 			b.TypeParam(tp.Name, refconv.ConstraintFromNode(tp.Constraint))
 		}
 		for _, f := range exported {
+			// The builder's internal field is a derived holder of the
+			// accumulated source value, not a projection of the source
+			// field itself. Threading Origin on the [emit.Field] would
+			// route the rendered field name through the bridge-aware
+			// [fieldNameFor] rule, substituting the source field's
+			// translated identifier for the builder's intentionally-
+			// unexported `fieldIdent(f.Name)` form — a mismatch with
+			// the setter body that assigns to that identifier. Type
+			// provenance still flows through [refconv.FromNode], which
+			// threads the source TypeRef's OriginNode so the bridge's
+			// `go.type` override resolves at render time.
 			b.Field(fieldIdent(f.Name), refconv.FromNode(f.Type), nil)
 		}
 		recv := func() emit.Ref { return emit.Ptr(emit.Internal(b.Node(), typeArgs...)) }

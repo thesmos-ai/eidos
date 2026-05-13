@@ -44,7 +44,7 @@ func (s *renderState) renderFields(fields []*emit.Field) (string, error) {
 		}
 		b.WriteString(renderDocs(f.DocLines))
 		b.WriteByte('\t')
-		b.WriteString(f.Name)
+		b.WriteString(fieldNameFor(f))
 		b.WriteByte(' ')
 		t, err := s.renderType(f.Type)
 		if err != nil {

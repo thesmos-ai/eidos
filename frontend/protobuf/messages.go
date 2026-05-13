@@ -51,9 +51,10 @@ func appendMessageStruct(
 	}
 	name := joinName(prefix, string(md.Name()))
 	s := &node.Struct{
-		Name:    name,
-		Package: pkg.Path,
-		Fields:  convertFields(ctx, fd, md),
+		BaseNode: node.BaseNode{SourcePos: sourcePos(fd, md)},
+		Name:     name,
+		Package:  pkg.Path,
+		Fields:   convertFields(ctx, fd, md),
 	}
 	stampMessageReserved(s, fd, md)
 	attachStructDocs(ctx, s, fd, md)
@@ -92,16 +93,17 @@ func convertFields(
 		return nil
 	}
 	out := make([]*node.Field, 0, count)
-	pos := position.Pos{File: fd.Path()}
 	for i := range count {
 		desc := fields.Get(i)
+		pos := sourcePos(fd, desc)
 		f := &node.Field{
-			Name: string(desc.Name()),
-			Type: convertFieldType(desc),
+			BaseNode: node.BaseNode{SourcePos: pos},
+			Name:     string(desc.Name()),
+			Type:     convertFieldType(desc),
 		}
 		stampFieldMeta(f, desc, pos)
 		attachFieldDocs(ctx, f, fd, desc)
-		stampHostOptions(ctx.Diag.For(FrontendName), f.Meta(), desc.Options(), sourcePos(fd, desc))
+		stampHostOptions(ctx.Diag.For(FrontendName), f.Meta(), desc.Options(), pos)
 		out = append(out, f)
 	}
 	return out

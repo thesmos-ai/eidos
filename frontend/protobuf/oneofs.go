@@ -65,9 +65,13 @@ func appendOneofInterface(
 	oo protoreflect.OneofDescriptor, hostName string,
 ) {
 	ifaceName := oneofInterfaceName(hostName, string(oo.Name()))
-	iface := &node.Interface{Name: ifaceName, Package: pkg.Path}
 	sl := fd.SourceLocations().ByDescriptor(oo)
 	pos := position.Pos{File: fd.Path(), Line: sl.StartLine + 1, Column: sl.StartColumn + 1}
+	iface := &node.Interface{
+		BaseNode: node.BaseNode{SourcePos: pos},
+		Name:     ifaceName,
+		Package:  pkg.Path,
+	}
 	MetaOneofMessage.SetAt(
 		iface.Meta(), pkg.Path+"."+hostName,
 		meta.AuthorityPlugin, FrontendName, pos,

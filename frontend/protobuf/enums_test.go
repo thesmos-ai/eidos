@@ -12,6 +12,44 @@ import (
 	"go.thesmos.sh/eidos/node"
 )
 
+// TestConvert_Enums_SourcePos covers the BaseNode.SourcePos
+// contract for proto-derived enums and variants: every produced
+// node carries the originating file plus a non-zero line so
+// downstream consumers can resolve the declaration site.
+func TestConvert_Enums_SourcePos(t *testing.T) {
+	t.Parallel()
+
+	t.Run("each Enum and EnumVariant carries the originating proto file path and line", func(t *testing.T) {
+		t.Parallel()
+		env := loadFixture(t, "messages", "./...")
+		if env.diag.HasErrors() {
+			t.Fatalf("expected no error diagnostics; got %+v", env.diag.Diagnostics())
+		}
+		pkg := requireSinglePackage(t, env)
+		if len(pkg.Enums) == 0 {
+			t.Fatalf("expected at least one Enum in the messages fixture")
+		}
+		for _, e := range pkg.Enums {
+			ep := e.Pos()
+			if ep.File == "" {
+				t.Errorf("Enum %q carries empty Pos.File", e.Name)
+			}
+			if ep.Line == 0 {
+				t.Errorf("Enum %q carries zero Pos.Line", e.Name)
+			}
+			for _, v := range e.Variants {
+				vp := v.Pos()
+				if vp.File == "" {
+					t.Errorf("EnumVariant %q on %q carries empty Pos.File", v.Name, e.Name)
+				}
+				if vp.Line == 0 {
+					t.Errorf("EnumVariant %q on %q carries zero Pos.Line", v.Name, e.Name)
+				}
+			}
+		}
+	})
+}
+
 // TestConvert_Enums covers the enum → node.Enum mapping: each
 // `enum X { ... }` produces a node.Enum named X in the producing
 // package. Variants land as node.EnumVariant children with Value

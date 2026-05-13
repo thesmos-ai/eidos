@@ -10,6 +10,34 @@ import (
 	"go.thesmos.sh/eidos/node"
 )
 
+// TestConvert_Oneofs_SourcePos covers the BaseNode.SourcePos
+// contract for synthesized oneof interfaces: each
+// `oneof <name> { ... }` block produces an interface whose
+// Pos.File anchors back to the declaring proto file.
+func TestConvert_Oneofs_SourcePos(t *testing.T) {
+	t.Parallel()
+
+	t.Run("synthesized oneof Interface carries the originating proto file path and line", func(t *testing.T) {
+		t.Parallel()
+		env := loadFixture(t, "messages", "./...")
+		if env.diag.HasErrors() {
+			t.Fatalf("expected no error diagnostics; got %+v", env.diag.Diagnostics())
+		}
+		pkg := requireSinglePackage(t, env)
+		iface := findInterface(pkg, "Container_choice")
+		if iface == nil {
+			t.Fatalf("Interface %q missing; got %+v", "Container_choice", interfaceNames(pkg))
+		}
+		pos := iface.Pos()
+		if pos.File == "" {
+			t.Errorf("synthesized Interface %q carries empty Pos.File", iface.Name)
+		}
+		if pos.Line == 0 {
+			t.Errorf("synthesized Interface %q carries zero Pos.Line", iface.Name)
+		}
+	})
+}
+
 // TestConvert_OneofSynthesizesInterface covers the oneof → node.Interface
 // rule: each user-declared oneof group on a message produces one
 // node.Interface in the same package using the

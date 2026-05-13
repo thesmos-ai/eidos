@@ -107,6 +107,15 @@ type RunOptions struct {
 	// `.<value>`. Empty disables scoping (every in-scope decl
 	// participates). Maps to [pipeline.Builder.WithTargetSymbol].
 	TargetSymbol string
+
+	// Command pins the literal string the backend stamps into the
+	// `Command:` header line of every rendered file. The empty
+	// default leaves the framework's [os.Args]-derived value in
+	// place; tests asserting against a committed baseline across
+	// processes set this to a stable string so the header doesn't
+	// vary with the test binary's invocation arguments. Maps to
+	// [pipeline.Builder.WithCommand].
+	Command string
 }
 
 // Result captures the outcome of a [Run] call. Tests assert
@@ -171,6 +180,9 @@ func Run(t *testing.T, opts RunOptions) Result {
 	}
 	if opts.TargetSymbol != "" {
 		b = b.WithTargetSymbol(opts.TargetSymbol)
+	}
+	if opts.Command != "" {
+		b = b.WithCommand(opts.Command)
 	}
 	for _, a := range opts.Annotators {
 		b = b.WithAnnotator(a)

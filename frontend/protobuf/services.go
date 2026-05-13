@@ -40,9 +40,10 @@ func appendServiceInterface(
 	fd protoreflect.FileDescriptor, sd protoreflect.ServiceDescriptor,
 ) {
 	iface := &node.Interface{
-		Name:    string(sd.Name()),
-		Package: pkg.Path,
-		Methods: convertRPCs(ctx, fd, sd),
+		BaseNode: node.BaseNode{SourcePos: sourcePos(fd, sd)},
+		Name:     string(sd.Name()),
+		Package:  pkg.Path,
+		Methods:  convertRPCs(ctx, fd, sd),
 	}
 	attachInterfaceDocs(ctx, iface, fd, sd)
 	stampHostOptions(ctx.Diag.For(FrontendName), iface.Meta(), sd.Options(), sourcePos(fd, sd))
@@ -61,12 +62,13 @@ func convertRPCs(
 	if count == 0 {
 		return nil
 	}
-	pos := position.Pos{File: fd.Path()}
 	out := make([]*node.Method, 0, count)
 	for i := range count {
 		md := methods.Get(i)
+		pos := sourcePos(fd, md)
 		m := &node.Method{
-			Name: string(md.Name()),
+			BaseNode: node.BaseNode{SourcePos: pos},
+			Name:     string(md.Name()),
 			Params: []*node.Param{{
 				Type: namedTypeRef(md.Input().ParentFile(), md.Input().FullName()),
 			}},
@@ -76,7 +78,7 @@ func convertRPCs(
 		}
 		stampStreamingMeta(m, md, pos)
 		attachRPCDocs(ctx, m, fd, md)
-		stampHostOptions(ctx.Diag.For(FrontendName), m.Meta(), md.Options(), sourcePos(fd, md))
+		stampHostOptions(ctx.Diag.For(FrontendName), m.Meta(), md.Options(), pos)
 		out = append(out, m)
 	}
 	return out

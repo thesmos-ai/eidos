@@ -9,7 +9,9 @@ import (
 	"strconv"
 	"strings"
 
+	"go.thesmos.sh/eidos/core/meta"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/node"
 )
 
 // ErrUnsupportedRef is returned by [renderState.renderType] when
@@ -37,6 +39,12 @@ var ErrUnsupportedRef = errors.New("backend/golang: unsupported Ref")
 // `renderType` is one of the reserved canonical-render funcmap
 // entries — plugin overrides are rejected at Build time.
 func (s *renderState) renderType(r emit.Ref) (string, error) {
+	if got, ok := bridgeTypeOverride(r); ok {
+		if err := s.registerBridgeImport(r); err != nil {
+			return "", err
+		}
+		return got, nil
+	}
 	switch typed := r.(type) {
 	case *emit.BuiltinRef:
 		return typed.Name, nil
@@ -49,13 +57,14 @@ func (s *renderState) renderType(r emit.Ref) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		name := goExternalRefName(typed.Name)
 		if alias == "" {
 			// Same-package elision: Imp returned the empty alias
 			// because typed.Package equals the rendered file's own
 			// import path. Drop the qualifier and emit the bare name.
-			return typed.Name + args, nil
+			return name + args, nil
 		}
-		return alias + "." + typed.Name + args, nil
+		return alias + "." + name + args, nil
 	case *emit.TypeRef:
 		base, err := internalTargetName(typed.Target)
 		if err != nil {
@@ -71,6 +80,116 @@ func (s *renderState) renderType(r emit.Ref) (string, error) {
 	default:
 		return "", fmt.Errorf("%w: %T", ErrUnsupportedRef, r)
 	}
+}
+
+// goExternalRefName normalises an [emit.ExternalRef.Name] to a
+// Go-valid identifier. Cross-language frontends surface nested
+// types under the source language's separator (proto's
+// dot-joined `Outer.Inner`); Go identifiers cannot contain dots,
+// so the dot-joined form maps to the underscore-joined
+// `Outer_Inner` that matches the protoc-gen-go convention. Names
+// without dots pass through verbatim; Go-source-derived refs
+// never carry dots since Go identifiers can't contain them, so
+// the normalisation is a no-op for Go-only pipelines.
+func goExternalRefName(name string) string {
+	if !strings.ContainsRune(name, '.') {
+		return name
+	}
+	return strings.ReplaceAll(name, ".", "_")
+}
+
+// bridgeTypeOverride consults the bridge-stamped `go.type` meta
+// on r's source-side origin and returns the override when
+// present. Cross-language bridge annotators (the protogo bridge
+// for proto→Go, future protorust / prototypescript variants)
+// stamp the rendered Go-side form on the source node.TypeRef so
+// the render-site lands a Go-compilable identifier without
+// learning anything proto-specific. Empty return falls through to
+// the standard kind-based rendering.
+//
+// The lookup goes through the source-side meta bag reached via
+// the emit ref's OriginNode (refconv threads this) — no cross-
+// package import of the bridge plugin's key constants is needed
+// because [meta.EnsureKey] returns the same registry singleton
+// regardless of declaration site.
+func bridgeTypeOverride(r emit.Ref) (string, bool) {
+	if r == nil {
+		return "", false
+	}
+	origin, ok := r.Origin().(*node.TypeRef)
+	if !ok {
+		return "", false
+	}
+	got, ok := goTypeKey.Get(origin.Meta())
+	if !ok || got == "" {
+		return "", false
+	}
+	return got, true
+}
+
+// goTypeKey is the bridge-stamped `go.type` meta key shared
+// across every cross-language Go-targeting bridge. [meta.EnsureKey]
+// resolves to the same registry singleton regardless of the
+// declaring package.
+//
+//nolint:gochecknoglobals // cross-package registry-singleton key
+var goTypeKey = meta.EnsureKey("go.type", meta.StringParser)
+
+// goNameKey is the bridge-stamped `go.name` meta key shared
+// across every cross-language Go-targeting bridge. Lives at this
+// site so render-site lookups don't need to reach into a
+// bridge plugin's exported constants.
+//
+//nolint:gochecknoglobals // cross-package registry-singleton key
+var goNameKey = meta.EnsureKey("go.name", meta.StringParser)
+
+// goImportKey is the bridge-stamped `go.import` meta key.
+//
+//nolint:gochecknoglobals // cross-package registry-singleton key
+var goImportKey = meta.EnsureKey("go.import", meta.StringParser)
+
+// registerBridgeImport pulls the bridge-stamped go.import meta
+// off r's source-side origin and registers it on the host
+// file's ImportSet. The override-path uses verbatim Go-type
+// strings ("*timestamppb.Timestamp") rather than emit.External
+// pairs, so the import block won't pick up the path through
+// the normal ExternalRef→Imp flow — the bridge has to register
+// the path explicitly.
+func (s *renderState) registerBridgeImport(r emit.Ref) error {
+	if r == nil {
+		return nil
+	}
+	origin, ok := r.Origin().(*node.TypeRef)
+	if !ok {
+		return nil
+	}
+	path, ok := goImportKey.Get(origin.Meta())
+	if !ok || path == "" {
+		return nil
+	}
+	if _, err := s.imports.Imp(path); err != nil {
+		return fmt.Errorf("backend/golang: renderType: bridge import %q: %w", path, err)
+	}
+	return nil
+}
+
+// fieldNameFor returns the rendered identifier for f. The
+// bridge-stamped go.name meta on f's source-side origin wins
+// over the emit-side Name when present; the lookup walks
+// f.Origin first, then falls back to f.Name verbatim. The
+// origin can be a node.Field (when the generator threads it) or
+// nil (when the emit field is synthesized without source
+// provenance) — both cases route to the fallback.
+func fieldNameFor(f *emit.Field) string {
+	if f == nil {
+		return ""
+	}
+	if origin, ok := f.Origin().(*node.Field); ok {
+		if got, ok := goNameKey.Get(origin.Meta()); ok && got != "" {
+			return got
+		}
+	}
+	return f.Name
 }
 
 // renderComposite dispatches on the [emit.CompositeRef.Shape] and

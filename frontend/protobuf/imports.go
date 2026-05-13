@@ -6,6 +6,7 @@ package protobuf
 import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 
+	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/node"
 )
 
@@ -16,16 +17,25 @@ import (
 // import-alias syntax. Public and weak modifiers are not surfaced
 // on the import node — consumers needing them read the underlying
 // descriptor through the cache layer.
+//
+// Per-import [node.BaseNode.SourcePos] anchors to the declaring
+// file's path. protoreflect does not surface a per-import line
+// number, so the position is file-only — sufficient for
+// provenance attribution without requiring source-line precision.
 func collectFileImports(fd protoreflect.FileDescriptor) []*node.Import {
 	imps := fd.Imports()
 	count := imps.Len()
 	if count == 0 {
 		return nil
 	}
+	pos := position.Pos{File: fd.Path()}
 	out := make([]*node.Import, 0, count)
 	for i := range count {
 		imp := imps.Get(i)
-		out = append(out, &node.Import{Path: imp.Path()})
+		out = append(out, &node.Import{
+			BaseNode: node.BaseNode{SourcePos: pos},
+			Path:     imp.Path(),
+		})
 	}
 	return out
 }
@@ -40,7 +50,10 @@ func collectFileImports(fd protoreflect.FileDescriptor) []*node.Import {
 // Each package-level [node.Import] is a fresh allocation rather
 // than a back-reference to the per-file instance — value-sharing
 // the BaseNode would alias the lazily-allocated meta bag and let
-// per-file meta mutations leak into the package-level view.
+// per-file meta mutations leak into the package-level view. The
+// fresh allocation carries the winning file's path on its own
+// SourcePos so the package-level view still attributes each
+// import to a declaring file.
 func dedupeImports(pkg *node.Package) {
 	seen := map[string]struct{}{}
 	for _, f := range pkg.Files {
@@ -49,7 +62,10 @@ func dedupeImports(pkg *node.Package) {
 				continue
 			}
 			seen[imp.Path] = struct{}{}
-			pkg.Imports = append(pkg.Imports, &node.Import{Path: imp.Path})
+			pkg.Imports = append(pkg.Imports, &node.Import{
+				BaseNode: node.BaseNode{SourcePos: position.Pos{File: f.Path}},
+				Path:     imp.Path,
+			})
 		}
 	}
 }

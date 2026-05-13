@@ -11,6 +11,47 @@ import (
 	"go.thesmos.sh/eidos/node"
 )
 
+// TestConvert_Services_SourcePos covers the BaseNode.SourcePos
+// contract for service interfaces and RPC methods: every
+// produced node carries the originating file plus a non-zero
+// line so the backend's Source: header attribution, `eidos
+// explain`, and the manifest's provenance trail can resolve
+// each entity back to its declaration.
+func TestConvert_Services_SourcePos(t *testing.T) {
+	t.Parallel()
+
+	t.Run("each service Interface and Method carries the originating proto file path and line", func(t *testing.T) {
+		t.Parallel()
+		env := loadFixture(t, "services", "./...")
+		if env.diag.HasErrors() {
+			t.Fatalf("expected no error diagnostics; got %+v", env.diag.Diagnostics())
+		}
+		pkgs := collectPackages(t, env)
+		pkg := mainServicesPackage(t, pkgs)
+		if len(pkg.Interfaces) == 0 {
+			t.Fatalf("expected at least one Interface in the services fixture")
+		}
+		for _, iface := range pkg.Interfaces {
+			ip := iface.Pos()
+			if ip.File == "" {
+				t.Errorf("Interface %q carries empty Pos.File", iface.Name)
+			}
+			if ip.Line == 0 {
+				t.Errorf("Interface %q carries zero Pos.Line", iface.Name)
+			}
+			for _, m := range iface.Methods {
+				mp := m.Pos()
+				if mp.File == "" {
+					t.Errorf("Method %q on %q carries empty Pos.File", m.Name, iface.Name)
+				}
+				if mp.Line == 0 {
+					t.Errorf("Method %q on %q carries zero Pos.Line", m.Name, iface.Name)
+				}
+			}
+		}
+	})
+}
+
 // TestConvert_Services covers the service → node.Interface
 // mapping: each `service X { ... }` produces one node.Interface
 // named X in the producing package, with one node.Method per

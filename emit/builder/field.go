@@ -7,6 +7,7 @@ import (
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/node"
 )
 
 // FieldBuilder configures an [emit.Field] as part of a struct's
@@ -24,6 +25,14 @@ func (b *FieldBuilder) Node() *emit.Field { return b.f }
 // Pos overrides the field's source position.
 func (b *FieldBuilder) Pos(p position.Pos) *FieldBuilder {
 	b.f.SourcePos = p
+	return b
+}
+
+// Origin records the source node the field was lifted from so
+// downstream consumers (backend render-site lookups, the
+// `explain` command) can reach the source-side meta bag.
+func (b *FieldBuilder) Origin(n node.Node) *FieldBuilder {
+	b.f.OriginNode = n
 	return b
 }
 

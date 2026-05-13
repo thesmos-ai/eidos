@@ -10,9 +10,11 @@ import (
 	"strings"
 	"testing"
 
+	"go.thesmos.sh/eidos/bridge/protogo"
 	"go.thesmos.sh/eidos/cache"
 	"go.thesmos.sh/eidos/core/diag"
 	"go.thesmos.sh/eidos/core/directive"
+	m "go.thesmos.sh/eidos/core/meta"
 	"go.thesmos.sh/eidos/core/opt"
 	"go.thesmos.sh/eidos/frontend/golang"
 	"go.thesmos.sh/eidos/frontend/protobuf"
@@ -96,6 +98,112 @@ func TestCrossFrontend_MarkerScope(t *testing.T) {
 		assertNoMetaPrefix(t, protoPkg, "go.", "proto-derived package")
 		assertNoMetaPrefix(t, goPkg, "proto.", "go-derived package")
 	})
+}
+
+// TestCrossFrontend_BridgeAuditScope is the cross-frontend audit
+// step for the protogo bridge: with proto + Go sources loaded
+// into one store and the bridge run as an annotator, no meta
+// entry on any Go-derived node carries `protogo` as its setBy.
+// The bridge's frontend-marker filter is what makes this safe;
+// this test pins the contract so a future regression that
+// broadens the iteration scope fails here.
+func TestCrossFrontend_BridgeAuditScope(t *testing.T) {
+	t.Parallel()
+
+	t.Run("protogo touches only proto-marker packages, never Go-marker packages", func(t *testing.T) {
+		t.Parallel()
+		repoRoot := repositoryRoot(t)
+		protoRoot := filepath.Join(repoRoot, "frontend", "protobuf", "testdata", "simple")
+		s := store.New()
+		d := diag.New()
+		registry := directive.NewRegistry()
+		parser := directive.DefaultParser()
+		nopCache := cache.NewNone()
+
+		pf := protobuf.New()
+		if err := pf.SetOptions(opt.New(pf.OptionsSchema(), map[string]string{"dir": protoRoot})); err != nil {
+			t.Fatalf("protobuf SetOptions: %v", err)
+		}
+		if err := pf.Load(&plugin.FrontendContext{
+			Store: s, Diag: d, Registry: registry, Parser: parser, Cache: nopCache,
+			Pattern: "./...",
+		}); err != nil {
+			t.Fatalf("protobuf Load: %v", err)
+		}
+
+		gf := golang.New()
+		if err := gf.SetOptions(opt.New(gf.OptionsSchema(), map[string]string{"dir": repoRoot})); err != nil {
+			t.Fatalf("golang SetOptions: %v", err)
+		}
+		if err := gf.Load(&plugin.FrontendContext{
+			Store: s, Diag: d, Registry: registry, Parser: parser, Cache: nopCache,
+			Pattern: "go.thesmos.sh/eidos/eidostest/pluginfixture",
+		}); err != nil {
+			t.Fatalf("golang Load: %v", err)
+		}
+
+		bridge := protogo.New()
+		if err := bridge.Annotate(&plugin.AnnotatorContext{
+			Store:  s,
+			Reader: store.NewReader(s),
+			Diag:   d,
+		}); err != nil {
+			t.Fatalf("protogo Annotate: %v", err)
+		}
+		if d.HasErrors() {
+			t.Fatalf("expected no error diagnostics; got %+v", d.Diagnostics())
+		}
+
+		var goPkg *node.Package
+		s.Nodes().Packages().Range(func(p *node.Package) bool {
+			marker, _ := protobuf.MetaFrontend.Get(p.Meta())
+			if marker == golang.FrontendName {
+				goPkg = p
+				return false
+			}
+			return true
+		})
+		if goPkg == nil {
+			t.Fatalf("go-derived package missing")
+		}
+		assertNoProtogoStamps(t, goPkg)
+	})
+}
+
+// assertNoProtogoStamps walks pkg's meta bag and every reachable
+// child's meta bag, asserting no entry was recorded with
+// `setBy == "protogo"`. The walk covers the package itself,
+// every contained Struct, every Struct's Fields and Field.Type,
+// every Interface, every Interface's Methods + Method params +
+// returns. A regression that loosens the bridge's
+// frontend-marker filter fails this audit.
+func assertNoProtogoStamps(t *testing.T, pkg *node.Package) {
+	t.Helper()
+	assertBagNoProtogo(t, pkg.Path+" (package)", pkg.Meta())
+	for _, s := range pkg.Structs {
+		assertBagNoProtogo(t, pkg.Path+"."+s.Name+" (struct)", s.Meta())
+		for _, f := range s.Fields {
+			assertBagNoProtogo(t, pkg.Path+"."+s.Name+"."+f.Name+" (field)", f.Meta())
+			if f.Type != nil {
+				assertBagNoProtogo(t, pkg.Path+"."+s.Name+"."+f.Name+".Type", f.Type.Meta())
+			}
+		}
+	}
+}
+
+// assertBagNoProtogo asserts that no meta entry on bag carries
+// `setBy == "protogo"`. Used by the bridge audit step.
+func assertBagNoProtogo(t *testing.T, where string, bag *m.Bag) {
+	t.Helper()
+	for _, name := range bag.Names() {
+		prov, ok := bag.Winning(name)
+		if !ok {
+			continue
+		}
+		if prov.SetBy == "protogo" {
+			t.Fatalf("%s carries a protogo stamp on %q; bridge should skip Go-derived nodes", where, name)
+		}
+	}
 }
 
 // assertMarker verifies that pkg carries the cross-frontend marker

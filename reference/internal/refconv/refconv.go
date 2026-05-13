@@ -21,7 +21,20 @@ import (
 // reference plugins emit. The frontend guarantees non-nil refs for
 // every parsed type, so the function does not guard against a nil
 // receiver.
+//
+// The produced emit ref's OriginNode points back at r so backends
+// and downstream consumers can reach the source-side meta (e.g.,
+// bridge-annotator-stamped `go.type` for proto→Go translation).
 func FromNode(r *node.TypeRef) emit.Ref {
+	ref := liftFromNode(r)
+	setOrigin(ref, r)
+	return ref
+}
+
+// liftFromNode performs the variant-by-variant conversion. Wrapped
+// in [FromNode] so the OriginNode threading lands at a single
+// site rather than at each constructor call.
+func liftFromNode(r *node.TypeRef) emit.Ref {
 	switch {
 	case r.IsPointer():
 		return emit.Ptr(FromNode(r.Elem))
@@ -54,6 +67,24 @@ func FromNode(r *node.TypeRef) emit.Ref {
 		args = append(args, FromNode(a))
 	}
 	return emit.External(r.Package, r.Name, args...)
+}
+
+// setOrigin records r as the OriginNode of ref on every concrete
+// [emit.Ref] implementation. The switch enumerates the closed set
+// of types [liftFromNode] can produce; future emit variants need
+// a matching arm here so source-side meta stays reachable from
+// the produced emit graph.
+func setOrigin(ref emit.Ref, r *node.TypeRef) {
+	switch v := ref.(type) {
+	case *emit.BuiltinRef:
+		v.OriginNode = r
+	case *emit.ExternalRef:
+		v.OriginNode = r
+	case *emit.CompositeRef:
+		v.OriginNode = r
+	case *emit.TypeRef:
+		v.OriginNode = r
+	}
 }
 
 // ConstraintFromNode lifts a [node.Constraint] into its [emit.Constraint]

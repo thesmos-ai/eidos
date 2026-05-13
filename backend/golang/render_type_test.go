@@ -85,6 +85,23 @@ func TestRenderType_External(t *testing.T) {
 			t.Fatalf("body should contain alias-qualified field 'User users.User'; got:\n%s", body)
 		}
 	})
+
+	t.Run("dot-joined ExternalRef.Name maps to underscore-joined Go identifier", func(t *testing.T) {
+		t.Parallel()
+		// Cross-language frontends (the protobuf frontend, future
+		// other-language frontends) surface nested types under the
+		// source language's separator. Go identifiers cannot
+		// contain dots, so the render-site normalises the dot-
+		// joined form to the underscore-joined form matching the
+		// protoc-gen-go convention.
+		body := renderSingleFieldStruct(t, "P", emit.External("github.com/example/users", "User.Profile"))
+		if strings.Contains(body, "User.Profile") {
+			t.Fatalf("body should not contain the dot-joined form; got:\n%s", body)
+		}
+		if !strings.Contains(body, "P users.User_Profile") {
+			t.Fatalf("body should contain 'P users.User_Profile'; got:\n%s", body)
+		}
+	})
 }
 
 // TestRenderType_Internal covers the TypeRef branch. Internal refs

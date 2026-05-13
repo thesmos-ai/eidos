@@ -82,6 +82,47 @@ func TestConvert_Messages_NestedDotJoined(t *testing.T) {
 	})
 }
 
+// TestConvert_Messages_SourcePos covers the BaseNode.SourcePos
+// contract for proto-derived structs and fields: every produced
+// node carries the source file it was declared in, plus a
+// non-zero line, so downstream consumers (the backend's Source:
+// header attribution, `eidos explain`, the manifest's
+// provenance attribution) can resolve each entity back to its
+// declaration site.
+func TestConvert_Messages_SourcePos(t *testing.T) {
+	t.Parallel()
+
+	t.Run("each Struct and Field carries the originating proto file path and line", func(t *testing.T) {
+		t.Parallel()
+		env := loadFixture(t, "messages", "./...")
+		if env.diag.HasErrors() {
+			t.Fatalf("expected no error diagnostics; got %+v", env.diag.Diagnostics())
+		}
+		pkg := requireSinglePackage(t, env)
+		if len(pkg.Structs) == 0 {
+			t.Fatalf("expected at least one Struct in the messages fixture")
+		}
+		for _, s := range pkg.Structs {
+			pos := s.Pos()
+			if pos.File == "" {
+				t.Errorf("Struct %q carries empty Pos.File", s.Name)
+			}
+			if pos.Line == 0 {
+				t.Errorf("Struct %q carries zero Pos.Line", s.Name)
+			}
+			for _, f := range s.Fields {
+				fp := f.Pos()
+				if fp.File == "" {
+					t.Errorf("Field %q on %q carries empty Pos.File", f.Name, s.Name)
+				}
+				if fp.Line == 0 {
+					t.Errorf("Field %q on %q carries zero Pos.Line", f.Name, s.Name)
+				}
+			}
+		}
+	})
+}
+
 // TestConvert_FieldTagAndJSONName covers the per-field tag-number
 // and JSON-name meta. Every field carries proto.field.number with
 // its declared tag, and every field carries proto.field.json_name

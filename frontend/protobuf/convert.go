@@ -40,7 +40,7 @@ func convertFiles(
 		qualifier := string(fd.Package())
 		pkg, exists := pkgs[qualifier]
 		if !exists {
-			pkg = newProtoPackage(qualifier)
+			pkg = newProtoPackage(qualifier, fd.Path())
 			pkgs[qualifier] = pkg
 			order = append(order, qualifier)
 		}
@@ -85,12 +85,23 @@ func sortDescriptors(descriptors []protoreflect.FileDescriptor) []protoreflect.F
 // the whole string as Name; the empty qualifier produces a
 // package with empty Name and Path (callers reject such inputs
 // upstream).
-func newProtoPackage(qualifier string) *node.Package {
+//
+// firstFile is the first contributing proto file's path; it
+// anchors [node.BaseNode.SourcePos] so consumers walking the
+// package tree (the backend's Source: header attribution, the
+// manifest's provenance trail, `eidos explain`) resolve every
+// package back to a declaring source without inspecting child
+// declarations.
+func newProtoPackage(qualifier, firstFile string) *node.Package {
 	name := qualifier
 	if dot := strings.LastIndex(qualifier, "."); dot >= 0 {
 		name = qualifier[dot+1:]
 	}
-	pkg := &node.Package{Name: name, Path: qualifier}
+	pkg := &node.Package{
+		BaseNode: node.BaseNode{SourcePos: position.Pos{File: firstFile}},
+		Name:     name,
+		Path:     qualifier,
+	}
 	stampFrontendMarker(pkg)
 	return pkg
 }
@@ -105,9 +116,10 @@ func newProtoPackage(qualifier string) *node.Package {
 func appendFile(pkg *node.Package, fd protoreflect.FileDescriptor) {
 	path := fd.Path()
 	pkg.Files = append(pkg.Files, &node.File{
-		Name:    filepath.Base(path),
-		Path:    path,
-		Imports: collectFileImports(fd),
+		BaseNode: node.BaseNode{SourcePos: position.Pos{File: path}},
+		Name:     filepath.Base(path),
+		Path:     path,
+		Imports:  collectFileImports(fd),
 	})
 }
 

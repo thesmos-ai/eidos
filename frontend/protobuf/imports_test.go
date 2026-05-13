@@ -10,6 +10,41 @@ import (
 	"go.thesmos.sh/eidos/node"
 )
 
+// TestConvert_Imports_SourcePos covers the BaseNode.SourcePos
+// contract for proto-derived imports: each [node.Import] anchors
+// to the file that declared it so downstream consumers can
+// resolve an import line back to its origin without re-scanning
+// the file's import list.
+func TestConvert_Imports_SourcePos(t *testing.T) {
+	t.Parallel()
+
+	t.Run("each Import carries the declaring file path on Pos.File", func(t *testing.T) {
+		t.Parallel()
+		env := loadFixture(t, "imports", "./...")
+		if env.diag.HasErrors() {
+			t.Fatalf("expected no error diagnostics; got %+v", env.diag.Diagnostics())
+		}
+		pkgs := collectPackages(t, env)
+		if len(pkgs) == 0 {
+			t.Fatalf("expected at least one Package")
+		}
+		for _, pkg := range pkgs {
+			for _, f := range pkg.Files {
+				for _, imp := range f.Imports {
+					if imp.Pos().File == "" {
+						t.Errorf("Import %q on file %q carries empty Pos.File", imp.Path, f.Path)
+					}
+				}
+			}
+			for _, imp := range pkg.Imports {
+				if imp.Pos().File == "" {
+					t.Errorf("Package-level Import %q carries empty Pos.File", imp.Path)
+				}
+			}
+		}
+	})
+}
+
 // TestConvert_RecordsImports covers the import-modelling
 // contract: each `import "..."` declaration in a proto file
 // produces a [node.Import] on the corresponding [node.File], and

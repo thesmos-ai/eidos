@@ -42,6 +42,7 @@ func appendEnum(
 ) {
 	name := joinName(prefix, string(ed.Name()))
 	e := &node.Enum{
+		BaseNode:   node.BaseNode{SourcePos: sourcePos(fd, ed)},
 		Name:       name,
 		Package:    pkg.Path,
 		Underlying: &node.TypeRef{TypeKind: node.TypeRefNamed, Name: "int32"},
@@ -69,20 +70,21 @@ func convertEnumVariants(
 	if count == 0 {
 		return nil
 	}
-	pos := position.Pos{File: fd.Path()}
 	out := make([]*node.EnumVariant, 0, count)
 	for i := range count {
 		v := values.Get(i)
+		pos := sourcePos(fd, v)
 		variant := &node.EnumVariant{
-			Name:  string(v.Name()),
-			Value: strconv.Itoa(int(v.Number())),
+			BaseNode: node.BaseNode{SourcePos: pos},
+			Name:     string(v.Name()),
+			Value:    strconv.Itoa(int(v.Number())),
 		}
 		MetaEnumVariantNumber.SetAt(
 			variant.Meta(), int(v.Number()),
 			meta.AuthorityPlugin, FrontendName, pos,
 		)
 		attachVariantDocs(ctx, variant, fd, v)
-		stampHostOptions(ctx.Diag.For(FrontendName), variant.Meta(), v.Options(), sourcePos(fd, v))
+		stampHostOptions(ctx.Diag.For(FrontendName), variant.Meta(), v.Options(), pos)
 		out = append(out, variant)
 	}
 	return out

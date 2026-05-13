@@ -4,14 +4,18 @@
 package referenceacceptance_test
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
 
 	backend_golang "go.thesmos.sh/eidos/backend/golang"
 	"go.thesmos.sh/eidos/eidostest/demopipe"
+	"go.thesmos.sh/eidos/eidostest/testpipe"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/pipeline"
 	"go.thesmos.sh/eidos/plugin"
@@ -126,6 +130,37 @@ func TestEndToEnd(t *testing.T) {
 	})
 }
 
+// TestEndToEnd_Baseline pins the rendered output of the full
+// reference-plugin pipeline against a committed baseline. The
+// baseline records each routed file path paired with its body's
+// SHA-256, so a change to any reference plugin's output surfaces
+// as a per-file diff. Regenerate via `go test -update-golden`
+// after intentional changes; an unexpected diff is a regression.
+//
+// This test complements [TestEndToEnd_ByteStable]: byte-stability
+// guards against non-determinism (two runs in one process produce
+// the same output), while the baseline guards against drift —
+// consistent but different output across releases. A regression
+// that consistently produces different-but-stable rendering would
+// pass byte-stability and fail here.
+func TestEndToEnd_Baseline(t *testing.T) {
+	t.Parallel()
+
+	snap := snapshotFiles(t, runAllPlugins(t).Sink)
+	paths := make([]string, 0, len(snap))
+	for p := range snap {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+
+	var body bytes.Buffer
+	for _, p := range paths {
+		fmt.Fprintf(&body, "%s  %s\n", snap[p], p)
+	}
+	testpipe.MatchesGoldenBytes(t, body.Bytes(),
+		filepath.Join("testdata", "golden", "go_only_pipeline.txt"))
+}
+
 // TestEndToEnd_ByteStable runs the full pipeline twice and asserts
 // the rendered sink contents — and the per-file provenance hashes
 // — match across runs. Determinism is the spec's headline quality
@@ -153,6 +188,11 @@ func TestEndToEnd_ByteStable(t *testing.T) {
 // demoproject fixture with the centralised layout selected through
 // the routing-layer surface so foundation + composition +
 // cross-cutting contributions all share an output directory.
+//
+// The pinned [demopipe.RunOptions.Command] keeps the rendered
+// `Command:` header byte-identical across `go test` invocations,
+// so [TestEndToEnd_Baseline]'s golden file is stable independent
+// of the test binary's per-machine invocation arguments.
 func runAllPlugins(t *testing.T) demopipe.Result {
 	t.Helper()
 	return demopipe.Run(t, demopipe.RunOptions{
@@ -168,6 +208,7 @@ func runAllPlugins(t *testing.T) demopipe.Result {
 		Backend:       backend_golang.New(),
 		Layout:        pipeline.LayoutCentralised,
 		OutputPackage: outputPackage,
+		Command:       "go test (referenceacceptance)",
 		PluginOptions: map[string]map[string]string{
 			// registrygen drives routing through the framework's
 			// origin-anchored slot attachment now; only the

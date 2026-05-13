@@ -1,0 +1,40 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
+syntax = "proto3";
+
+package eidos.test.buildfixture;
+
+option go_package = "go.thesmos.sh/eidos/eidostest/protopipe/buildfixture;buildfixture";
+
+import "google/protobuf/timestamp.proto";
+
+// User exercises the three nontrivial composition rules the
+// protogo bridge handles: a well-known reference (CreatedAt),
+// an optional field (Age), and a nested-message reference
+// (Profile).
+//
+// Field identifiers are intentionally declared in PascalCase to
+// scope the toolchain compile check to bridge-translation
+// regressions (scalar / well-known / optional / nested rules).
+// Reference plugins consult source-side field names for their
+// directive surface today; proto-style snake_case identifiers
+// would route through a downstream plugin-side normalization
+// step that is orthogonal to the bridge's translation rules and
+// belongs in its own coverage story.
+//
+// +gen:builder
+message User {
+  string Name = 1;
+  optional int32 Age = 2;
+  google.protobuf.Timestamp CreatedAt = 3;
+  Profile ProfileRef = 4;
+
+  // Profile is the nested message referenced via the ProfileRef
+  // field above. The rendered Go output uses the underscore-
+  // joined form `User_Profile` per the bridge's nested-name
+  // convention.
+  message Profile {
+    string Bio = 1;
+  }
+}

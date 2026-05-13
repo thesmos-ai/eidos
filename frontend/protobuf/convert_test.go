@@ -51,6 +51,41 @@ func TestConvert_SinglePackage(t *testing.T) {
 	})
 }
 
+// TestConvert_FilesAndPackage_SourcePos covers the
+// BaseNode.SourcePos contract for the package / file container
+// nodes. Every produced [node.Package] and [node.File] anchors
+// to a source-file path so consumers walking the package tree
+// can resolve provenance to a declaring source without
+// inspecting child declarations.
+func TestConvert_FilesAndPackage_SourcePos(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Package and File nodes carry the originating proto file path", func(t *testing.T) {
+		t.Parallel()
+		env := loadFixture(t, "simple", "./...")
+		if env.diag.HasErrors() {
+			t.Fatalf("expected no error diagnostics; got %+v", env.diag.Diagnostics())
+		}
+		pkgs := collectPackages(t, env)
+		if len(pkgs) == 0 {
+			t.Fatalf("expected at least one Package")
+		}
+		for _, pkg := range pkgs {
+			if pkg.Pos().File == "" {
+				t.Errorf("Package %q carries empty Pos.File", pkg.Path)
+			}
+			if len(pkg.Files) == 0 {
+				t.Errorf("Package %q has no Files entries", pkg.Path)
+			}
+			for _, f := range pkg.Files {
+				if f.Pos().File == "" {
+					t.Errorf("File %q (on package %q) carries empty Pos.File", f.Path, pkg.Path)
+				}
+			}
+		}
+	})
+}
+
 // TestConvert_MergesSamePackageFiles covers the package merge
 // rule: multiple `.proto` files declaring the same proto package
 // qualifier collapse into a single [node.Package]. The merge
