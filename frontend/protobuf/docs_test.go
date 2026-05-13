@@ -45,6 +45,39 @@ func TestConvert_Comments_LeadingDocLines(t *testing.T) {
 	})
 }
 
+// TestConvert_Comments_Detached covers the detached-comment
+// attachment rule: a comment block separated from the next
+// declaration by a blank line attaches to the nearest following
+// declaration. protocompile materialises the detached block on
+// the SourceLocation's LeadingDetachedComments slice; the
+// converter appends each block to the target's DocLines after
+// the immediate leading comments.
+func TestConvert_Comments_Detached(t *testing.T) {
+	t.Parallel()
+
+	t.Run("detached comment above a field attaches to the field's DocLines", func(t *testing.T) {
+		t.Parallel()
+		env := loadFixture(t, "messages", "./...")
+		if env.diag.HasErrors() {
+			t.Fatalf("expected no error diagnostics; got %+v", env.diag.Diagnostics())
+		}
+		pkg := requireSinglePackage(t, env)
+		container := findStruct(pkg, "Container")
+		marker := container.FieldByName("marker")
+		if marker == nil {
+			t.Fatalf("field marker missing on Container")
+		}
+		wantPreamble := "detached preamble routed by protocompile"
+		if !containsLine(marker.DocLines, wantPreamble) {
+			t.Fatalf("marker.DocLines missing detached preamble; got %+v", marker.DocLines)
+		}
+		wantLeading := "marker exercises the detached-comment attachment rule"
+		if !containsLine(marker.DocLines, wantLeading) {
+			t.Fatalf("marker.DocLines missing immediate leading comment; got %+v", marker.DocLines)
+		}
+	})
+}
+
 // TestConvert_Comments_TrailingDoc covers the trailing-comment →
 // `proto.<host>.trailing_doc` meta attachment for fields,
 // messages, and enum variants. Trailing comments do NOT enter

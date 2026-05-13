@@ -1,0 +1,93 @@
+// extensions.proto declares one custom option extension per
+// proto3-permitted host kind plus a few per-value-type
+// extensions. The companion target.proto uses every extension
+// so the option-channel stamping path exercises every host +
+// value form documented on the spec's value-type table.
+syntax = "proto3";
+
+package eidos.protobuf.testdata.hostoptions;
+
+import "google/protobuf/descriptor.proto";
+
+// One extension per host kind: string-typed for the simplest
+// per-host coverage. Value-form coverage rides on the
+// FileOptions extensions further down.
+
+extend google.protobuf.MessageOptions {
+  string message_tag = 50001;
+}
+
+extend google.protobuf.FieldOptions {
+  string field_tag = 50002;
+}
+
+extend google.protobuf.OneofOptions {
+  string oneof_tag = 50003;
+}
+
+extend google.protobuf.EnumOptions {
+  string enum_tag = 50004;
+}
+
+extend google.protobuf.EnumValueOptions {
+  string variant_tag = 50005;
+}
+
+extend google.protobuf.ServiceOptions {
+  string service_tag = 50006;
+}
+
+extend google.protobuf.MethodOptions {
+  string method_tag = 50007;
+}
+
+// Mood is the enum option-value type the enum-option resolution
+// recipe walks. The custom file-level extension referencing it
+// rides as a string-form value (the variant's Name) per the
+// spec's value-type table.
+enum Mood {
+  MOOD_NEUTRAL = 0;
+  MOOD_HAPPY = 1;
+  MOOD_FOCUSED = 2;
+}
+
+// Value-form extensions: each one exercises a distinct entry on
+// the value-type table. File-level scope keeps the test surface
+// compact; the typed-Go forms are validated against the natural
+// table mapping (int64, uint64, float64, []byte, string).
+extend google.protobuf.FileOptions {
+  int32  v_int32  = 50010;
+  int64  v_int64  = 50011;
+  uint32 v_uint32 = 50012;
+  uint64 v_uint64 = 50013;
+  float  v_float  = 50014;
+  double v_double = 50015;
+  bytes  v_bytes  = 50016;
+  Mood   v_enum   = 50017;
+}
+
+// ValidationRule is the message-typed option payload used to
+// exercise the recursive single-message + nested-repeated +
+// nested-map paths through messageValueToGo / listValueToGo /
+// mapValueToGo.
+message ValidationRule {
+  string pattern = 1;
+  int32  max_len = 2;
+  repeated string examples = 3;
+  map<string, string> notes = 4;
+}
+
+extend google.protobuf.FieldOptions {
+  // validate exercises the single-message value form on a field
+  // option; the recursive conversion produces a map[string]any
+  // keyed by the proto field names of ValidationRule. The nested
+  // `notes` map exercises mapValueToGo through the recursive
+  // descent.
+  ValidationRule validate = 50020;
+}
+
+extend google.protobuf.MessageOptions {
+  // tags exercises the repeated value form — a []any in
+  // source-declaration order.
+  repeated string tags = 50021;
+}

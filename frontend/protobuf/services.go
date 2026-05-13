@@ -45,6 +45,7 @@ func appendServiceInterface(
 		Methods: convertRPCs(ctx, fd, sd),
 	}
 	attachInterfaceDocs(ctx, iface, fd, sd)
+	stampHostOptions(ctx.Diag.For(FrontendName), iface.Meta(), sd.Options(), sourcePos(fd, sd))
 	pkg.Interfaces = append(pkg.Interfaces, iface)
 }
 
@@ -75,6 +76,7 @@ func convertRPCs(
 		}
 		stampStreamingMeta(m, md, pos)
 		attachRPCDocs(ctx, m, fd, md)
+		stampHostOptions(ctx.Diag.For(FrontendName), m.Meta(), md.Options(), sourcePos(fd, md))
 		out = append(out, m)
 	}
 	return out

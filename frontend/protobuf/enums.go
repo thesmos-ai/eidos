@@ -49,6 +49,7 @@ func appendEnum(
 	}
 	stampEnumMeta(e, fd, ed)
 	attachEnumDocs(ctx, e, fd, ed)
+	stampHostOptions(ctx.Diag.For(FrontendName), e.Meta(), ed.Options(), sourcePos(fd, ed))
 	pkg.Enums = append(pkg.Enums, e)
 }
 
@@ -81,6 +82,7 @@ func convertEnumVariants(
 			meta.AuthorityPlugin, FrontendName, pos,
 		)
 		attachVariantDocs(ctx, variant, fd, v)
+		stampHostOptions(ctx.Diag.For(FrontendName), variant.Meta(), v.Options(), sourcePos(fd, v))
 		out = append(out, variant)
 	}
 	return out

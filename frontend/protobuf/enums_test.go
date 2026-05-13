@@ -7,6 +7,7 @@ import (
 	"slices"
 	"testing"
 
+	"go.thesmos.sh/eidos/core/meta"
 	"go.thesmos.sh/eidos/frontend/protobuf"
 	"go.thesmos.sh/eidos/node"
 )
@@ -59,7 +60,7 @@ func TestConvert_Enums(t *testing.T) {
 		}
 	})
 
-	t.Run("AliasedStatus enum carries proto.enum.allow_alias = true", func(t *testing.T) {
+	t.Run("AliasedStatus carries proto.enum.allow_alias = true + the raw option-channel form", func(t *testing.T) {
 		t.Parallel()
 		e := findEnum(pkg, "AliasedStatus")
 		if e == nil {
@@ -68,6 +69,17 @@ func TestConvert_Enums(t *testing.T) {
 		got, ok := protobuf.MetaEnumAllowAlias.Get(e.Meta())
 		if !ok || !got {
 			t.Fatalf("proto.enum.allow_alias missing or false on AliasedStatus; got (%v, %v)", got, ok)
+		}
+		// Coexistence: alias and raw option-channel form both
+		// land. Plugins iterating proto.option.* see the same
+		// value under the standard name.
+		raw := meta.EnsureKey(protobuf.MetaOptionPrefix+"allow_alias", meta.BoolParser)
+		rawVal, rawOK := raw.Get(e.Meta())
+		if !rawOK || !rawVal {
+			t.Fatalf(
+				"expected proto.option.allow_alias = true alongside the alias; got (%v, %v)",
+				rawVal, rawOK,
+			)
 		}
 	})
 

@@ -17,6 +17,16 @@ import (
 	"go.thesmos.sh/eidos/plugin"
 )
 
+// sourcePos returns the source position for desc relative to
+// fd. The returned [position.Pos] carries the file path and the
+// 1-indexed line / column protocompile reports; callers thread
+// this through stamping helpers so the meta-bag provenance trail
+// anchors to the declaring source.
+func sourcePos(fd protoreflect.FileDescriptor, desc protoreflect.Descriptor) position.Pos {
+	sl := fd.SourceLocations().ByDescriptor(desc)
+	return position.Pos{File: fd.Path(), Line: sl.StartLine + 1, Column: sl.StartColumn + 1}
+}
+
 // docLinesAndTrailing returns the docs-attachable lines and the
 // trailing same-line comment for the supplied source location.
 //

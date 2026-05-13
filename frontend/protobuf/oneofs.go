@@ -73,6 +73,7 @@ func appendOneofInterface(
 		meta.AuthorityPlugin, FrontendName, pos,
 	)
 	attachOneofDocs(ctx, iface, fd, oo)
+	stampHostOptions(ctx.Diag.For(FrontendName), iface.Meta(), oo.Options(), pos)
 	pkg.Interfaces = append(pkg.Interfaces, iface)
 	stampOneofVariantBackPointers(host, oo, iface.QName(), pos)
 }

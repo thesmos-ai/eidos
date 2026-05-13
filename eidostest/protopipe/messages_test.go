@@ -25,7 +25,7 @@ import (
 // setters require the protogo bridge to expose Go-exported
 // names; without the bridge the source-side proto field names
 // stay lowercase and buildergen's exported-field filter drops
-// them, so this milestone pins only the Build method shape.
+// them, so the pin here covers only the Build method shape.
 func TestRun_MessagesBuildergen_BuilderShape(t *testing.T) {
 	t.Parallel()
 

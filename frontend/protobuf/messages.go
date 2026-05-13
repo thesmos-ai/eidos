@@ -57,6 +57,7 @@ func appendMessageStruct(
 	}
 	stampMessageReserved(s, fd, md)
 	attachStructDocs(ctx, s, fd, md)
+	stampHostOptions(ctx.Diag.For(FrontendName), s.Meta(), md.Options(), sourcePos(fd, md))
 	pkg.Structs = append(pkg.Structs, s)
 	// The order below is load-bearing:
 	//   1. The host Struct is appended first so back-pointer
@@ -100,6 +101,7 @@ func convertFields(
 		}
 		stampFieldMeta(f, desc, pos)
 		attachFieldDocs(ctx, f, fd, desc)
+		stampHostOptions(ctx.Diag.For(FrontendName), f.Meta(), desc.Options(), sourcePos(fd, desc))
 		out = append(out, f)
 	}
 	return out
@@ -185,17 +187,25 @@ func elementTypeRef(desc protoreflect.FieldDescriptor) *node.TypeRef {
 // to fullName declared in parent. The TypeRef.Name is the
 // dot-joined declaration path inside the parent's package; the
 // TypeRef.Package is the parent's proto-package qualifier.
+//
+// Well-known type references stamp [MetaWellKnown] on the
+// produced ref so consumers dispatch on the bare name without
+// parsing the qualified path.
 func namedTypeRef(parent protoreflect.FileDescriptor, fullName protoreflect.FullName) *node.TypeRef {
 	pkgPath := string(parent.Package())
 	local := string(fullName)
 	if pkgPath != "" && len(local) > len(pkgPath)+1 && local[:len(pkgPath)] == pkgPath {
 		local = local[len(pkgPath)+1:]
 	}
-	return &node.TypeRef{
+	ref := &node.TypeRef{
 		TypeKind: node.TypeRefNamed,
 		Name:     local,
 		Package:  pkgPath,
 	}
+	if wk := wellKnownName(pkgPath, local); wk != "" {
+		MetaWellKnown.Set(ref.Meta(), wk, FrontendName)
+	}
+	return ref
 }
 
 // stampMessageReserved records the reserved-range meta on s. Tag

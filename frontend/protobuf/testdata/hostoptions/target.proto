@@ -1,0 +1,62 @@
+// target.proto exercises every custom-option extension declared
+// in extensions.proto plus a file-level option per value type.
+// The fixture's tests assert the produced meta keys carry the
+// natural Go type for each form.
+syntax = "proto3";
+
+package eidos.protobuf.testdata.hostoptions;
+
+import "extensions.proto";
+
+option (v_int32)  = -7;
+option (v_int64)  = 9876543210;
+option (v_uint32) = 42;
+option (v_uint64) = 18446744073709551610;
+option (v_float)  = 3.5;
+option (v_double) = 2.71828;
+option (v_bytes)  = "abc";
+option (v_enum)   = MOOD_FOCUSED;
+
+// Document exercises the per-host options on every kind a
+// proto3 source can carry one on. The repeated `tags` and
+// `labels` map options also exercise the composite value-type
+// paths through listValueToGo / mapValueToGo.
+message Document {
+  option (message_tag) = "doc-host";
+  option (tags) = "alpha";
+  option (tags) = "beta";
+
+  // id carries a single-message field option exercising
+  // messageValueToGo's recursive conversion across scalar,
+  // repeated, and map subfields.
+  string id = 1 [
+    (field_tag) = "id-host",
+    (validate) = {
+      pattern: "^[a-z]+$",
+      max_len: 64,
+      examples: ["a", "b"],
+      notes: [{key: "owner", value: "platform"}]
+    }
+  ];
+
+  // payload exercises the oneof-host option channel.
+  oneof payload {
+    option (oneof_tag) = "payload-host";
+    string text = 2;
+    int32 number = 3;
+  }
+}
+
+enum Color {
+  option (enum_tag) = "color-host";
+  COLOR_UNSPECIFIED = 0;
+  COLOR_RED = 1 [(variant_tag) = "red-variant"];
+  COLOR_GREEN = 2;
+}
+
+service Greeter {
+  option (service_tag) = "greeter-host";
+  rpc Hello(Document) returns (Document) {
+    option (method_tag) = "hello-host";
+  }
+}

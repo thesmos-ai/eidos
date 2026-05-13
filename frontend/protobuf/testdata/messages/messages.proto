@@ -31,6 +31,7 @@ enum AliasedStatus {
 // User is the canonical account record. The message-level
 // trailing comment lands in proto.message.trailing_doc.
 // +gen:builder
+// +gen:out user_extra.go plugin=buildergen pkg=usersx
 message User { // primary account
   // id is the account's stable unique identifier.
   string id = 1; // primary key
@@ -103,4 +104,13 @@ message Container {
   // an explicit [packed = false] override is the only way a
   // proto3-scalar repeated field surfaces the meta key.
   repeated int32 tags = 4 [packed = false];
+
+  // detached preamble routed by protocompile as a detached
+  // comment block (blank line below separates it from the next
+  // declaration).
+
+  // marker exercises the detached-comment attachment rule —
+  // both this immediate leading comment AND the preamble above
+  // land on the field's DocLines.
+  string marker = 5;
 }

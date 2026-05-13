@@ -7,6 +7,7 @@ import (
 	"slices"
 	"testing"
 
+	"go.thesmos.sh/eidos/core/meta"
 	"go.thesmos.sh/eidos/frontend/protobuf"
 	"go.thesmos.sh/eidos/node"
 )
@@ -176,6 +177,18 @@ func TestConvert_FieldFlagMeta(t *testing.T) {
 		id := user.FieldByName("id")
 		if _, ok := protobuf.MetaFieldDeprecated.Get(id.Meta()); ok {
 			t.Fatalf("non-deprecated field id should not carry proto.field.deprecated")
+		}
+		// Coexistence: the convenience alias and the raw option
+		// channel both stamp. Plugins targeting the alias path get
+		// the typed bool; plugins iterating proto.option.* see the
+		// same value under the standard name.
+		raw := meta.EnsureKey(protobuf.MetaOptionPrefix+"deprecated", meta.BoolParser)
+		rawVal, rawOK := raw.Get(legacy.Meta())
+		if !rawOK || !rawVal {
+			t.Fatalf(
+				"expected proto.option.deprecated = true alongside the alias; got (%v, %v)",
+				rawVal, rawOK,
+			)
 		}
 	})
 

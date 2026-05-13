@@ -1,0 +1,43 @@
+// wellknown.proto exercises the well-known-type detection rule:
+// every reference to a documented `google.protobuf.*` type
+// stamps the bare name on the produced TypeRef via the
+// proto.wellknown meta key.
+syntax = "proto3";
+
+package eidos.protobuf.testdata.wellknown;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/any.proto";
+import "google/protobuf/field_mask.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/wrappers.proto";
+
+// Event references each well-known utility type so the
+// stamping path sees one field per documented case.
+message Event {
+  google.protobuf.Timestamp at = 1;
+  google.protobuf.Duration  span = 2;
+  google.protobuf.Any       payload = 3;
+  google.protobuf.FieldMask mask = 4;
+  google.protobuf.Struct    metadata = 5;
+  google.protobuf.Value     dynamic = 6;
+  google.protobuf.ListValue items = 7;
+  google.protobuf.Empty     done = 8;
+  google.protobuf.NullValue null = 9;
+}
+
+// Wrapped references each scalar-wrapper well-known so the
+// stamping path sees one field per scalar form too.
+message Wrapped {
+  google.protobuf.BoolValue   b = 1;
+  google.protobuf.StringValue s = 2;
+  google.protobuf.Int32Value  i32 = 3;
+  google.protobuf.Int64Value  i64 = 4;
+  google.protobuf.UInt32Value u32 = 5;
+  google.protobuf.UInt64Value u64 = 6;
+  google.protobuf.FloatValue  f32 = 7;
+  google.protobuf.DoubleValue f64 = 8;
+  google.protobuf.BytesValue  bs = 9;
+}
