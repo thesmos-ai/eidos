@@ -168,6 +168,7 @@ func Run(t *testing.T, opts RunOptions) Result {
 		WithFrontend(fe).
 		WithBackend(opts.Backend).
 		WithSink(opts.Sink).
+		WithSourceRoot(FixtureRoot(t)).
 		WithPluginOptions(fe.Name(), feOpts)
 	if opts.Layout != "" {
 		b = b.WithOutputLayout(opts.Layout)
