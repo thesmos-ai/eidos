@@ -11,10 +11,10 @@ import (
 	"text/template"
 
 	"go.thesmos.sh/eidos/backend/golang"
+	"go.thesmos.sh/eidos/backend/golang/testdata/pluginfixture"
 	"go.thesmos.sh/eidos/core/diag"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/plugin"
-	"go.thesmos.sh/eidos/pluginfixture"
 	"go.thesmos.sh/eidos/testpipe"
 )
 

@@ -1,7 +1,7 @@
 // Copyright Thesmos B.V. 2026
 // SPDX-License-Identifier: MIT
 
-package protopipe_test
+package protogo_test
 
 import (
 	"os"
@@ -67,7 +67,7 @@ func TestCrossFrontend_MarkerScope(t *testing.T) {
 		}
 		if err := gf.Load(&plugin.FrontendContext{
 			Store: s, Diag: d, Registry: registry, Parser: parser, Cache: nopCache,
-			Pattern: "go.thesmos.sh/eidos/pluginfixture",
+			Pattern: "go.thesmos.sh/eidos/backend/golang/testdata/pluginfixture",
 		}); err != nil {
 			t.Fatalf("golang Load: %v", err)
 		}
@@ -81,7 +81,7 @@ func TestCrossFrontend_MarkerScope(t *testing.T) {
 			switch p.Path {
 			case "eidos.protobuf.testdata.simple":
 				protoPkg = p
-			case "go.thesmos.sh/eidos/pluginfixture":
+			case "go.thesmos.sh/eidos/backend/golang/testdata/pluginfixture":
 				goPkg = p
 			}
 			return true
@@ -137,7 +137,7 @@ func TestCrossFrontend_BridgeAuditScope(t *testing.T) {
 		}
 		if err := gf.Load(&plugin.FrontendContext{
 			Store: s, Diag: d, Registry: registry, Parser: parser, Cache: nopCache,
-			Pattern: "go.thesmos.sh/eidos/pluginfixture",
+			Pattern: "go.thesmos.sh/eidos/backend/golang/testdata/pluginfixture",
 		}); err != nil {
 			t.Fatalf("golang Load: %v", err)
 		}
