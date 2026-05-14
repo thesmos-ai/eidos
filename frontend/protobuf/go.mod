@@ -4,7 +4,7 @@ go 1.26.2
 
 require (
 	github.com/bufbuild/protocompile v0.14.1
-	go.thesmos.sh/eidos v0.0.0-00010101000000-000000000000
+	go.thesmos.sh/eidos v1.0.0
 	google.golang.org/protobuf v1.34.2
 )
 
