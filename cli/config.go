@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"go.yaml.in/yaml/v4"
+	"github.com/goccy/go-yaml"
 
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/pipeline"
@@ -265,8 +265,9 @@ func LoadConfig(path string) (*Config, error) {
 //	// + embedder-side validation for cfg.App.
 //
 // target must be pre-seeded with whatever defaults the embedder
-// wants populated for omitted YAML keys — `yaml.Unmarshal` only
-// overwrites the keys the file mentions. Inline embedding is
+// wants populated for omitted YAML keys — goccy/go-yaml's
+// `yaml.Unmarshal` only overwrites the keys the file mentions.
+// Inline embedding is
 // recommended so the framework's keys and the extension's keys
 // share one flat YAML namespace.
 //

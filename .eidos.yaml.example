@@ -1,0 +1,237 @@
+# .eidos.yaml — full reference configuration
+#
+# Discovery: the CLI walks up from the working directory looking for
+# `.<brand>.yaml` (default `.eidos.yaml`). Override with --config <path>.
+# A missing file is not an error; the framework defaults apply.
+#
+# Every key shown here is optional except `version`. Fields commented
+# out below carry their documented default value at runtime — they are
+# included only to make the schema discoverable. The schema is defined
+# in cli/config.go; validation runs in cli.ValidateConfig.
+
+# Schema version of this file. Must equal cli.ConfigVersion (currently 1).
+# A mismatched value is a hard error.
+version: 1
+
+# ---------------------------------------------------------------------
+# sources — per-frontend input descriptors.
+#
+# Each entry names a registered frontend (matched against Plugin.Name())
+# and supplies the patterns the frontend's Load() receives. Patterns are
+# frontend-specific:
+#   - golang   → Go-style import paths or globs (e.g. "./...", "./pkg/...")
+#   - protobuf → proto-source directories or files
+#
+# CLI positional args after `eidos run` override these patterns.
+# ---------------------------------------------------------------------
+sources:
+  - frontend: golang
+    patterns:
+      - "./..."
+  # - frontend: protobuf
+  #   patterns:
+  #     - "./proto/..."
+
+# ---------------------------------------------------------------------
+# plugins — overlay onto the binary's statically-compiled plugin slice.
+#
+# Semantics (cli/build.go:filterEnabledPlugins):
+#   - A plugin NOT mentioned here stays enabled (the binary compiled it in).
+#   - A plugin mentioned with `enabled: false` is disabled for this run.
+#   - A plugin mentioned with `enabled: true` (or omitted) is enabled;
+#     the entry's purpose is to attach options or per-plugin output overrides.
+#   - A plugin named here but missing from the binary's slice is a hard error.
+#
+# Plugin options are a free-form map[string]any validated against each
+# plugin's OptionsSchema (the `eidos:"..."` struct tags) at Build time.
+# Defaults below match the plugins shipped in this repository.
+# ---------------------------------------------------------------------
+plugins:
+  # ---- Frontends ---------------------------------------------------------
+
+  - name: golang
+    # enabled: true
+    options:
+      include_tests: false           # include *_test.go declarations
+      build_tags: ""                 # space-separated build tags
+      skip_cgo_files: true           # drop cgo-synthesized decls
+      skip_generated_files: true     # drop "Code generated ... DO NOT EDIT." files
+      dir: ""                        # working dir for go/packages; "" = process CWD
+
+  - name: protobuf
+    enabled: false                   # disable until you wire proto sources
+    options:
+      dir: ""                        # proto-source search root
+      import_paths: ""               # comma-separated extra import roots
+      include_well_known: true       # google/protobuf/*.proto bundled descriptors
+
+  # ---- Backend -----------------------------------------------------------
+
+  - name: backend.golang
+    # No tunable options today; entry shown for completeness.
+
+  # ---- Bridges (annotators) ---------------------------------------------
+
+  - name: protogo
+    # No tunable options today.
+
+  # ---- Reference generators ---------------------------------------------
+
+  - name: buildergen
+    options:
+      suffix: Builder                # emitted type is <Type><Suffix>
+
+  - name: repogen
+    options:
+      interface_suffix: Repository   # emitted iface is <Type><InterfaceSuffix>
+      struct_suffix: Repo            # emitted struct is <Type><StructSuffix>
+      naming: Pascal                 # Pascal | Camel
+
+  - name: mockgen
+    options:
+      suffix: Mock                   # emitted mock is <Type><Suffix>
+
+  - name: registry-gen
+    options:
+      register_package: log          # import path of the registry package
+      register_func: Print           # function name on that package
+
+  - name: shape-writer
+    # No tunable options; heuristic detector for the io.Writer shape.
+
+  # ---- Reference cross-cutting weavers ----------------------------------
+
+  - name: debug-weaver
+    options:
+      package: log                   # import path of the trace package
+      func: Printf                   # function name
+      format: "debug: %s entered"    # printf-style; %s = "<Type>.<Method>"
+
+  - name: audit-weaver
+    options:
+      package: log
+      func: Printf
+      format: "audit: %s"
+
+  # ---- Per-plugin output overrides (example) ----------------------------
+  #
+  # A plugin entry's optional `output:` block overrides the project-level
+  # routing layer for that plugin's emissions only. Precedence merge is:
+  # framework default → project (cfg.output) → per-plugin → CLI flags.
+  # Same fields and validation as the top-level `output:` block.
+  #
+  # - name: mockgen
+  #   output:
+  #     layout: centralised
+  #     package: mocks
+  #     dir: internal/mocks
+
+# ---------------------------------------------------------------------
+# sink — where the backend writes rendered output.
+#
+# Kind values (cli.SinkKind*):
+#   disk    — write to the filesystem rooted at Env.Workdir (default).
+#   memory  — in-memory sink (testing only).
+#   stdout  — concatenate every file to Env.Stdout (one-shot inspection).
+#   multi   — fan out to multiple sinks; reserved, no constructor wired
+#             in the CLI today (use programmatically via sink.NewMulti).
+# Options is a kind-specific map; unused for `disk` today.
+# ---------------------------------------------------------------------
+sink:
+  kind: disk
+  # options: {}
+
+# ---------------------------------------------------------------------
+# cache — content-addressed memoisation of plugin outputs.
+#
+# Default-enabled. Cache key is hash(plugin version + observed ReadSet),
+# so a hit is equivalent to a recompute. --no-cache on the CLI overrides
+# `enabled: true` for one invocation. `--verify-cache` recomputes and
+# asserts byte-identity against the cached value.
+# ---------------------------------------------------------------------
+cache:
+  enabled: true
+  # dir: ""                          # default: <Workdir>/.<brand>/cache
+
+# ---------------------------------------------------------------------
+# manifest — per-run record of every output file the pipeline produced,
+# attributed to contributing plugins and hashed for change detection.
+# `eidos prune` reads the previous manifest to compute orphan candidates.
+# ---------------------------------------------------------------------
+manifest:
+  # path: ""                         # default: <Workdir>/.<brand>/manifest.json
+
+# ---------------------------------------------------------------------
+# directives — source-comment directive parser configuration.
+#
+# Default prefix is `gen`, so directives are read as `+gen:repo`,
+# `-gen:builder`, `+gen:out file.go`, etc. Change to brand a fork.
+# ---------------------------------------------------------------------
+directives:
+  prefix: gen
+
+# ---------------------------------------------------------------------
+# parallel — opt phases into within-bucket parallel execution.
+# Sequential is the default for every phase. Recognised values:
+#   frontend   — parallelises frontend × pattern combinations.
+#   annotator  — parallelises annotators with disjoint Provides.
+#   generator  — parallelises generators that implement plugin.NodesOnly.
+# Unrecognised values are silently dropped.
+# ---------------------------------------------------------------------
+# parallel:
+#   - frontend
+#   - annotator
+#   - generator
+
+# ---------------------------------------------------------------------
+# envelope — extra lines woven into the rendered header / footer.
+#
+# header_prefix    — lines prepended above the standard `// Code generated ...`
+# header_suffix    — lines appended below the standard header block
+# footer_suffix    — lines appended after the brand provenance footer
+# sources_override — replaces the auto-aggregated `Source:` header lines
+#                    (useful for programmatic invocations with no source files)
+# ---------------------------------------------------------------------
+envelope:
+  # header_prefix:
+  #   - "// Copyright 2026 ACME Corp."
+  #   - "// SPDX-License-Identifier: Apache-2.0"
+  # header_suffix: []
+  # footer_suffix: []
+  # sources_override: []
+
+# ---------------------------------------------------------------------
+# verbose — surface Info diagnostics. The CLI --verbose flag overrides
+# this when set on the command line.
+# ---------------------------------------------------------------------
+verbose: false
+
+# ---------------------------------------------------------------------
+# output — project-wide routing-layer policy. Per-plugin overrides nest
+# under each plugin entry's `output:` block above. CLI flags
+# (-layout / -p / -output-dir / -o) win over both.
+#
+# layout values (pipeline.Layout*):
+#   alongside-source — rendered file sits next to its originating source
+#                      file, in the source package. Framework default.
+#                      Package and Dir are derived from origin.
+#   centralised      — rendered file lands in a configured shared
+#                      directory under a configured package, regardless
+#                      of origin. Package is REQUIRED in this mode.
+#
+# Validation rules:
+#   - layout must be empty, "alongside-source", or "centralised"
+#   - layout=centralised requires a non-empty package (project- or
+#     plugin-level)
+#   - dir under non-centralised effective layout produces a warning
+#     (the directory is ignored at routing time)
+# ---------------------------------------------------------------------
+output:
+  layout: alongside-source
+  # package: ""
+  # dir: ""
+  #
+  # Centralised example:
+  # layout: centralised
+  # package: gen
+  # dir: internal/gen

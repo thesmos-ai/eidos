@@ -3,20 +3,11 @@
 
 package cli
 
-import (
-	"errors"
-
-	"go.yaml.in/yaml/v4"
-)
-
-// yamlError translates a yaml.v4 error into a [*ConfigError]
-// carrying the file path and the underlying message. yaml.v4
-// surfaces structured load errors as [*yaml.LoadErrors]; lexer /
-// syntax faults arrive as bare errors with embedded position
-// information in the message.
+// yamlError translates a goccy/go-yaml decode error into a
+// [*ConfigError] carrying the file path and the underlying
+// message. goccy/go-yaml embeds line/column information in the
+// error string, so wrapping it verbatim preserves position
+// context for the diagnostic sink.
 func yamlError(path string, err error) error {
-	if le, ok := errors.AsType[*yaml.LoadErrors](err); ok {
-		return &ConfigError{Path: path, Reason: le.Error()}
-	}
 	return &ConfigError{Path: path, Reason: err.Error()}
 }

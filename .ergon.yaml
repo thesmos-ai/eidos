@@ -79,6 +79,16 @@ bench:
 release:
   modules: []
 
+lint:
+  # error-prefix — `ergon check error-prefix`
+  #
+  # Convention: every errors.New / fmt.Errorf sentinel begins with
+  # "<pkg-name>: " where <pkg-name> matches the `package` clause
+  # of the declaring file. Avoids the "two packages, same generic
+  # error string" debugging trap in multi-module repos.
+  error_prefix:
+    target_dirs: ["."]
+
 # checks — `ergon check` umbrella
 checks:
   # Path globs both coverage AND mutation ignore. The reasons are
@@ -216,15 +226,6 @@ checks:
       workers: 2
       test_cpu: 2
       timeout_coefficient: 30
-
-  # error-prefix — `ergon check error-prefix`
-  #
-  # Convention: every errors.New / fmt.Errorf sentinel begins with
-  # "<pkg-name>: " where <pkg-name> matches the `package` clause
-  # of the declaring file. Avoids the "two packages, same generic
-  # error string" debugging trap in multi-module repos.
-  error_prefix:
-    target_dirs: ["."]
 
   # commit-msg — `ergon check commit-msg <file>`
   #

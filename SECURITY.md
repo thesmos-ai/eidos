@@ -7,7 +7,7 @@ latest tagged release.
 
 ## Reporting a vulnerability
 
-Please report security issues privately to **ai@stealthscale.io**.
+Please report security issues privately to **security@thesmos.sh**.
 
 Include:
 
