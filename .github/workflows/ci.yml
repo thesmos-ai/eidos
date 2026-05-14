@@ -35,7 +35,7 @@ jobs:
           cache: true
 
       - name: Install ergon
-        run: go install github.com/thesm-os/ergon/cmd/ergon@${{ env.ERGON_VERSION }}
+        run: go install go.thesmos.sh/ergon/cmd/ergon@${{ env.ERGON_VERSION }}
 
       - name: Install development tools
         run: make bootstrap
@@ -57,7 +57,7 @@ jobs:
           cache: true
 
       - name: Install ergon
-        run: go install github.com/thesm-os/ergon/cmd/ergon@${{ env.ERGON_VERSION }}
+        run: go install go.thesmos.sh/ergon/cmd/ergon@${{ env.ERGON_VERSION }}
 
       - name: Run tests under the race detector
         run: make test-race
