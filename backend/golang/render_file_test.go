@@ -9,10 +9,10 @@ import (
 	"testing"
 
 	"go.thesmos.sh/eidos/backend/golang"
+	"go.thesmos.sh/eidos/eidostest/pipelinetest"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/store"
-	"go.thesmos.sh/eidos/testpipe"
 )
 
 // TestFileCompose_SharedTargetTwoPlugins covers the happy-path of
@@ -318,7 +318,7 @@ func TestFileCompose_Goldens(t *testing.T) {
 			}},
 		})
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "file_compose_shared_target.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "file_compose_shared_target.go.golden"))
 	})
 
 	t.Run("file_compose_init_block — three-plugin init composition", func(t *testing.T) {
@@ -343,6 +343,6 @@ func TestFileCompose_Goldens(t *testing.T) {
 			"boot", "Boot", target, fieldSpec{name: "Ready", builtin: "bool"},
 		)))
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "file_compose_init_block.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "file_compose_init_block.go.golden"))
 	})
 }

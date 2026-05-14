@@ -11,8 +11,8 @@ import (
 	"sort"
 	"testing"
 
+	"go.thesmos.sh/eidos/eidostest/pipelinetest"
 	"go.thesmos.sh/eidos/node"
-	"go.thesmos.sh/eidos/testpipe"
 )
 
 // goldenRoot is the absolute path of the testdata/golden directory,
@@ -69,7 +69,7 @@ func TestFrontend_Golden(t *testing.T) {
 // runGoldenFixture loads every Go source file under dir as the
 // frontend's source map, drives the converter, and asserts the
 // resulting [*node.Package] JSON against `dir/expected.json` via
-// [testpipe.MatchesGoldenBytes]. Fixtures with no `.go` files fail
+// [pipelinetest.MatchesGoldenBytes]. Fixtures with no `.go` files fail
 // fast — every fixture must declare at least one source file.
 //
 // Multi-file fixtures preserve the file basename as the source-map
@@ -87,7 +87,7 @@ func runGoldenFixture(t *testing.T, dir string) {
 		t.Fatalf("marshal package: %v", err)
 	}
 	body = append(body, '\n')
-	testpipe.MatchesGoldenBytes(t, body, filepath.Join(dir, "expected.json"))
+	pipelinetest.MatchesGoldenBytes(t, body, filepath.Join(dir, "expected.json"))
 }
 
 // readFixtureSources collects every `*.go` file directly under dir

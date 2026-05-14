@@ -12,9 +12,9 @@ import (
 
 	"go.thesmos.sh/eidos/backend/golang"
 	"go.thesmos.sh/eidos/core/diag"
+	"go.thesmos.sh/eidos/eidostest/pipelinetest"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/plugin"
-	"go.thesmos.sh/eidos/testpipe"
 )
 
 // TestSlots_StructFields_AppendByPluginTopo covers the cross-cutting
@@ -812,7 +812,7 @@ func TestSlots_StructSlot_Goldens(t *testing.T) {
 		}
 		addEmitPackage(t, ctx, emitPackage("users", host))
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "slot_struct_methods.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "slot_struct_methods.go.golden"))
 	})
 
 	t.Run("slot_function_prebody — three-plugin prebody composition", func(t *testing.T) {
@@ -846,6 +846,6 @@ func TestSlots_StructSlot_Goldens(t *testing.T) {
 			Functions: []*emit.Function{fn},
 		})
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "slot_function_prebody.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "slot_function_prebody.go.golden"))
 	})
 }

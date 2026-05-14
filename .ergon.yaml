@@ -89,31 +89,21 @@ checks:
         Test inputs, not subjects of coverage. Frameworks load
         these via packages.Load / protocompile; the files are
         fixtures, not production code.
-    - path: "**/buildfixture/**"
-      reason: |
-        Go-buildable proto-bridge fixture inside the protopipe
-        harness. Input to the toolchain compile check, not a
-        subject of coverage.
     - path: "pluginfixture/**"
       reason: |
         Sample Go types loaded as fixture input by tests in
         downstream modules. No logic to test; 0% is correct.
-    - path: "eidostest/**"
-      reason: |
-        Cross-module integration test harness. Its tests cover
-        framework modules (via demopipe / protopipe / integration
-        suites), not itself.
     - path: "bridge/protogo/**"
       reason: |
-        Bridge annotator is exercised end-to-end by
-        eidostest/integration/protogo/. Local coverage looks low
-        because the suite that exercises it lives downstream;
-        exclude until cross-module coverage merging exists.
+        Bridge annotator's exhaustive coverage lives in a
+        downstream conformance suite that has not yet been
+        rebuilt against eidostest/plugintest. Excluded until
+        that suite lands.
     - path: "reference/**"
       reason: |
-        Reference plugin behavior is gated by
-        eidostest/integration/<plugin>/. Same cross-module
-        coverage limitation as bridge/protogo.
+        Reference plugin coverage lives in conformance suites
+        that have not yet been rebuilt against
+        eidostest/plugintest. Excluded until those land.
     - path: "**/*.gen.go"
       reason: generated code; the generator's own tests cover it.
     - path: "**/*.gen_test.go"
@@ -159,10 +149,24 @@ checks:
         line: 95
       - path: "./store/..."
         line: 95
-      - path: "./storefixture/..."
+
+      # eidostest/ sub-packages — the test infrastructure layer.
+      # pipelinetest and storefixture are at 100%; plugintest and
+      # frontendtest are newer and have a few panic-recovery
+      # branches that are exercised by behaviour but not by line
+      # count. backendtest's harness has a few defensive guard
+      # paths the suite intentionally leaves untested (nil-sink
+      # fallbacks, etc.).
+      - path: "./eidostest/pipelinetest/..."
         line: 95
-      - path: "./testpipe/..."
+      - path: "./eidostest/storefixture/..."
         line: 95
+      - path: "./eidostest/plugintest/..."
+        line: 75
+      - path: "./eidostest/frontendtest/..."
+        line: 70
+      - path: "./eidostest/backendtest/..."
+        line: 80
 
       # High but not perfect coverage. emit carries the isRef
       # marker pattern (handled by the skip rule); the others have
@@ -185,9 +189,10 @@ checks:
         line: 70
 
       # Per-module floors. backend/golang's bridge-render helpers
-      # are exercised through eidostest/integration/protogo; the
-      # 80% floor accommodates that without masking unit-test
-      # regressions on the rest.
+      # are exercised through conformance suites that have not yet
+      # been rebuilt against eidostest/plugintest; the 80% floor
+      # accommodates that gap without masking unit-test regressions
+      # on the rest.
       - path: "./backend/golang/..."
         line: 80
       - path: "./frontend/golang/..."

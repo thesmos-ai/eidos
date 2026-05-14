@@ -13,9 +13,9 @@ import (
 	"go.thesmos.sh/eidos/backend/golang"
 	"go.thesmos.sh/eidos/backend/golang/testdata/pluginfixture"
 	"go.thesmos.sh/eidos/core/diag"
+	"go.thesmos.sh/eidos/eidostest/pipelinetest"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/plugin"
-	"go.thesmos.sh/eidos/testpipe"
 )
 
 // TestMerge_FuncCollision covers the funcmap-extension pass: a
@@ -302,7 +302,7 @@ func TestMerge_PluginDefinedKindRoundTrip(t *testing.T) {
 		if !strings.Contains(string(body), "type User struct {") {
 			t.Fatalf("expected core Struct decl in body; got:\n%s", body)
 		}
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "plugin_kind_round_trip.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "plugin_kind_round_trip.go.golden"))
 	})
 }
 

@@ -10,11 +10,11 @@ import (
 
 	"go.thesmos.sh/eidos/backend/golang"
 	"go.thesmos.sh/eidos/core/diag"
+	"go.thesmos.sh/eidos/eidostest/pipelinetest"
 	"go.thesmos.sh/eidos/eidostest/plugintest"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/sink"
-	"go.thesmos.sh/eidos/testpipe"
 )
 
 // TestBackend_Name covers the stable plugin identifier.
@@ -182,7 +182,7 @@ func TestBackend_Golden(t *testing.T) {
 			fieldSpec{name: "Name", builtin: "string"},
 		)))
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "envelope_full.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "envelope_full.go.golden"))
 	})
 
 	t.Run("envelope_branded — Brand substitutes header marker and footer EOGC", func(t *testing.T) {
@@ -195,7 +195,7 @@ func TestBackend_Golden(t *testing.T) {
 			fieldSpec{name: "F", builtin: "int"},
 		)))
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "envelope_branded.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "envelope_branded.go.golden"))
 	})
 
 	t.Run("envelope_customised — HeaderPrefix/Suffix + FooterSuffix", func(t *testing.T) {
@@ -216,7 +216,7 @@ func TestBackend_Golden(t *testing.T) {
 			fieldSpec{name: "ID", builtin: "int"},
 		)))
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "envelope_customised.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "envelope_customised.go.golden"))
 	})
 
 	t.Run("envelope_minimal — bare DO NOT EDIT + body + hash", func(t *testing.T) {
@@ -231,7 +231,7 @@ func TestBackend_Golden(t *testing.T) {
 			fieldSpec{name: "F", builtin: "int"},
 		)))
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "envelope_minimal.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "envelope_minimal.go.golden"))
 	})
 
 	t.Run("struct_simple — no imports", func(t *testing.T) {
@@ -244,7 +244,7 @@ func TestBackend_Golden(t *testing.T) {
 			fieldSpec{name: "Name", builtin: "string"},
 		)))
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "struct_simple.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "struct_simple.go.golden"))
 	})
 
 	t.Run("struct_stdlib_import — context.Context field", func(t *testing.T) {
@@ -256,7 +256,7 @@ func TestBackend_Golden(t *testing.T) {
 			Fields: []*emit.Field{{Name: "Ctx", Type: emit.External("context", "Context")}},
 		}))
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "struct_stdlib_import.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "struct_stdlib_import.go.golden"))
 	})
 
 	t.Run("struct_external_import — third-party type", func(t *testing.T) {
@@ -268,7 +268,7 @@ func TestBackend_Golden(t *testing.T) {
 			Fields: []*emit.Field{{Name: "Inner", Type: emit.External("github.com/example/lib", "Item")}},
 		}))
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "struct_external_import.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "struct_external_import.go.golden"))
 	})
 
 	t.Run("struct_multi_import — stdlib + external regrouped", func(t *testing.T) {
@@ -284,7 +284,7 @@ func TestBackend_Golden(t *testing.T) {
 			},
 		}))
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "struct_multi_import.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "struct_multi_import.go.golden"))
 	})
 
 	t.Run("struct_with_docs — DocLines render as // above the decl", func(t *testing.T) {
@@ -307,7 +307,7 @@ func TestBackend_Golden(t *testing.T) {
 			},
 		}))
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "struct_with_docs.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "struct_with_docs.go.golden"))
 	})
 
 	t.Run("struct_with_directive_in_docs — directive lines ride DocLines, rendered verbatim", func(t *testing.T) {
@@ -329,7 +329,7 @@ func TestBackend_Golden(t *testing.T) {
 			Fields: []*emit.Field{{Name: "ID", Type: emit.Builtin("int")}},
 		}))
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "struct_with_directive_in_docs.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "struct_with_directive_in_docs.go.golden"))
 	})
 
 	t.Run("package_with_docs — emit.Package.DocLines surface above package decl", func(t *testing.T) {
@@ -356,7 +356,7 @@ func TestBackend_Golden(t *testing.T) {
 		}
 		addEmitPackage(t, ctx, pkg)
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "package_with_docs.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "package_with_docs.go.golden"))
 	})
 
 	t.Run("struct_with_field_annotations — field docs, tags, line comments", func(t *testing.T) {
@@ -397,7 +397,7 @@ func TestBackend_Golden(t *testing.T) {
 			},
 		}))
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "struct_with_field_annotations.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "struct_with_field_annotations.go.golden"))
 	})
 
 	t.Run("struct_alias_collision — suffix-2 deterministic alias", func(t *testing.T) {
@@ -412,7 +412,7 @@ func TestBackend_Golden(t *testing.T) {
 			},
 		}))
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "struct_alias_collision.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "struct_alias_collision.go.golden"))
 	})
 
 	t.Run("interface_simple — methods + embeds", func(t *testing.T) {
@@ -436,7 +436,7 @@ func TestBackend_Golden(t *testing.T) {
 			}},
 		})
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "interface_simple.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "interface_simple.go.golden"))
 	})
 
 	t.Run("alias_definition — type X int", func(t *testing.T) {
@@ -452,7 +452,7 @@ func TestBackend_Golden(t *testing.T) {
 			}},
 		})
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "alias_definition.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "alias_definition.go.golden"))
 	})
 
 	t.Run("alias_alias — type X = Y", func(t *testing.T) {
@@ -468,7 +468,7 @@ func TestBackend_Golden(t *testing.T) {
 			}},
 		})
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "alias_alias.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "alias_alias.go.golden"))
 	})
 
 	t.Run("variable_combinations — typed/inferred/no-init", func(t *testing.T) {
@@ -495,7 +495,7 @@ func TestBackend_Golden(t *testing.T) {
 			},
 		})
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "variable_combinations.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "variable_combinations.go.golden"))
 	})
 
 	t.Run("constant_combinations — untyped/typed/iota", func(t *testing.T) {
@@ -522,7 +522,7 @@ func TestBackend_Golden(t *testing.T) {
 			},
 		})
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "constant_combinations.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "constant_combinations.go.golden"))
 	})
 
 	t.Run("struct_embeds — adjacent embeds + fields", func(t *testing.T) {
@@ -542,7 +542,7 @@ func TestBackend_Golden(t *testing.T) {
 			}},
 		})
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "struct_embeds.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "struct_embeds.go.golden"))
 	})
 
 	t.Run("generic_struct — single-term constraint", func(t *testing.T) {
@@ -562,7 +562,7 @@ func TestBackend_Golden(t *testing.T) {
 			}},
 		})
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "generic_struct.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "generic_struct.go.golden"))
 	})
 
 	t.Run("generic_union — type-set constraint with approx terms", func(t *testing.T) {
@@ -589,7 +589,7 @@ func TestBackend_Golden(t *testing.T) {
 			}},
 		})
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "generic_union.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "generic_union.go.golden"))
 	})
 
 	t.Run("field_tag_aggregation — base + slot contributors", func(t *testing.T) {
@@ -617,7 +617,7 @@ func TestBackend_Golden(t *testing.T) {
 			}},
 		})
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "field_tag_aggregation.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "field_tag_aggregation.go.golden"))
 	})
 
 	t.Run("var_with_funclit_init — Stmt + Expr through ExprFuncLit", func(t *testing.T) {
@@ -656,7 +656,7 @@ func TestBackend_Golden(t *testing.T) {
 			}},
 		})
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "var_with_funclit_init.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "var_with_funclit_init.go.golden"))
 	})
 
 	t.Run("function_simple — params, returns, body", func(t *testing.T) {
@@ -681,7 +681,7 @@ func TestBackend_Golden(t *testing.T) {
 			}},
 		})
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "function_simple.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "function_simple.go.golden"))
 	})
 
 	t.Run("method_on_struct — struct + pointer-receiver method", func(t *testing.T) {
@@ -708,7 +708,7 @@ func TestBackend_Golden(t *testing.T) {
 		}}
 		addEmitPackage(t, ctx, emitPackage("counter", host))
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "method_on_struct.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "method_on_struct.go.golden"))
 	})
 
 	t.Run("enum_typed_iota — typed iota promotion with docs", func(t *testing.T) {
@@ -742,7 +742,7 @@ func TestBackend_Golden(t *testing.T) {
 			}},
 		})
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "enum_typed_iota.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "enum_typed_iota.go.golden"))
 	})
 
 	t.Run("struct_composite_fields — pointer/slice/array/map/func", func(t *testing.T) {
@@ -766,7 +766,7 @@ func TestBackend_Golden(t *testing.T) {
 			}},
 		})
 		body := assertRenderSucceeds(t, ctx, mem, d, target)
-		testpipe.MatchesGoldenBytes(t, body, goldenPath(t, "struct_composite_fields.go.golden"))
+		pipelinetest.MatchesGoldenBytes(t, body, goldenPath(t, "struct_composite_fields.go.golden"))
 	})
 }
 

@@ -259,7 +259,7 @@ linters:
       # Test helpers and test files may use panic() for unreachable
       # guards, return (nil, nil) from stubs, and have apparently-
       # unused params (table-driven scaffolding).
-      - path: '(_test\.go|testpipe/)'
+      - path: '(_test\.go|eidostest/pipelinetest/)'
         linters: [forbidigo, nilnil, unparam]
 
       # fieldalignment is noise for non-hot-path structs.
@@ -276,9 +276,9 @@ linters:
       - path: "(cli/|cmd/eidos/)"
         linters: [forbidigo]
 
-      # testpipe/ runs full pipelines that share a working directory
+      # pipelinetest runs full pipelines that share a working directory
       # and golden files; tests cannot always be parallelized.
-      - path: "testpipe/"
+      - path: "pipelinetest/"
         linters: [paralleltest]
 
 formatters:
