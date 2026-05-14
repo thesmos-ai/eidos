@@ -801,7 +801,78 @@ func assertRenderSucceeds(
 // deterministic capability ordering, unique directive schema
 // names, non-empty Versioned version) so a regression on any
 // of them surfaces here before downstream tests trip over it.
+//
+// The per-role [plugintest.RunBackendSuite] adds byte-stability
+// and diagnostic-discipline checks against representative emit
+// fixtures: the backend's deterministic-render contract is the
+// foundation of byte-identical CI rebuilds and the pipeline's
+// manifest provenance hashing.
 func TestConformance(t *testing.T) {
 	t.Parallel()
-	plugintest.RunSuite(t, golang.New())
+
+	t.Run("framework contracts", func(t *testing.T) {
+		t.Parallel()
+		plugintest.RunSuite(t, golang.New())
+	})
+
+	t.Run("backend contracts", func(t *testing.T) {
+		t.Parallel()
+		plugintest.RunBackendSuite(
+			t,
+			golang.New(),
+			[]plugintest.BackendFixture{
+				{
+					Name: "single struct in one package",
+					BuildEmitPackages: func(t *testing.T) []*emit.Package {
+						t.Helper()
+						return []*emit.Package{{
+							Name: "demo",
+							Path: "example.com/demo",
+							Structs: []*emit.Struct{{
+								Name:    "User",
+								Package: "demo",
+								Target: emit.Target{
+									Dir:      "demo",
+									Filename: "user_gen.go",
+									Package:  "demo",
+								},
+							}},
+						}}
+					},
+					Command: "test-fixture",
+				},
+				{
+					Name: "two structs in one package",
+					BuildEmitPackages: func(t *testing.T) []*emit.Package {
+						t.Helper()
+						return []*emit.Package{{
+							Name: "demo",
+							Path: "example.com/demo",
+							Structs: []*emit.Struct{
+								{
+									Name:    "User",
+									Package: "demo",
+									Target: emit.Target{
+										Dir:      "demo",
+										Filename: "user_gen.go",
+										Package:  "demo",
+									},
+								},
+								{
+									Name:    "Order",
+									Package: "demo",
+									Target: emit.Target{
+										Dir:      "demo",
+										Filename: "order_gen.go",
+										Package:  "demo",
+									},
+								},
+							},
+						}}
+					},
+					Command: "test-fixture",
+				},
+			},
+		)
+	})
 }

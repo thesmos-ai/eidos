@@ -4,6 +4,7 @@
 package golang_test
 
 import (
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -87,9 +88,38 @@ func TestFrontend_EmitVersions(t *testing.T) {
 // against this package's plugin. The suite pins the standard
 // framework contracts (stable Name, role-interface compliance,
 // deterministic capability ordering, unique directive schema
-// names, non-empty Versioned version) so a regression on any
-// of them surfaces here before downstream tests trip over it.
+// names, non-empty Versioned version) plus the per-role
+// frontend contracts (empty-pattern panic recovery, determinism
+// across two runs of the same source fixture).
 func TestConformance(t *testing.T) {
 	t.Parallel()
-	plugintest.RunSuite(t, golang.New())
+
+	t.Run("framework contracts", func(t *testing.T) {
+		t.Parallel()
+		plugintest.RunSuite(t, golang.New())
+	})
+
+	t.Run("frontend contracts", func(t *testing.T) {
+		t.Parallel()
+		plugintest.RunFrontendSuite(
+			t,
+			golang.New(),
+			[]plugintest.FrontendFixture{
+				{
+					Name:    "basic_struct fixture",
+					Pattern: "./...",
+					Options: map[string]string{
+						"dir": filepath.Join(goldenRoot, "basic_struct"),
+					},
+				},
+				{
+					Name:    "interface_with_methods fixture",
+					Pattern: "./...",
+					Options: map[string]string{
+						"dir": filepath.Join(goldenRoot, "interface_with_methods"),
+					},
+				},
+			},
+		)
+	})
 }

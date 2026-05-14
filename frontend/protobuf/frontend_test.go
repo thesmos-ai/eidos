@@ -4,6 +4,8 @@
 package protobuf_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"go.thesmos.sh/eidos/core/opt"
@@ -139,9 +141,45 @@ func assertNoError(t *testing.T, err error) {
 // against this package's plugin. The suite pins the standard
 // framework contracts (stable Name, role-interface compliance,
 // deterministic capability ordering, unique directive schema
-// names, non-empty Versioned version) so a regression on any
-// of them surfaces here before downstream tests trip over it.
+// names, non-empty Versioned version) plus the per-role
+// frontend contracts (empty-pattern panic recovery, determinism
+// across two runs of the same source fixture).
 func TestConformance(t *testing.T) {
 	t.Parallel()
-	plugintest.RunSuite(t, protobuf.New())
+
+	t.Run("framework contracts", func(t *testing.T) {
+		t.Parallel()
+		plugintest.RunSuite(t, protobuf.New())
+	})
+
+	t.Run("frontend contracts", func(t *testing.T) {
+		t.Parallel()
+		// testdata fixtures live alongside this package; use
+		// absolute paths so the suite stays immune to cwd pivots
+		// other tests perform.
+		cwd, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("os.Getwd: %v", err)
+		}
+		plugintest.RunFrontendSuite(
+			t,
+			protobuf.New(),
+			[]plugintest.FrontendFixture{
+				{
+					Name:    "simple proto fixture",
+					Pattern: "./...",
+					Options: map[string]string{
+						"dir": filepath.Join(cwd, "testdata", "simple"),
+					},
+				},
+				{
+					Name:    "messages proto fixture",
+					Pattern: "./...",
+					Options: map[string]string{
+						"dir": filepath.Join(cwd, "testdata", "messages"),
+					},
+				},
+			},
+		)
+	})
 }
