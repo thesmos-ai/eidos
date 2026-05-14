@@ -10,6 +10,7 @@ import (
 	backend_golang "go.thesmos.sh/eidos/backend/golang"
 	"go.thesmos.sh/eidos/bridge/protogo"
 	"go.thesmos.sh/eidos/core/diag"
+	"go.thesmos.sh/eidos/eidostest/plugintest"
 	"go.thesmos.sh/eidos/eidostest/protopipe"
 	"go.thesmos.sh/eidos/frontend/protobuf"
 	"go.thesmos.sh/eidos/node"
@@ -389,4 +390,15 @@ func annotateOnce(t *testing.T, s *store.Store) {
 	if d.HasErrors() {
 		t.Fatalf("expected no error diagnostics; got %+v", d.Diagnostics())
 	}
+}
+
+// TestConformance runs the framework's plugin-conformance suite
+// against the protogo bridge. The suite pins the standard
+// framework contracts (stable Name, role-interface compliance,
+// deterministic capability ordering, unique directive schema
+// names, non-empty Versioned version) so a regression on any
+// of them surfaces here before downstream tests trip over it.
+func TestConformance(t *testing.T) {
+	t.Parallel()
+	plugintest.RunSuite(t, protogo.New())
 }

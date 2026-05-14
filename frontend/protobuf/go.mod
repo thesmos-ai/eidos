@@ -5,9 +5,13 @@ go 1.26.2
 require (
 	github.com/bufbuild/protocompile v0.14.1
 	go.thesmos.sh/eidos v1.0.0
+	go.thesmos.sh/eidos/eidostest v0.0.0-00010101000000-000000000000
 	google.golang.org/protobuf v1.34.2
 )
 
 require golang.org/x/sync v0.20.0 // indirect
 
-replace go.thesmos.sh/eidos => ../../
+replace (
+	go.thesmos.sh/eidos => ../../
+	go.thesmos.sh/eidos/eidostest => ../../eidostest
+)

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"go.thesmos.sh/eidos/core/opt"
+	"go.thesmos.sh/eidos/eidostest/plugintest"
 	"go.thesmos.sh/eidos/frontend/protobuf"
 	"go.thesmos.sh/eidos/plugin"
 )
@@ -132,4 +133,15 @@ func assertNoError(t *testing.T, err error) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+}
+
+// TestConformance runs the framework's plugin-conformance suite
+// against this package's plugin. The suite pins the standard
+// framework contracts (stable Name, role-interface compliance,
+// deterministic capability ordering, unique directive schema
+// names, non-empty Versioned version) so a regression on any
+// of them surfaces here before downstream tests trip over it.
+func TestConformance(t *testing.T) {
+	t.Parallel()
+	plugintest.RunSuite(t, protobuf.New())
 }

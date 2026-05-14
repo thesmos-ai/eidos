@@ -90,7 +90,7 @@ import (
 
     bgolang "go.thesmos.sh/eidos/backend/golang"
     "go.thesmos.sh/eidos/core/position"
-    "go.thesmos.sh/eidos/eidostest/testpipe"
+    "go.thesmos.sh/eidos/testpipe"
     "go.thesmos.sh/eidos/emit"
     "go.thesmos.sh/eidos/emit/builder"
     "go.thesmos.sh/eidos/node"
@@ -450,30 +450,27 @@ carries the contributing plugin's name; every emit entity threads its
 envelope contract and the `imp` / `slot` / `provenance` template
 funcmap entries.
 
-## Test harness
+## Test harnesses
 
-`eidostest/` ships in-tree helpers for unit and integration tests.
+The framework ships four focused test packages downstream
+authors import to verify their plugins / frontends / backends /
+pipelines against the framework's contracts.
 
-`eidostest/storefixture` — fluent builders for hand-crafting a
-source-side node graph without parsing real source:
+`testpipe` (root) — generic pipeline harness. Drives a pipeline
+from caller-supplied plugins over an in-memory sink with
+golden-file diffing. Pairs with `storefixture` for synthetic
+source-graph construction:
 
 ```go
-import "go.thesmos.sh/eidos/eidostest/storefixture"
+import (
+    "go.thesmos.sh/eidos/storefixture"
+    "go.thesmos.sh/eidos/testpipe"
+)
 
 pkg := storefixture.New().
-    Package("users", "example.com/users").
     Struct("User", func(b *storefixture.StructBuilder) {
         b.Field("ID", storefixture.Named("string"), nil)
-        b.Field("Email", storefixture.Named("string"), nil)
-    }).
-    PackageNode()
-```
-
-`eidostest/testpipe` — full pipeline harness over an in-memory sink
-with golden-file diffing:
-
-```go
-import "go.thesmos.sh/eidos/eidostest/testpipe"
+    }).PackageNode()
 
 p := testpipe.New(t).
     WithFrontend(testpipe.FromNodes(pkg)).
@@ -481,17 +478,48 @@ p := testpipe.New(t).
     WithBackend(backend_golang.New()).
     Build()
 p.Run("./...")
-p.AssertFile("user.go").
-    Contains("type User struct").
-    MatchesGolden("testdata/user.go.golden")
+p.AssertFile("user.go").MatchesGolden("testdata/user.go.golden")
 ```
 
-The package registers a `-update-golden` flag; run the test binary
-with `-update-golden` to rewrite golden fixtures atomically.
+`eidostest/plugintest` — plugin-author conformance suite. Runs
+the framework's standard contract checks (stable Name, role-
+interface compliance, deterministic capability ordering, unique
+directive names, non-empty Versioned version) against a plugin
+instance:
 
-`core/diag.Capture()` / `core/diag.Discard()` produce diagnostic
-sinks for tests that respectively assert on or ignore emitted
-diagnostics.
+```go
+import "go.thesmos.sh/eidos/eidostest/plugintest"
+
+func TestMyPlugin_Conformance(t *testing.T) {
+    plugintest.RunSuite(t, myplugin.New())
+}
+```
+
+`eidostest/demopipe` / `eidostest/protopipe` — frontend-author
+harnesses. Each drives the named frontend against a fixture
+directory and surfaces the produced node graph + diagnostics
+for assertions. Build on top of the framework's pipeline
+without re-wiring frontend options each time.
+
+`eidostest/backendtest` — backend-author emit-injection harness.
+Skips the frontend / annotator / generator phases and drives a
+backend's `Render` against pre-built `emit.Package` values with
+`emit.Target` populated:
+
+```go
+import "go.thesmos.sh/eidos/eidostest/backendtest"
+
+result := backendtest.Run(t, backendtest.RunOptions{
+    Backend: mybackend.New(),
+    EmitPackages: []*emit.Package{...},
+})
+```
+
+`testpipe` registers a `-update-golden` flag; run the test
+binary with `-update-golden` to rewrite golden fixtures
+atomically. `core/diag.Capture()` / `core/diag.Discard()`
+produce diagnostic sinks for tests that respectively assert on
+or ignore emitted diagnostics.
 
 ## Project layout
 
@@ -521,10 +549,15 @@ core/                 language-agnostic foundation primitives:
 frontend/golang/      Go AST → node graph + go.* metadata
 backend/golang/       Go renderer: templates, funcmap, ImportSet, gofmt
 
+storefixture/         typed source-graph builders (used by testpipe)
+testpipe/             generic pipeline harness, golden-file diffing
+docaudit/             package-doc vs implemented meta-key audit
+
 eidostest/
-  eidostest/storefixture/   typed source-graph builders
-  eidostest/testpipe/       pipeline harness, golden-file diffing
-  eidostest/pluginfixture/  plugin-defined emit-kind test fixture
+  eidostest/demopipe/      Go-frontend harness for plugin authors
+  eidostest/protopipe/     proto-frontend harness for plugin authors
+  eidostest/plugintest/    plugin-author conformance suite
+  eidostest/backendtest/   backend-author emit-injection harness
 
 docs/
   docs/backend/golang.md    Go-backend contract reference (template set,

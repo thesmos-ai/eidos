@@ -7,6 +7,7 @@ import (
 	"slices"
 	"testing"
 
+	"go.thesmos.sh/eidos/eidostest/plugintest"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/frontend/golang"
 )
@@ -80,4 +81,15 @@ func TestFrontend_EmitVersions(t *testing.T) {
 			t.Fatalf("EmitVersions returned an aliased slice; mutation leaked back into the frontend")
 		}
 	})
+}
+
+// TestConformance runs the framework's plugin-conformance suite
+// against this package's plugin. The suite pins the standard
+// framework contracts (stable Name, role-interface compliance,
+// deterministic capability ordering, unique directive schema
+// names, non-empty Versioned version) so a regression on any
+// of them surfaces here before downstream tests trip over it.
+func TestConformance(t *testing.T) {
+	t.Parallel()
+	plugintest.RunSuite(t, golang.New())
 }

@@ -14,6 +14,7 @@ import (
 	"go.thesmos.sh/eidos/core/opt"
 	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/eidostest/demopipe"
+	"go.thesmos.sh/eidos/eidostest/plugintest"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/pipeline"
@@ -461,4 +462,15 @@ func sliceRef(elem *node.TypeRef) *node.TypeRef {
 // and value types.
 func mapRef(key, value *node.TypeRef) *node.TypeRef {
 	return &node.TypeRef{TypeKind: node.TypeRefMap, MapKey: key, MapValue: value}
+}
+
+// TestConformance runs the framework's plugin-conformance suite
+// against this package's plugin. The suite pins the standard
+// framework contracts (stable Name, role-interface compliance,
+// deterministic capability ordering, unique directive schema
+// names, non-empty Versioned version) so a regression on any
+// of them surfaces here before downstream tests trip over it.
+func TestConformance(t *testing.T) {
+	t.Parallel()
+	plugintest.RunSuite(t, buildergen.New())
 }

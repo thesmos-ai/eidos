@@ -9,6 +9,7 @@ import (
 	backend_golang "go.thesmos.sh/eidos/backend/golang"
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/eidostest/demopipe"
+	"go.thesmos.sh/eidos/eidostest/plugintest"
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/reference/shapewriter"
@@ -353,4 +354,15 @@ func byteSliceRef() *node.TypeRef {
 // pointerRef wraps elem in a Pointer TypeRef.
 func pointerRef(elem *node.TypeRef) *node.TypeRef {
 	return &node.TypeRef{TypeKind: node.TypeRefPointer, Elem: elem}
+}
+
+// TestConformance runs the framework's plugin-conformance suite
+// against this package's plugin. The suite pins the standard
+// framework contracts (stable Name, role-interface compliance,
+// deterministic capability ordering, unique directive schema
+// names, non-empty Versioned version) so a regression on any
+// of them surfaces here before downstream tests trip over it.
+func TestConformance(t *testing.T) {
+	t.Parallel()
+	plugintest.RunSuite(t, shapewriter.New())
 }
