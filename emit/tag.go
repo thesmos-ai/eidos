@@ -3,7 +3,9 @@
 
 package emit
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // Tag is one entry in a [Field]'s struct-tag block (Go's
 // backtick-wrapped tag literal: `json:"name" db:"name"`). Each Tag
@@ -36,4 +38,4 @@ type Tag struct {
 }
 
 // Kind returns [KindTag].
-func (*Tag) Kind() directive.Kind { return KindTag }
+func (*Tag) Kind() kind.Kind { return KindTag }

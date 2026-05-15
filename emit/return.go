@@ -6,7 +6,7 @@ package emit
 import (
 	"errors"
 
-	"go.thesmos.sh/eidos/core/directive"
+	"go.thesmos.sh/eidos/core/kind"
 )
 
 // Return is one return-value slot on a [Function] or [Method].
@@ -36,7 +36,7 @@ type Return struct {
 }
 
 // Kind returns [KindReturn].
-func (*Return) Kind() directive.Kind { return KindReturn }
+func (*Return) Kind() kind.Kind { return KindReturn }
 
 // ErrMixedNamedReturns is returned by render helpers when a
 // function or method's Returns slice mixes named and unnamed

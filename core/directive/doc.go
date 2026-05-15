@@ -28,8 +28,10 @@
 // (Requires / MutuallyExclusiveWith) run over the full set of
 // directives on a node via [Validate], not one-directive-at-a-time.
 //
-// The package owns its own [Name] and [Kind] string-aliased types so
-// schemas and directives remain decoupled from any node-model package;
-// downstream node implementations declare their kind constants as
-// values of directive.Kind without circular imports.
+// The package owns the [Name] string-aliased type and imports
+// the neutral [go.thesmos.sh/eidos/core/kind] package for the
+// [kind.Kind] type [Schema.AppliesTo] scopes against; the type
+// itself lives outside this package so the source-side [node]
+// and emit-side [emit] packages can declare their own kind
+// constants without circular imports.
 package directive

@@ -3,7 +3,9 @@
 
 package emit
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // Enum is the emit-level enum model — a named type plus a set of
 // typed variants. The "variants" slot allows cross-cutting
@@ -33,7 +35,7 @@ type Enum struct {
 }
 
 // Kind returns [KindEnum].
-func (*Enum) Kind() directive.Kind { return KindEnum }
+func (*Enum) Kind() kind.Kind { return KindEnum }
 
 // QName returns the qualified name "Package.Name", or just "Name"
 // when Package is empty.

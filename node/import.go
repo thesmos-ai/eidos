@@ -3,7 +3,9 @@
 
 package node
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // Import is one import declaration — a dependency on another package.
 // Frontends produce one Import per import line in a [File]; the
@@ -34,7 +36,7 @@ type Import struct {
 }
 
 // Kind reports [KindImport].
-func (*Import) Kind() directive.Kind { return KindImport }
+func (*Import) Kind() kind.Kind { return KindImport }
 
 // LocalName returns the locally-visible name for the imported package
 // — the Alias when supplied, otherwise the last `/`-delimited

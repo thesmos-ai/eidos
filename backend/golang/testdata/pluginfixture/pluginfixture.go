@@ -17,15 +17,15 @@ import (
 	"io/fs"
 	"text/template"
 
-	"go.thesmos.sh/eidos/core/directive"
+	"go.thesmos.sh/eidos/core/kind"
 	"go.thesmos.sh/eidos/emit"
 )
 
-// BannerKind is the [directive.Kind] discriminator [Banner]
-// returns from [Banner.Kind]. The dotted form keeps the kind name
-// outside the `emit.*` namespace reserved for core emit types,
-// matching the plugin-defined emit-kind convention.
-const BannerKind directive.Kind = "bannergen.banner"
+// BannerKind is the [kind.Kind] discriminator [Banner] returns
+// from [Banner.Kind]. The dotted form keeps the kind name outside
+// the `emit.*` namespace reserved for core emit types, matching
+// the plugin-defined emit-kind convention.
+const BannerKind kind.Kind = "bannergen.banner"
 
 // Banner is the plugin-defined emit kind this fixture ships. It
 // embeds [emit.BaseEmit] for the standard [emit.Node] methods and
@@ -49,7 +49,7 @@ type Banner struct {
 }
 
 // Kind returns [BannerKind].
-func (*Banner) Kind() directive.Kind { return BannerKind }
+func (*Banner) Kind() kind.Kind { return BannerKind }
 
 // Name is the plugin identifier this fixture registers under. It
 // appears in diagnostic attribution and override Info messages so

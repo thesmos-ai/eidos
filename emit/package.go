@@ -3,7 +3,9 @@
 
 package emit
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // Package is the top-level container for emit declarations targeting
 // one output language-level package. Generators produce Packages
@@ -73,7 +75,7 @@ type Package struct {
 }
 
 // Kind returns [KindPackage].
-func (*Package) Kind() directive.Kind { return KindPackage }
+func (*Package) Kind() kind.Kind { return KindPackage }
 
 // Slot returns the named slot, creating it lazily without an
 // element-kind constraint. Package-level slots support cross-cutting

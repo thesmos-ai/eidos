@@ -3,7 +3,9 @@
 
 package emit
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // BuiltinRef references a language built-in (int, string, bool,
 // any, …) — a type the target language understands without any
@@ -19,7 +21,7 @@ type BuiltinRef struct {
 }
 
 // Kind returns [KindBuiltinRef].
-func (*BuiltinRef) Kind() directive.Kind { return KindBuiltinRef }
+func (*BuiltinRef) Kind() kind.Kind { return KindBuiltinRef }
 
 // isRef marks BuiltinRef as a [Ref] implementation.
 func (*BuiltinRef) isRef() {}

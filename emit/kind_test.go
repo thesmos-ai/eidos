@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"go.thesmos.sh/eidos/core/directive"
+	"go.thesmos.sh/eidos/core/kind"
 	"go.thesmos.sh/eidos/emit"
 )
 
@@ -16,7 +16,7 @@ func TestKindConstants_AreUniqueAndPrefixed(t *testing.T) {
 
 	t.Run("every Kind is non-empty, prefixed emit., and unique", func(t *testing.T) {
 		t.Parallel()
-		all := []directive.Kind{
+		all := []kind.Kind{
 			emit.KindPackage, emit.KindFile, emit.KindImport,
 			emit.KindStruct, emit.KindInterface, emit.KindMethod,
 			emit.KindField, emit.KindFunction, emit.KindVariable,
@@ -25,7 +25,7 @@ func TestKindConstants_AreUniqueAndPrefixed(t *testing.T) {
 			emit.KindTypeRef, emit.KindExternalRef, emit.KindBuiltinRef,
 			emit.KindCompositeRef, emit.KindStmt, emit.KindExpr, emit.KindSlot,
 		}
-		seen := make(map[directive.Kind]struct{}, len(all))
+		seen := make(map[kind.Kind]struct{}, len(all))
 		for _, k := range all {
 			if k == "" {
 				t.Fatalf("found an empty Kind constant")

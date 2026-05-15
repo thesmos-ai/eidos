@@ -3,7 +3,9 @@
 
 package emit
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // labelRaw is the diagnostic name shared by raw escape-hatch variants
 // across the [StmtKind], [ExprKind], and [LiteralKind] discriminators.
@@ -204,7 +206,7 @@ type Stmt struct {
 // Kind returns [KindStmt] regardless of StmtKind — [StmtKind]
 // discriminates *within* the statement family, not across the
 // node hierarchy.
-func (*Stmt) Kind() directive.Kind { return KindStmt }
+func (*Stmt) Kind() kind.Kind { return KindStmt }
 
 // NewBlock returns a [StmtBlock] containing the given statements.
 func NewBlock(stmts ...*Stmt) *Stmt {

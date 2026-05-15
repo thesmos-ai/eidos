@@ -3,6 +3,8 @@
 
 package directive
 
+import "go.thesmos.sh/eidos/core/kind"
+
 // Schema declares the contract for a single directive Name.
 //
 // Registration is opt-in per directive: unregistered names parse and
@@ -19,7 +21,7 @@ type Schema struct {
 
 	// AppliesTo restricts the directive to specific node kinds.
 	// Empty means "any kind".
-	AppliesTo []Kind
+	AppliesTo []kind.Kind
 
 	// Requires lists directive names that must also be present on
 	// the same node when this directive appears.

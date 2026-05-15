@@ -3,10 +3,12 @@
 
 package emit
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // Kind values for every concrete emit type. Declared as
-// [directive.Kind] so directive schemas reference them directly:
+// [kind.Kind] so directive schemas reference them directly:
 //
 //	directive.NewSchema("repo").On(emit.KindStruct)
 //
@@ -15,35 +17,35 @@ import "go.thesmos.sh/eidos/core/directive"
 // produce these — they appear only in the generator-built emit tree.
 const (
 	// Declaration kinds parallel to node.
-	KindPackage     directive.Kind = "emit.package"
-	KindFile        directive.Kind = "emit.file"
-	KindImport      directive.Kind = "emit.import"
-	KindStruct      directive.Kind = "emit.struct"
-	KindInterface   directive.Kind = "emit.interface"
-	KindMethod      directive.Kind = "emit.method"
-	KindField       directive.Kind = "emit.field"
-	KindFunction    directive.Kind = "emit.function"
-	KindVariable    directive.Kind = "emit.variable"
-	KindConstant    directive.Kind = "emit.constant"
-	KindEnum        directive.Kind = "emit.enum"
-	KindEnumVariant directive.Kind = "emit.enum_variant"
-	KindAlias       directive.Kind = "emit.alias"
-	KindEmbed       directive.Kind = "emit.embed"
-	KindParam       directive.Kind = "emit.param"
-	KindReturn      directive.Kind = "emit.return"
-	KindTypeParam   directive.Kind = "emit.type_param"
-	KindTag         directive.Kind = "emit.tag"
+	KindPackage     kind.Kind = "emit.package"
+	KindFile        kind.Kind = "emit.file"
+	KindImport      kind.Kind = "emit.import"
+	KindStruct      kind.Kind = "emit.struct"
+	KindInterface   kind.Kind = "emit.interface"
+	KindMethod      kind.Kind = "emit.method"
+	KindField       kind.Kind = "emit.field"
+	KindFunction    kind.Kind = "emit.function"
+	KindVariable    kind.Kind = "emit.variable"
+	KindConstant    kind.Kind = "emit.constant"
+	KindEnum        kind.Kind = "emit.enum"
+	KindEnumVariant kind.Kind = "emit.enum_variant"
+	KindAlias       kind.Kind = "emit.alias"
+	KindEmbed       kind.Kind = "emit.embed"
+	KindParam       kind.Kind = "emit.param"
+	KindReturn      kind.Kind = "emit.return"
+	KindTypeParam   kind.Kind = "emit.type_param"
+	KindTag         kind.Kind = "emit.tag"
 
 	// Reference kinds.
-	KindTypeRef      directive.Kind = "emit.type_ref"
-	KindExternalRef  directive.Kind = "emit.external_ref"
-	KindBuiltinRef   directive.Kind = "emit.builtin_ref"
-	KindCompositeRef directive.Kind = "emit.composite_ref"
+	KindTypeRef      kind.Kind = "emit.type_ref"
+	KindExternalRef  kind.Kind = "emit.external_ref"
+	KindBuiltinRef   kind.Kind = "emit.builtin_ref"
+	KindCompositeRef kind.Kind = "emit.composite_ref"
 
 	// Body kinds.
-	KindStmt directive.Kind = "emit.stmt"
-	KindExpr directive.Kind = "emit.expr"
+	KindStmt kind.Kind = "emit.stmt"
+	KindExpr kind.Kind = "emit.expr"
 
 	// Composition primitives.
-	KindSlot directive.Kind = "emit.slot"
+	KindSlot kind.Kind = "emit.slot"
 )

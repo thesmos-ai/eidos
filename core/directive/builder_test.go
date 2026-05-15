@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"go.thesmos.sh/eidos/core/directive"
+	"go.thesmos.sh/eidos/core/kind"
 )
 
 func TestNewSchema(t *testing.T) {
@@ -47,7 +48,7 @@ func TestSchemaBuilder_On(t *testing.T) {
 	t.Run("appends to AppliesTo", func(t *testing.T) {
 		t.Parallel()
 		s := directive.NewSchema("mock").On("interface", "struct").Build()
-		if !slices.Equal(s.AppliesTo, []directive.Kind{"interface", "struct"}) {
+		if !slices.Equal(s.AppliesTo, []kind.Kind{"interface", "struct"}) {
 			t.Fatalf("AppliesTo = %v", s.AppliesTo)
 		}
 	})

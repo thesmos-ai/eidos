@@ -3,7 +3,9 @@
 
 package emit
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // Interface is a method-set type emit. Methods declared inside an
 // interface have a nil [Method.Receiver] — the receiver is implicit
@@ -37,7 +39,7 @@ type Interface struct {
 }
 
 // Kind returns [KindInterface].
-func (*Interface) Kind() directive.Kind { return KindInterface }
+func (*Interface) Kind() kind.Kind { return KindInterface }
 
 // QName returns the qualified name "Package.Name", or just "Name"
 // when Package is empty.

@@ -3,7 +3,9 @@
 
 package emit
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // Method is a function attached to a [Struct] or [Interface]. A
 // Method on an Interface has a nil [Method.Receiver]; a Method on a
@@ -64,7 +66,7 @@ type Method struct {
 }
 
 // Kind returns [KindMethod].
-func (*Method) Kind() directive.Kind { return KindMethod }
+func (*Method) Kind() kind.Kind { return KindMethod }
 
 // Prebody returns the "prebody" slot for cross-cutting contributions
 // that run before [Method.Body].

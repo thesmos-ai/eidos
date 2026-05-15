@@ -11,7 +11,7 @@ import (
 
 // BaseNode supplies the fields and methods shared by every concrete
 // node kind. Each concrete type embeds BaseNode by value and overrides
-// [Kind] to return its [directive.Kind] constant.
+// [Kind] to return its [kind.Kind] constant.
 //
 // All struct fields are exported so frontends and tests can populate
 // them via struct literals. Outside the frontend/annotator phases the

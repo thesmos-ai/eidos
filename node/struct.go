@@ -3,7 +3,9 @@
 
 package node
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // Struct is a structured product type — Go's struct, Rust's struct,
 // TypeScript's class, and so on at the model level. Embedded types
@@ -34,7 +36,7 @@ type Struct struct {
 }
 
 // Kind returns [KindStruct].
-func (*Struct) Kind() directive.Kind { return KindStruct }
+func (*Struct) Kind() kind.Kind { return KindStruct }
 
 // QName returns the qualified name "Package.Name", or just "Name"
 // when Package is empty.

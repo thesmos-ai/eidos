@@ -5,6 +5,7 @@ package emit
 
 import (
 	"go.thesmos.sh/eidos/core/directive"
+	"go.thesmos.sh/eidos/core/kind"
 	"go.thesmos.sh/eidos/core/meta"
 	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/node"
@@ -18,9 +19,9 @@ import (
 // for purely-generated artifacts (synthesised by a plugin without a
 // source counterpart).
 type Node interface {
-	// Kind returns the [directive.Kind] discriminator for this emit
+	// Kind returns the [kind.Kind] discriminator for this emit
 	// value (see the Kind* constants at package scope).
-	Kind() directive.Kind
+	Kind() kind.Kind
 	// Pos returns the source position this value reflects. For
 	// derived values it usually inherits from [Origin]; for
 	// purely-generated values it is [position.Synthetic].

@@ -3,10 +3,12 @@
 
 package node
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // Kind values for every concrete node type. Declared as
-// [directive.Kind] so directive [Schema] AppliesTo lists reference
+// [kind.Kind] so directive [Schema] AppliesTo lists reference
 // them directly with full type safety:
 //
 //	directive.NewSchema("mock").On(node.KindInterface)
@@ -16,21 +18,21 @@ import "go.thesmos.sh/eidos/core/directive"
 // method), the store indexes by these, and directive schemas
 // constrain by them.
 const (
-	KindPackage     directive.Kind = "package"
-	KindFile        directive.Kind = "file"
-	KindImport      directive.Kind = "import"
-	KindStruct      directive.Kind = "struct"
-	KindInterface   directive.Kind = "interface"
-	KindMethod      directive.Kind = "method"
-	KindField       directive.Kind = "field"
-	KindFunction    directive.Kind = "function"
-	KindVariable    directive.Kind = "variable"
-	KindConstant    directive.Kind = "constant"
-	KindEnum        directive.Kind = "enum"
-	KindEnumVariant directive.Kind = "enum_variant"
-	KindAlias       directive.Kind = "alias"
-	KindEmbed       directive.Kind = "embed"
-	KindTypeRef     directive.Kind = "type_ref"
-	KindParam       directive.Kind = "param"
-	KindTypeParam   directive.Kind = "type_param"
+	KindPackage     kind.Kind = "package"
+	KindFile        kind.Kind = "file"
+	KindImport      kind.Kind = "import"
+	KindStruct      kind.Kind = "struct"
+	KindInterface   kind.Kind = "interface"
+	KindMethod      kind.Kind = "method"
+	KindField       kind.Kind = "field"
+	KindFunction    kind.Kind = "function"
+	KindVariable    kind.Kind = "variable"
+	KindConstant    kind.Kind = "constant"
+	KindEnum        kind.Kind = "enum"
+	KindEnumVariant kind.Kind = "enum_variant"
+	KindAlias       kind.Kind = "alias"
+	KindEmbed       kind.Kind = "embed"
+	KindTypeRef     kind.Kind = "type_ref"
+	KindParam       kind.Kind = "param"
+	KindTypeParam   kind.Kind = "type_param"
 )

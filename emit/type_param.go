@@ -3,7 +3,9 @@
 
 package emit
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // TypeParam is one generic type parameter of a [Struct], [Interface],
 // [Function], [Method], or [Alias]. The Constraint is the structured
@@ -28,7 +30,7 @@ type TypeParam struct {
 }
 
 // Kind returns [KindTypeParam].
-func (*TypeParam) Kind() directive.Kind { return KindTypeParam }
+func (*TypeParam) Kind() kind.Kind { return KindTypeParam }
 
 // IsConstrained reports whether the parameter declares any explicit
 // bound. A nil Constraint or one whose [Constraint.IsAny] returns

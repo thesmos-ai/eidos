@@ -3,7 +3,9 @@
 
 package node
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // Function is a standalone (non-method) function declaration.
 // Methods are modelled separately by [Method] so consumers can
@@ -28,7 +30,7 @@ type Function struct {
 }
 
 // Kind returns [KindFunction].
-func (*Function) Kind() directive.Kind { return KindFunction }
+func (*Function) Kind() kind.Kind { return KindFunction }
 
 // QName returns the qualified name "Package.Name", or just "Name"
 // when Package is empty.

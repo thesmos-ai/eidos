@@ -162,7 +162,7 @@ func (*Plugin) Directives() []directive.Schema {
 		directive.NewSchema(DirectiveName).
 			On(node.KindInterface).
 			On(node.KindMethod).
-			On(directive.Kind("emit.interface")).
+			On(emit.KindInterface).
 			Describe("Opts a source interface into mock generation (+) or skips an emit interface or single method (-).").
 			Build(),
 	}

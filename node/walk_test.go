@@ -7,7 +7,7 @@ import (
 	"slices"
 	"testing"
 
-	"go.thesmos.sh/eidos/core/directive"
+	"go.thesmos.sh/eidos/core/kind"
 	"go.thesmos.sh/eidos/node"
 )
 
@@ -66,7 +66,7 @@ func TestWalk_PackageDescentOrder(t *testing.T) {
 			Aliases:    []*node.Alias{{Name: "ID"}},
 		}
 		got := recordWalk(p)
-		want := []directive.Kind{
+		want := []kind.Kind{
 			node.KindPackage,
 			node.KindFile,
 			node.KindImport,
@@ -96,7 +96,7 @@ func TestWalk_StructDescent(t *testing.T) {
 			Methods:    []*node.Method{{Name: "Save"}},
 		}
 		got := recordWalk(s)
-		want := []directive.Kind{
+		want := []kind.Kind{
 			node.KindStruct, node.KindTypeParam, node.KindField, node.KindTypeRef,
 			node.KindEmbed, node.KindTypeRef, node.KindMethod,
 		}
@@ -117,7 +117,7 @@ func TestWalk_InterfaceDescent(t *testing.T) {
 			Embeds:     []*node.Embed{{Type: namedRef("", "Base")}},
 		}
 		got := recordWalk(i)
-		want := []directive.Kind{
+		want := []kind.Kind{
 			node.KindInterface, node.KindTypeParam, node.KindMethod, node.KindEmbed, node.KindTypeRef,
 		}
 		if !slices.Equal(got, want) {
@@ -137,7 +137,7 @@ func TestWalk_MethodDescent(t *testing.T) {
 			Returns:    []*node.TypeRef{namedRef("", "error")},
 		}
 		got := recordWalk(m)
-		want := []directive.Kind{
+		want := []kind.Kind{
 			node.KindMethod, node.KindTypeParam, node.KindParam, node.KindTypeRef, node.KindTypeRef,
 		}
 		if !slices.Equal(got, want) {
@@ -157,7 +157,7 @@ func TestWalk_FunctionDescent(t *testing.T) {
 			Returns:    []*node.TypeRef{namedRef("", "error")},
 		}
 		got := recordWalk(f)
-		want := []directive.Kind{
+		want := []kind.Kind{
 			node.KindFunction, node.KindTypeParam, node.KindParam, node.KindTypeRef, node.KindTypeRef,
 		}
 		if !slices.Equal(got, want) {
@@ -176,7 +176,7 @@ func TestWalk_EnumDescent(t *testing.T) {
 			Variants:   []*node.EnumVariant{{Name: "A"}, {Name: "B"}},
 		}
 		got := recordWalk(e)
-		want := []directive.Kind{
+		want := []kind.Kind{
 			node.KindEnum, node.KindTypeRef, node.KindEnumVariant, node.KindEnumVariant,
 		}
 		if !slices.Equal(got, want) {
@@ -195,7 +195,7 @@ func TestWalk_AliasDescent(t *testing.T) {
 			Target:     namedRef("", "int"),
 		}
 		got := recordWalk(a)
-		want := []directive.Kind{node.KindAlias, node.KindTypeParam, node.KindTypeRef}
+		want := []kind.Kind{node.KindAlias, node.KindTypeParam, node.KindTypeRef}
 		if !slices.Equal(got, want) {
 			t.Fatalf("visit order = %v, want %v", got, want)
 		}
@@ -281,7 +281,7 @@ func TestWalk_TypeRefVariants(t *testing.T) {
 			Embeds:   []*node.Embed{{Type: namedRef("io", "Reader")}},
 		}
 		got := recordWalk(r)
-		want := []directive.Kind{
+		want := []kind.Kind{
 			node.KindTypeRef, node.KindField, node.KindTypeRef,
 			node.KindEmbed, node.KindTypeRef,
 		}
@@ -298,7 +298,7 @@ func TestWalk_TypeRefVariants(t *testing.T) {
 			Embeds:   []*node.Embed{{Type: namedRef("io", "Reader")}},
 		}
 		got := recordWalk(r)
-		want := []directive.Kind{
+		want := []kind.Kind{
 			node.KindTypeRef, node.KindMethod,
 			node.KindEmbed, node.KindTypeRef,
 		}
@@ -342,7 +342,7 @@ func TestWalk_LeafKinds(t *testing.T) {
 			Constraint: constraintFrom(namedRef("fmt", "Stringer"), namedRef("", "comparable")),
 		}
 		got := recordWalk(tp)
-		want := []directive.Kind{node.KindTypeParam, node.KindTypeRef, node.KindTypeRef}
+		want := []kind.Kind{node.KindTypeParam, node.KindTypeRef, node.KindTypeRef}
 		if !slices.Equal(got, want) {
 			t.Fatalf("visit order = %v, want %v", got, want)
 		}
@@ -368,7 +368,7 @@ func TestWalk_LeafKinds(t *testing.T) {
 		t.Parallel()
 		f := &node.File{Imports: []*node.Import{{Path: "context"}, {Path: "fmt"}}}
 		got := recordWalk(f)
-		want := []directive.Kind{node.KindFile, node.KindImport, node.KindImport}
+		want := []kind.Kind{node.KindFile, node.KindImport, node.KindImport}
 		if !slices.Equal(got, want) {
 			t.Fatalf("visit order = %v, want %v", got, want)
 		}

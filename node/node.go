@@ -5,6 +5,7 @@ package node
 
 import (
 	"go.thesmos.sh/eidos/core/directive"
+	"go.thesmos.sh/eidos/core/kind"
 	"go.thesmos.sh/eidos/core/meta"
 	"go.thesmos.sh/eidos/core/position"
 )
@@ -17,9 +18,9 @@ import (
 // (Methods, Fields, Params, …) live on the concrete types and are
 // reached via type assertion or [Walk].
 type Node interface {
-	// Kind returns the [directive.Kind] discriminator for this node
+	// Kind returns the [kind.Kind] discriminator for this node
 	// (see the Kind* constants at package scope).
-	Kind() directive.Kind
+	Kind() kind.Kind
 	// Pos returns where this node was declared in source. Synthetic
 	// nodes use [position.Synthetic] markers.
 	Pos() position.Pos

@@ -39,6 +39,7 @@ import (
 	"text/template"
 
 	"go.thesmos.sh/eidos/core/directive"
+	"go.thesmos.sh/eidos/core/kind"
 	"go.thesmos.sh/eidos/core/opt"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/emit/builder"
@@ -60,7 +61,7 @@ const DirectiveName directive.Name = "register"
 // Kind is the plugin-defined emit kind every [Registration] reports
 // from [Registration.Kind]. The dotted spelling keeps it outside
 // the core `emit.*` namespace.
-const Kind directive.Kind = "registrygen.registration"
+const Kind kind.Kind = "registrygen.registration"
 
 // Language is the target language whose template tree the plugin
 // contributes. Other languages get the empty signal from
@@ -230,7 +231,7 @@ type Registration struct {
 }
 
 // Kind returns [Kind].
-func (*Registration) Kind() directive.Kind { return Kind }
+func (*Registration) Kind() kind.Kind { return Kind }
 
 // Compile-time confirmation that *Registration is a valid
 // [emit.Node].

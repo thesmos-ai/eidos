@@ -3,7 +3,9 @@
 
 package emit
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // Param is one positional parameter of a [Function] or [Method].
 //
@@ -34,7 +36,7 @@ type Param struct {
 }
 
 // Kind returns [KindParam].
-func (*Param) Kind() directive.Kind { return KindParam }
+func (*Param) Kind() kind.Kind { return KindParam }
 
 // IsAnonymous reports whether the parameter has no name.
 func (p *Param) IsAnonymous() bool { return p.Name == "" }

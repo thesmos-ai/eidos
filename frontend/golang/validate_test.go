@@ -10,6 +10,7 @@ import (
 
 	"go.thesmos.sh/eidos/core/diag"
 	"go.thesmos.sh/eidos/core/directive"
+	"go.thesmos.sh/eidos/core/kind"
 	"go.thesmos.sh/eidos/frontend/golang"
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/plugin"
@@ -140,7 +141,7 @@ func TestValidate_PerKind(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name       string
-		schemaKind directive.Kind
+		schemaKind kind.Kind
 		violatedOn string // human-readable shape carrying the directive in the source
 		source     string
 	}{
@@ -241,7 +242,7 @@ func TestValidate_VisitsEveryKind(t *testing.T) {
 
 	cases := []struct {
 		name   string
-		kind   directive.Kind
+		kind   kind.Kind
 		source string
 	}{
 		{

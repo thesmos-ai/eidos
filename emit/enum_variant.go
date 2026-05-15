@@ -3,7 +3,9 @@
 
 package emit
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // EnumVariant is one variant of an [Enum] in the emit tree. The
 // Value is expressed as an [Expr] so backends render it consistently
@@ -26,4 +28,4 @@ type EnumVariant struct {
 }
 
 // Kind returns [KindEnumVariant].
-func (*EnumVariant) Kind() directive.Kind { return KindEnumVariant }
+func (*EnumVariant) Kind() kind.Kind { return KindEnumVariant }

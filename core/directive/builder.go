@@ -3,6 +3,8 @@
 
 package directive
 
+import "go.thesmos.sh/eidos/core/kind"
+
 // SchemaBuilder is the fluent constructor for [Schema]. Every method
 // returns the receiver, so call chains read top-down:
 //
@@ -30,7 +32,7 @@ func FromSchema(s Schema) *SchemaBuilder { return &SchemaBuilder{s: s} }
 
 // On restricts the directive to specific node kinds. Empty means
 // "any kind"; subsequent calls append.
-func (b *SchemaBuilder) On(kinds ...Kind) *SchemaBuilder {
+func (b *SchemaBuilder) On(kinds ...kind.Kind) *SchemaBuilder {
 	b.s.AppliesTo = append(b.s.AppliesTo, kinds...)
 	return b
 }

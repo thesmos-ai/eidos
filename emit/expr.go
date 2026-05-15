@@ -6,7 +6,7 @@ package emit
 import (
 	"strconv"
 
-	"go.thesmos.sh/eidos/core/directive"
+	"go.thesmos.sh/eidos/core/kind"
 )
 
 // ExprKind discriminates the variant forms an [Expr] can take.
@@ -273,7 +273,7 @@ type Expr struct {
 // Kind returns [KindExpr] regardless of ExprKind — [ExprKind]
 // discriminates *within* the expression family, not across the
 // node hierarchy.
-func (*Expr) Kind() directive.Kind { return KindExpr }
+func (*Expr) Kind() kind.Kind { return KindExpr }
 
 // NewLiteralString returns a string-literal expression. The supplied
 // text is the unquoted string content; the backend re-quotes

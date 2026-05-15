@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"go.thesmos.sh/eidos/core/directive"
+	"go.thesmos.sh/eidos/core/kind"
 	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/emit"
 )
@@ -53,7 +54,7 @@ func constraintFrom(refs ...emit.Ref) *emit.Constraint {
 // recordingVisitor collects the directive.Kind of every node Walk
 // visits, in visit order. Tests assert on the resulting slice.
 type recordingVisitor struct {
-	kinds *[]directive.Kind
+	kinds *[]kind.Kind
 }
 
 // Visit appends the visited node's kind and continues descent.
@@ -64,8 +65,8 @@ func (r recordingVisitor) Visit(n emit.Node) emit.Visitor {
 
 // recordWalk runs [emit.Walk] over n and returns the visit-order
 // list of node kinds.
-func recordWalk(n emit.Node) []directive.Kind {
-	var kinds []directive.Kind
+func recordWalk(n emit.Node) []kind.Kind {
+	var kinds []kind.Kind
 	emit.Walk(n, recordingVisitor{kinds: &kinds})
 	return kinds
 }

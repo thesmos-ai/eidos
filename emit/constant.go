@@ -3,7 +3,9 @@
 
 package emit
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // Constant is a package-level `const` declaration in the emit tree.
 // Like [Variable], the value is expressed as an [Expr] so backends
@@ -29,7 +31,7 @@ type Constant struct {
 }
 
 // Kind returns [KindConstant].
-func (*Constant) Kind() directive.Kind { return KindConstant }
+func (*Constant) Kind() kind.Kind { return KindConstant }
 
 // QName returns the qualified name "Package.Name", or just "Name"
 // when Package is empty.

@@ -3,7 +3,9 @@
 
 package node
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // Alias is a type alias or type definition — Go's `type X = Y` and
 // `type X Y` forms. [Alias.IsAlias] distinguishes the two: true for
@@ -37,7 +39,7 @@ type Alias struct {
 }
 
 // Kind returns [KindAlias].
-func (*Alias) Kind() directive.Kind { return KindAlias }
+func (*Alias) Kind() kind.Kind { return KindAlias }
 
 // QName returns the qualified name "Package.Name", or just "Name"
 // when Package is empty.

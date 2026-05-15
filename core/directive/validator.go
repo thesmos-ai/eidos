@@ -7,11 +7,13 @@ import (
 	"slices"
 
 	"go.thesmos.sh/eidos/core/diag"
+	"go.thesmos.sh/eidos/core/kind"
 )
 
-// Validate checks every directive in directives against the schemas in
-// registry, in the context of a node of the given Kind, and emits
-// positioned diagnostics into sink for each rule violation.
+// Validate checks every directive in directives against the schemas
+// in registry, in the context of a node of the given [kind.Kind],
+// and emits positioned diagnostics into sink for each rule
+// violation.
 //
 // Returns true if every directive passes (zero error diagnostics);
 // false if any error was emitted. Per the design contract, validation
@@ -33,17 +35,17 @@ import (
 // can pre-screen with [Registry.Lookup] and emit their own
 // "unknown directive" diagnostics with [Registry.Suggest] for
 // "did you mean?" hints.
-func Validate(directives []*Directive, kind Kind, registry *Registry, sink *diag.PluginSink) bool {
+func Validate(directives []*Directive, nodeKind kind.Kind, registry *Registry, sink *diag.PluginSink) bool {
 	ok := true
 	for _, d := range directives {
-		ok = validateOne(d, kind, directives, registry, sink) && ok
+		ok = validateOne(d, nodeKind, directives, registry, sink) && ok
 	}
 	return ok
 }
 
 // validateOne checks a single directive against its schema and the
 // peer set. Returns true iff no error diagnostic was emitted.
-func validateOne(d *Directive, kind Kind, peers []*Directive, registry *Registry, sink *diag.PluginSink) bool {
+func validateOne(d *Directive, nodeKind kind.Kind, peers []*Directive, registry *Registry, sink *diag.PluginSink) bool {
 	schema, registered := registry.Lookup(d.Name)
 	if !registered {
 		return true
@@ -52,7 +54,7 @@ func validateOne(d *Directive, kind Kind, peers []*Directive, registry *Registry
 	// running ok so every check still runs even after an earlier one
 	// failed (the user sees every problem in one pass).
 	ok := checkNegation(d, schema, sink)
-	ok = checkAppliesTo(d, schema, kind, sink) && ok
+	ok = checkAppliesTo(d, schema, nodeKind, sink) && ok
 	ok = checkRequires(d, schema, peers, sink) && ok
 	ok = checkExclusive(d, schema, peers, sink) && ok
 	ok = checkKeys(d, schema, sink) && ok
@@ -68,11 +70,11 @@ func checkNegation(d *Directive, s Schema, sink *diag.PluginSink) bool {
 	return true
 }
 
-func checkAppliesTo(d *Directive, s Schema, kind Kind, sink *diag.PluginSink) bool {
-	if len(s.AppliesTo) == 0 || slices.Contains(s.AppliesTo, kind) {
+func checkAppliesTo(d *Directive, s Schema, nodeKind kind.Kind, sink *diag.PluginSink) bool {
+	if len(s.AppliesTo) == 0 || slices.Contains(s.AppliesTo, nodeKind) {
 		return true
 	}
-	sink.Errorf(d.Pos, "directive %q does not apply to %q nodes (allowed: %v)", d.Name, kind, s.AppliesTo)
+	sink.Errorf(d.Pos, "directive %q does not apply to %q nodes (allowed: %v)", d.Name, nodeKind, s.AppliesTo)
 	return false
 }
 

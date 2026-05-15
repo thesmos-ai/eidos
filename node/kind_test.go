@@ -6,7 +6,7 @@ package node_test
 import (
 	"testing"
 
-	"go.thesmos.sh/eidos/core/directive"
+	"go.thesmos.sh/eidos/core/kind"
 	"go.thesmos.sh/eidos/node"
 )
 
@@ -20,7 +20,7 @@ func TestKind(t *testing.T) {
 	cases := []struct {
 		name string
 		n    node.Node
-		want directive.Kind
+		want kind.Kind
 	}{
 		{"Package", &node.Package{}, node.KindPackage},
 		{"File", &node.File{}, node.KindFile},

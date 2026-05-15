@@ -12,7 +12,7 @@ import (
 
 // BaseEmit supplies the fields and methods every concrete emit type
 // shares. Each concrete type embeds BaseEmit by value and overrides
-// [Kind] to return its [directive.Kind] constant.
+// [Kind] to return its [kind.Kind] constant.
 //
 // All struct fields are exported so generators and tests can populate
 // them via struct literals. The MetaBag field is allocated lazily on

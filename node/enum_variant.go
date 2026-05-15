@@ -3,7 +3,9 @@
 
 package node
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // EnumVariant is one variant of an idiomatic enum — a typed constant
 // whose type matches the enclosing [Enum]'s underlying type.
@@ -32,4 +34,4 @@ type EnumVariant struct {
 }
 
 // Kind returns [KindEnumVariant].
-func (*EnumVariant) Kind() directive.Kind { return KindEnumVariant }
+func (*EnumVariant) Kind() kind.Kind { return KindEnumVariant }

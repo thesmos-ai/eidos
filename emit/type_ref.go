@@ -3,7 +3,9 @@
 
 package emit
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // TypeRef references another emit entity in the same generation run
 // — most commonly a [Struct], [Interface], [Alias], or [Enum] that
@@ -21,7 +23,7 @@ type TypeRef struct {
 }
 
 // Kind returns [KindTypeRef].
-func (*TypeRef) Kind() directive.Kind { return KindTypeRef }
+func (*TypeRef) Kind() kind.Kind { return KindTypeRef }
 
 // isRef marks TypeRef as a [Ref] implementation.
 func (*TypeRef) isRef() {}

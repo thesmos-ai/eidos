@@ -3,7 +3,9 @@
 
 package emit
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // Import is one import declaration in an emit [File]. Each Import
 // names a third-party or stdlib package the emit file references.
@@ -32,7 +34,7 @@ type Import struct {
 }
 
 // Kind returns [KindImport].
-func (*Import) Kind() directive.Kind { return KindImport }
+func (*Import) Kind() kind.Kind { return KindImport }
 
 // LocalName returns the locally-visible name for the imported
 // package — the Alias when supplied, otherwise the last

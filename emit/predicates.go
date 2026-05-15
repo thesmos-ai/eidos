@@ -5,6 +5,7 @@ package emit
 
 import (
 	"go.thesmos.sh/eidos/core/directive"
+	"go.thesmos.sh/eidos/core/kind"
 	"go.thesmos.sh/eidos/core/meta"
 )
 
@@ -36,9 +37,9 @@ func WithMetaKey[T any](k meta.Key[T]) func(Node) bool {
 }
 
 // WithKind returns a predicate matching any [Node] whose Kind matches
-// the supplied [directive.Kind]. Useful for filtering heterogeneous
+// the supplied [kind.Kind]. Useful for filtering heterogeneous
 // slot contents.
-func WithKind(k directive.Kind) func(Node) bool {
+func WithKind(k kind.Kind) func(Node) bool {
 	return func(n Node) bool { return n.Kind() == k }
 }
 

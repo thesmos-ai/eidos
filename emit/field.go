@@ -3,7 +3,9 @@
 
 package emit
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // Field is one field of a [Struct]. Anonymous embedded fields are
 // represented as [Embed] nodes on the owning Struct, not as Field.
@@ -49,7 +51,7 @@ type Field struct {
 }
 
 // Kind returns [KindField].
-func (*Field) Kind() directive.Kind { return KindField }
+func (*Field) Kind() kind.Kind { return KindField }
 
 // HasTag reports whether the field carries a directly-declared
 // struct tag. Tag-slot contributions are not counted here; query

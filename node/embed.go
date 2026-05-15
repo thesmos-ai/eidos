@@ -3,7 +3,9 @@
 
 package node
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // Embed is one embedded type in a [Struct] or [Interface]. Go's
 // struct embedding and interface composition both surface as Embed
@@ -24,4 +26,4 @@ type Embed struct {
 }
 
 // Kind returns [KindEmbed].
-func (*Embed) Kind() directive.Kind { return KindEmbed }
+func (*Embed) Kind() kind.Kind { return KindEmbed }

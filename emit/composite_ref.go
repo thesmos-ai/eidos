@@ -3,7 +3,9 @@
 
 package emit
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // CompositeShape discriminates the variant a [CompositeRef] takes.
 // The set covers composite type shapes common to general-purpose
@@ -99,7 +101,7 @@ type CompositeRef struct {
 }
 
 // Kind returns [KindCompositeRef].
-func (*CompositeRef) Kind() directive.Kind { return KindCompositeRef }
+func (*CompositeRef) Kind() kind.Kind { return KindCompositeRef }
 
 // isRef marks CompositeRef as a [Ref] implementation.
 func (*CompositeRef) isRef() {}

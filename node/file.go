@@ -3,7 +3,9 @@
 
 package node
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // File is one source file within a [Package]. Multi-file source
 // languages (Go, TypeScript, Rust) produce one File per source file;
@@ -39,7 +41,7 @@ type File struct {
 }
 
 // Kind reports [KindFile].
-func (*File) Kind() directive.Kind { return KindFile }
+func (*File) Kind() kind.Kind { return KindFile }
 
 // ImportByPath returns the import with the given path, or nil when
 // no such import exists. Empty path returns nil.

@@ -3,7 +3,9 @@
 
 package node
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // Constant is a package-level `const` declaration. Idiomatic Go
 // "enum" patterns — a group of typed constants of the same type —
@@ -27,7 +29,7 @@ type Constant struct {
 }
 
 // Kind returns [KindConstant].
-func (*Constant) Kind() directive.Kind { return KindConstant }
+func (*Constant) Kind() kind.Kind { return KindConstant }
 
 // QName returns the qualified name "Package.Name", or just "Name"
 // when Package is empty.

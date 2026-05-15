@@ -7,7 +7,7 @@ import (
 	"slices"
 	"testing"
 
-	"go.thesmos.sh/eidos/core/directive"
+	"go.thesmos.sh/eidos/core/kind"
 	"go.thesmos.sh/eidos/emit"
 )
 
@@ -34,7 +34,7 @@ func TestWalk_NilGuards(t *testing.T) {
 
 	t.Run("nil node yields no visits", func(t *testing.T) {
 		t.Parallel()
-		var kinds []directive.Kind
+		var kinds []kind.Kind
 		emit.Walk(nil, recordingVisitor{kinds: &kinds})
 		if len(kinds) != 0 {
 			t.Fatalf("nil node should not be visited; got %v", kinds)
@@ -44,7 +44,7 @@ func TestWalk_NilGuards(t *testing.T) {
 	t.Run("typed-nil node is treated as nil", func(t *testing.T) {
 		t.Parallel()
 		var s *emit.Struct
-		var kinds []directive.Kind
+		var kinds []kind.Kind
 		emit.Walk(s, recordingVisitor{kinds: &kinds})
 		if len(kinds) != 0 {
 			t.Fatalf("typed-nil node should not be visited; got %v", kinds)
@@ -95,7 +95,7 @@ func TestWalk_PackageDescentOrder(t *testing.T) {
 			Aliases:    []*emit.Alias{{Name: "ID"}},
 		}
 		got := recordWalk(p)
-		want := []directive.Kind{
+		want := []kind.Kind{
 			emit.KindPackage,
 			emit.KindFile,
 			emit.KindImport,
@@ -157,7 +157,7 @@ func TestWalk_StructDescent(t *testing.T) {
 			Methods:    []*emit.Method{{Name: "Save"}},
 		}
 		got := recordWalk(s)
-		want := []directive.Kind{
+		want := []kind.Kind{
 			emit.KindStruct, emit.KindTypeParam,
 			emit.KindField, emit.KindBuiltinRef,
 			emit.KindEmbed, emit.KindBuiltinRef,
@@ -180,7 +180,7 @@ func TestWalk_InterfaceDescent(t *testing.T) {
 			Embeds:     []*emit.Embed{{Type: builtinRef("Base")}},
 		}
 		got := recordWalk(i)
-		want := []directive.Kind{
+		want := []kind.Kind{
 			emit.KindInterface, emit.KindTypeParam,
 			emit.KindMethod, emit.KindEmbed, emit.KindBuiltinRef,
 		}
@@ -240,7 +240,7 @@ func TestWalk_FieldDescent(t *testing.T) {
 		t.Parallel()
 		f := &emit.Field{Name: "X", Type: builtinRef("int")}
 		got := recordWalk(f)
-		if !slices.Equal(got, []directive.Kind{emit.KindField, emit.KindBuiltinRef}) {
+		if !slices.Equal(got, []kind.Kind{emit.KindField, emit.KindBuiltinRef}) {
 			t.Fatalf("visit order = %v", got)
 		}
 	})
@@ -256,7 +256,7 @@ func TestWalk_EnumDescent(t *testing.T) {
 			Variants:   []*emit.EnumVariant{{Name: "A"}, {Name: "B"}},
 		}
 		got := recordWalk(e)
-		want := []directive.Kind{
+		want := []kind.Kind{
 			emit.KindEnum, emit.KindBuiltinRef,
 			emit.KindEnumVariant, emit.KindEnumVariant,
 		}
@@ -273,7 +273,7 @@ func TestWalk_EnumVariantDescent(t *testing.T) {
 		t.Parallel()
 		v := &emit.EnumVariant{Name: "A", Value: emit.NewLiteralInt(1)}
 		got := recordWalk(v)
-		if !slices.Equal(got, []directive.Kind{emit.KindEnumVariant, emit.KindExpr}) {
+		if !slices.Equal(got, []kind.Kind{emit.KindEnumVariant, emit.KindExpr}) {
 			t.Fatalf("visit order = %v", got)
 		}
 	})
@@ -289,7 +289,7 @@ func TestWalk_AliasDescent(t *testing.T) {
 			Target:     builtinRef("int"),
 		}
 		got := recordWalk(a)
-		want := []directive.Kind{emit.KindAlias, emit.KindTypeParam, emit.KindBuiltinRef}
+		want := []kind.Kind{emit.KindAlias, emit.KindTypeParam, emit.KindBuiltinRef}
 		if !slices.Equal(got, want) {
 			t.Fatalf("visit order = %v, want %v", got, want)
 		}
@@ -321,7 +321,7 @@ func TestWalk_VariableConstantEmbedDescent(t *testing.T) {
 		t.Parallel()
 		e := &emit.Embed{Type: builtinRef("Base")}
 		got := recordWalk(e)
-		if !slices.Equal(got, []directive.Kind{emit.KindEmbed, emit.KindBuiltinRef}) {
+		if !slices.Equal(got, []kind.Kind{emit.KindEmbed, emit.KindBuiltinRef}) {
 			t.Fatalf("visit order = %v", got)
 		}
 	})
@@ -334,7 +334,7 @@ func TestWalk_ParamAndTypeParamDescent(t *testing.T) {
 		t.Parallel()
 		p := &emit.Param{Name: "x", Type: builtinRef("int")}
 		got := recordWalk(p)
-		if !slices.Equal(got, []directive.Kind{emit.KindParam, emit.KindBuiltinRef}) {
+		if !slices.Equal(got, []kind.Kind{emit.KindParam, emit.KindBuiltinRef}) {
 			t.Fatalf("visit order = %v", got)
 		}
 	})
@@ -346,7 +346,7 @@ func TestWalk_ParamAndTypeParamDescent(t *testing.T) {
 			Constraint: constraintFrom(externalRef("fmt", "Stringer"), builtinRef("comparable")),
 		}
 		got := recordWalk(tp)
-		want := []directive.Kind{emit.KindTypeParam, emit.KindExternalRef, emit.KindBuiltinRef}
+		want := []kind.Kind{emit.KindTypeParam, emit.KindExternalRef, emit.KindBuiltinRef}
 		if !slices.Equal(got, want) {
 			t.Fatalf("visit order = %v, want %v", got, want)
 		}
@@ -356,7 +356,7 @@ func TestWalk_ParamAndTypeParamDescent(t *testing.T) {
 		t.Parallel()
 		tp := &emit.TypeParam{Name: "T"}
 		got := recordWalk(tp)
-		if !slices.Equal(got, []directive.Kind{emit.KindTypeParam}) {
+		if !slices.Equal(got, []kind.Kind{emit.KindTypeParam}) {
 			t.Fatalf("unconstrained TypeParam should be a leaf; got %v", got)
 		}
 	})
@@ -407,7 +407,7 @@ func TestWalk_BuiltinRefIsLeaf(t *testing.T) {
 		t.Parallel()
 		r := builtinRef("int")
 		got := recordWalk(r)
-		if !slices.Equal(got, []directive.Kind{emit.KindBuiltinRef}) {
+		if !slices.Equal(got, []kind.Kind{emit.KindBuiltinRef}) {
 			t.Fatalf("BuiltinRef should be a leaf; got %v", got)
 		}
 	})
@@ -430,7 +430,7 @@ func TestWalk_CompositeRefVariants(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
 				got := recordWalk(tc.ref)
-				if !slices.Equal(got, []directive.Kind{emit.KindCompositeRef, emit.KindBuiltinRef}) {
+				if !slices.Equal(got, []kind.Kind{emit.KindCompositeRef, emit.KindBuiltinRef}) {
 					t.Fatalf("composite Elem should be visited; got %v", got)
 				}
 			})

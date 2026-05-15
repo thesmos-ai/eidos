@@ -3,7 +3,9 @@
 
 package emit
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // ExternalRef references a third-party or stdlib type by its package
 // path and unqualified name. The backend's `imp` template func
@@ -22,7 +24,7 @@ type ExternalRef struct {
 }
 
 // Kind returns [KindExternalRef].
-func (*ExternalRef) Kind() directive.Kind { return KindExternalRef }
+func (*ExternalRef) Kind() kind.Kind { return KindExternalRef }
 
 // isRef marks ExternalRef as a [Ref] implementation.
 func (*ExternalRef) isRef() {}

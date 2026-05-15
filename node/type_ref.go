@@ -3,7 +3,9 @@
 
 package node
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // TypeRefKind discriminates the variant forms a [TypeRef] can take.
 // The set covers the type shapes shared across general-purpose
@@ -159,7 +161,7 @@ type TypeRef struct {
 // Kind returns [KindTypeRef] regardless of TypeRefKind — TypeRefKind
 // discriminates *within* the type-reference family, not across the
 // node hierarchy.
-func (*TypeRef) Kind() directive.Kind { return KindTypeRef }
+func (*TypeRef) Kind() kind.Kind { return KindTypeRef }
 
 // IsBuiltin reports whether the ref is a Named ref with no Package
 // (covering "int", "string", "bool", "any", and similar basic types).

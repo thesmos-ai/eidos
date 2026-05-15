@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 
-	"go.thesmos.sh/eidos/core/directive"
+	"go.thesmos.sh/eidos/core/kind"
 )
 
 // ErrSlotElementType is returned by [Slot.Append], [Slot.Prepend],
@@ -73,7 +73,7 @@ type Slot struct {
 	// only items whose Kind() matches. An empty ElemKind accepts
 	// any kind (use when the slot's content is intentionally
 	// heterogeneous).
-	ElemKind directive.Kind `json:"elem_kind,omitempty"`
+	ElemKind kind.Kind `json:"elem_kind,omitempty"`
 
 	// Items holds the appended contributions in their final order.
 	Items []Node `json:"-"`
@@ -85,7 +85,7 @@ type Slot struct {
 }
 
 // Kind returns [KindSlot].
-func (*Slot) Kind() directive.Kind { return KindSlot }
+func (*Slot) Kind() kind.Kind { return KindSlot }
 
 // Len returns the number of items currently in the slot.
 func (s *Slot) Len() int { return len(s.Items) }
@@ -218,7 +218,7 @@ type slotMap struct {
 // slot returns the named slot, creating it lazily with the supplied
 // owner and element-kind constraint. Repeat calls return the same
 // instance.
-func (m *slotMap) slot(owner Node, name string, elemKind directive.Kind) *Slot {
+func (m *slotMap) slot(owner Node, name string, elemKind kind.Kind) *Slot {
 	if m.slots == nil {
 		m.slots = map[string]*Slot{}
 	}

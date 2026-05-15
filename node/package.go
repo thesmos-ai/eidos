@@ -3,7 +3,9 @@
 
 package node
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // Package is a top-level container for the declarations found in one
 // source package. Frontends produce one Package per source package;
@@ -63,7 +65,7 @@ type Package struct {
 }
 
 // Kind returns [KindPackage].
-func (*Package) Kind() directive.Kind { return KindPackage }
+func (*Package) Kind() kind.Kind { return KindPackage }
 
 // StructByName returns the struct named name, or nil when absent.
 func (p *Package) StructByName(name string) *Struct {

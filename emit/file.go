@@ -3,7 +3,9 @@
 
 package emit
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // File is one output file in the emit tree. Backends group emit
 // declarations by their [Target] and produce one File per group;
@@ -60,7 +62,7 @@ type File struct {
 }
 
 // Kind returns [KindFile].
-func (*File) Kind() directive.Kind { return KindFile }
+func (*File) Kind() kind.Kind { return KindFile }
 
 // Target returns the [Target] value that declarations route through
 // to land in this file. Composed from [File.Dir], [File.Name],

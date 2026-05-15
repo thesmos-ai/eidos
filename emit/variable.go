@@ -3,7 +3,9 @@
 
 package emit
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // Variable is a package-level `var` declaration in the emit tree.
 // Initial values are expressed as an [Expr] so backends can render
@@ -32,7 +34,7 @@ type Variable struct {
 }
 
 // Kind returns [KindVariable].
-func (*Variable) Kind() directive.Kind { return KindVariable }
+func (*Variable) Kind() kind.Kind { return KindVariable }
 
 // QName returns the qualified name "Package.Name", or just "Name"
 // when Package is empty.

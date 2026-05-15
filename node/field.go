@@ -3,7 +3,9 @@
 
 package node
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // Field is one named field of a [Struct] or of an inline anonymous
 // struct type expression carried via [TypeRef] with kind
@@ -35,7 +37,7 @@ type Field struct {
 }
 
 // Kind returns [KindField].
-func (*Field) Kind() directive.Kind { return KindField }
+func (*Field) Kind() kind.Kind { return KindField }
 
 // HasTag reports whether the field carries a struct tag.
 func (f *Field) HasTag() bool { return f.Tag != "" }

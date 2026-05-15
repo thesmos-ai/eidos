@@ -3,7 +3,9 @@
 
 package emit
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // Struct is a structured product type emit. Fields and methods live
 // in typed slices for direct owner-generator use; the "fields",
@@ -47,7 +49,7 @@ type Struct struct {
 }
 
 // Kind returns [KindStruct].
-func (*Struct) Kind() directive.Kind { return KindStruct }
+func (*Struct) Kind() kind.Kind { return KindStruct }
 
 // QName returns the qualified name "Package.Name", or just "Name"
 // when Package is empty.

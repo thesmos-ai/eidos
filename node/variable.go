@@ -3,7 +3,9 @@
 
 package node
 
-import "go.thesmos.sh/eidos/core/directive"
+import (
+	"go.thesmos.sh/eidos/core/kind"
+)
 
 // Variable is a package-level `var` declaration. Initial-value
 // information is preserved verbatim in [Variable.InitExpr] so
@@ -28,7 +30,7 @@ type Variable struct {
 }
 
 // Kind returns [KindVariable].
-func (*Variable) Kind() directive.Kind { return KindVariable }
+func (*Variable) Kind() kind.Kind { return KindVariable }
 
 // QName returns the qualified name "Package.Name", or just "Name"
 // when Package is empty.
