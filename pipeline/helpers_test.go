@@ -12,6 +12,7 @@ import (
 	"text/template"
 
 	"go.thesmos.sh/eidos/core/diag"
+	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/opt"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/node"
@@ -584,4 +585,17 @@ func hasDiagContaining(d *diag.Sink, substr string) bool {
 		}
 	}
 	return false
+}
+
+// layoutGenWithDirective extends [layoutGen] with the
+// [plugin.DirectiveProvider] surface so the Layout-phase
+// per-directive routing tests can drive the auto-allow path for
+// `out=`/`pkg=` keys on the plugin's owning directive.
+type layoutGenWithDirective struct {
+	layoutGen
+	schema directive.Schema
+}
+
+func (g *layoutGenWithDirective) Directives() []directive.Schema {
+	return []directive.Schema{g.schema}
 }

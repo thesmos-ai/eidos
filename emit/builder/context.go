@@ -43,16 +43,26 @@ type Context struct {
 }
 
 // For returns a Context bound to the supplied plugin identifier
-// (typically the plugin's [plugin.Plugin.Name] return value) and
-// default [emit.Target]. Decls produced through the returned
-// Context inherit target; slot appends stamp setBy as the
-// contributing plugin name.
+// (typically the plugin's [plugin.Plugin.Name] return value). The
+// default [emit.Target] is the zero value — plugins should leave
+// placement to the pipeline's Layout phase, which composes the
+// resolved Target from the framework default + per-decl origin +
+// per-source `+gen:out` directives + project / CLI overrides.
+//
+// The optional target argument is a test-fixture escape hatch:
+// pass a non-zero [emit.Target] to pre-stamp decls when driving
+// the builder directly in unit tests that bypass the Layout phase.
+// Production plugins never pass it.
 //
 // A plugin emitting into multiple files calls [Context.WithTarget]
 // to spawn additional Contexts per target rather than mutating the
 // receiver.
-func For(setBy string, target emit.Target) *Context {
-	return &Context{setBy: setBy, target: target}
+func For(setBy string, target ...emit.Target) *Context {
+	c := &Context{setBy: setBy}
+	if len(target) > 0 {
+		c.target = target[0]
+	}
+	return c
 }
 
 // SetBy returns the plugin identifier this Context stamps onto every

@@ -115,6 +115,16 @@ type Pipeline struct {
 	registry       *directive.Registry
 	parser         *directive.Parser
 
+	// directiveOwners maps each directive name to the plugin that
+	// registered it via [plugin.DirectiveProvider.Directives]. The
+	// Layout phase consults the map to scope per-directive `out=`
+	// and `pkg=` routing keys to the owning plugin's output.
+	// Directives registered manually via [Builder.WithDirective] or
+	// shipped by the framework's [coreDirectives] surface have no
+	// owner entry; routing keys on those flow through the existing
+	// `+gen:out` `plugin=<name>` selector instead.
+	directiveOwners map[directive.Name]string
+
 	// lastStore caches the store from the most recent Run for
 	// post-run inspection (test harnesses, "eidos explain"
 	// tooling). Stored under an atomic.Pointer so concurrent

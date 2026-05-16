@@ -23,8 +23,10 @@ var testingT = emit.Ptr(emit.External("testing", "T"))
 // subtests (nil + override). Back-links to s as origin so the
 // routing layer places the test file alongside the mock.
 func (*Plugin) emitTests(pkg *builder.PackageBuilder, s *emit.Struct) {
+	// The PackageBuilder's Anchor default already stamps the source
+	// interface as Origin on every decl built through pkg — no
+	// per-decl Origin call needed here.
 	pkg.Function("Test"+s.Name, func(fn *builder.FunctionBuilder) {
-		fn.Origin(s)
 		fn.Docs("Test" + s.Name + " exercises the nil-check dispatch on every mock method.")
 		fn.Param("t", testingT, nil)
 
@@ -99,7 +101,18 @@ func tRun(name string, body []*emit.Stmt) *emit.Stmt {
 // nil-dispatch invocations. Auto-addressable so Go promotes it for
 // the mock's pointer-receiver method set.
 func declareZeroMock(s *emit.Struct) *emit.Stmt {
-	return emit.NewVarStmt("m", emit.Internal(s), nil)
+	return emit.NewVarStmt("m", mockTypeRef(s), nil)
+}
+
+// mockTypeRef returns the ref the test uses to name the mock
+// struct. [emit.Internal] is the right choice because the Go
+// backend resolves cross-package qualification at render time
+// from the target's resolved [emit.Target.ImportPath] — this
+// remains correct under any routing configuration (default
+// `_test`-pkg shift, `+gen:out` sibling-package, explicit
+// `pkg=` override) without mocktest knowing which one applies.
+func mockTypeRef(s *emit.Struct) emit.Ref {
+	return emit.Internal(s)
 }
 
 // declareCalledFlag returns `called := false` — the assertion
@@ -146,7 +159,7 @@ func assignMockWithOverride(s *emit.Struct, m *emit.Method, field string) *emit.
 		[]*emit.Expr{emit.NewIdent("m")},
 		":=",
 		[]*emit.Expr{emit.NewCompositeKeyed(
-			emit.Internal(s),
+			mockTypeRef(s),
 			[]string{field},
 			[]*emit.Expr{overrideClosure(m)},
 		)},

@@ -22,7 +22,6 @@ func (p *Plugin) emitMock(pkg *builder.PackageBuilder, iface *node.Interface) {
 	methods := mockableMethods(iface)
 
 	pkg.Struct(mockName, func(s *builder.StructBuilder) {
-		s.Origin(iface)
 		s.Docs(mockName + " is a func-valued mock implementation of " + iface.Name + ".")
 		MetaIface.Set(s.Node().Meta(), iface.QName(), Name)
 

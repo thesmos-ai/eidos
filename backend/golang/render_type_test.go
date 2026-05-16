@@ -305,3 +305,110 @@ func TestRenderType_UnknownShape(t *testing.T) {
 		}
 	})
 }
+
+// TestRenderType_Internal_CrossPackage pins the framework's
+// `emit.Internal` cross-package qualification: when the referenced
+// target has a resolved [emit.Target.ImportPath] that differs from
+// the rendering file's import path, the renderer registers an
+// import for the target's package and qualifies the rendered name
+// with the resulting alias. This is what lets a generator emit
+// `emit.Internal(<mock-struct>)` from a file that routes into a
+// different package than the mock (e.g. mocktest's `_test.go`
+// file landing in the external test package).
+func TestRenderType_Internal_CrossPackage(t *testing.T) {
+	t.Parallel()
+
+	t.Run("differing ImportPath qualifies + registers import", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+
+		// Target struct lives in package "store" at import path
+		// "example.com/x/store". Holder file lives in the external
+		// test package at "example.com/x/store_test" — exactly the
+		// shape the framework produces after the `_test.go` shift.
+		targetStruct := &emit.Struct{
+			Name: "SearcherMock", Package: "example.com/x/store",
+			Target: emit.Target{
+				Dir: "x/store", Filename: "store_mock.go",
+				Package: "store", ImportPath: "example.com/x/store",
+			},
+		}
+		holderTarget := emit.Target{
+			Dir: "x/store", Filename: "store_mock_test.go",
+			Package: "store_test", ImportPath: "example.com/x/store_test",
+		}
+		holder := &emit.Struct{
+			Name: "Holder", Package: "example.com/x/store_test",
+			Target: holderTarget,
+			Fields: []*emit.Field{{Name: "Inner", Type: emit.Internal(targetStruct)}},
+		}
+		addEmitPackage(t, ctx, &emit.Package{
+			Name: "store", Path: "example.com/x/store",
+			Structs: []*emit.Struct{targetStruct},
+		})
+		addEmitPackage(t, ctx, &emit.Package{
+			Name: "store_test", Path: "example.com/x/store_test",
+			Structs: []*emit.Struct{holder},
+		})
+		if err := mustNew(t).Render(ctx); err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		if d.HasErrors() {
+			t.Fatalf("unexpected error diagnostics: %+v", d.Diagnostics())
+		}
+		body, ok := mem.Get(holderTarget)
+		if !ok {
+			t.Fatalf("no output for holder target %v", holderTarget)
+		}
+		s := string(body)
+		if !strings.Contains(s, `"example.com/x/store"`) {
+			t.Fatalf("body should carry the target's import path; got:\n%s", s)
+		}
+		if !strings.Contains(s, "Inner store.SearcherMock") {
+			t.Fatalf("body should qualify the cross-package ref; got:\n%s", s)
+		}
+	})
+
+	t.Run("matching ImportPath elides (same-package)", func(t *testing.T) {
+		t.Parallel()
+		ctx, mem, d := newBackendContext(t)
+		shared := emit.Target{
+			Dir: "x/store", Filename: "store_main.go",
+			Package: "store", ImportPath: "example.com/x/store",
+		}
+		targetStruct := &emit.Struct{
+			Name: "Inner", Package: "example.com/x/store",
+			Target: shared,
+		}
+		holderTarget := emit.Target{
+			Dir: "x/store", Filename: "holder.go",
+			Package: "store", ImportPath: "example.com/x/store",
+		}
+		holder := &emit.Struct{
+			Name: "Holder", Package: "example.com/x/store",
+			Target: holderTarget,
+			Fields: []*emit.Field{{Name: "I", Type: emit.Internal(targetStruct)}},
+		}
+		addEmitPackage(t, ctx, &emit.Package{
+			Name: "store", Path: "example.com/x/store",
+			Structs: []*emit.Struct{targetStruct, holder},
+		})
+		if err := mustNew(t).Render(ctx); err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		if d.HasErrors() {
+			t.Fatalf("unexpected error diagnostics: %+v", d.Diagnostics())
+		}
+		body, ok := mem.Get(holderTarget)
+		if !ok {
+			t.Fatalf("no output for holder")
+		}
+		s := string(body)
+		if strings.Contains(s, "store.Inner") {
+			t.Fatalf("same-package ref should elide qualifier; got:\n%s", s)
+		}
+		if !strings.Contains(s, "I Inner") {
+			t.Fatalf("body should carry bare 'Inner'; got:\n%s", s)
+		}
+	})
+}

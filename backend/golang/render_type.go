@@ -81,7 +81,26 @@ func (s *renderState) renderType(r emit.Ref) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return base + args, nil
+		// Cross-package qualification: when the target has a
+		// resolved import path that differs from the rendering
+		// file's own import path, register the target's package on
+		// the file's import set and qualify the rendered name with
+		// the resulting alias. Targets without a resolved import
+		// path (synthetic, unrouted) fall through to bare —
+		// preserving the historical "same-package by contract"
+		// behaviour for refs that the Layout phase never saw.
+		targetPath := s.resolveImportPath(targetImportPath(typed.Target))
+		if targetPath == "" {
+			return base + args, nil
+		}
+		alias, err := s.imports.Imp(targetPath)
+		if err != nil {
+			return "", fmt.Errorf("backend/golang: renderType: %w", err)
+		}
+		if alias == "" {
+			return base + args, nil
+		}
+		return alias + "." + base + args, nil
 	case *emit.CompositeRef:
 		return s.renderComposite(typed)
 	default:
@@ -289,6 +308,29 @@ func (s *renderState) renderUnion(terms []emit.UnionTerm) (string, error) {
 		parts = append(parts, rendered)
 	}
 	return strings.Join(parts, " | "), nil
+}
+
+// targetImportPath returns the resolved import path on the routing
+// target of n — the value the Layout phase composed into the
+// target's [emit.Target.ImportPath] / [emit.Alias.File.ImportPath].
+// Returns the empty string for kinds whose name we can't qualify
+// (then [renderState.renderType] falls through to bare-name
+// rendering, the historical same-package contract).
+func targetImportPath(n emit.Node) string {
+	switch t := n.(type) {
+	case *emit.Struct:
+		return t.Target.ImportPath
+	case *emit.Interface:
+		return t.Target.ImportPath
+	case *emit.Alias:
+		return t.File.ImportPath
+	case *emit.Enum:
+		return t.Target.ImportPath
+	case *emit.Function:
+		return t.Target.ImportPath
+	default:
+		return ""
+	}
 }
 
 // internalTargetName returns the unqualified declaration name of a

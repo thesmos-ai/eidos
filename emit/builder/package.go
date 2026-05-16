@@ -7,6 +7,7 @@ import (
 	"errors"
 
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/node"
 )
 
 // PackageBuilder accumulates a single [emit.Package]. Spawned by
@@ -26,9 +27,10 @@ import (
 // in one [errors.Join] result. Callers that want to abort the chain
 // early can inspect [PackageBuilder.Err] between calls.
 type PackageBuilder struct {
-	ctx  *Context
-	pkg  *emit.Package
-	errs []error
+	ctx           *Context
+	pkg           *emit.Package
+	defaultOrigin node.Node
+	errs          []error
 }
 
 // Package returns a fresh [PackageBuilder] seeded with an

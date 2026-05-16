@@ -8,7 +8,6 @@ import (
 
 	"go.thesmos.sh/eidos/core/meta"
 	"go.thesmos.sh/eidos/core/opt"
-	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/emit/builder"
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/sdk"
@@ -138,29 +137,18 @@ func (*Plugin) Directives() []sdk.DirectiveSchema {
 }
 
 // Generate walks every source-side interface carrying `+gen:mock`
-// and emits the corresponding mock struct. Interfaces are grouped
-// by source package so each source package yields a single emit
-// package containing every mock struct for that source — fewer
-// builders allocated than the per-interface alternative, and the
-// merge in [store.EmitView.AddPackage] never has to splice
-// duplicate-Path packages together.
+// and emits the corresponding mock struct. Each interface yields a
+// per-interface [builder.PackageBuilder] anchored on the source
+// interface; the store merges packages sharing a path so multiple
+// mocks under the same source package compose into one emit
+// bucket without explicit grouping at this site.
 func (p *Plugin) Generate(ctx *sdk.GeneratorContext) error {
-	byPackage := map[string][]*node.Interface{}
-	var order []string
 	for _, iface := range ctx.Reader.Interfaces().Slice() {
 		if !iface.HasPositiveDirective(DirectiveName) {
 			continue
 		}
-		if _, seen := byPackage[iface.Package]; !seen {
-			order = append(order, iface.Package)
-		}
-		byPackage[iface.Package] = append(byPackage[iface.Package], iface)
-	}
-	for _, pkgName := range order {
-		pkg := builder.For(Name, emit.Target{}).Package(pkgName, pkgName)
-		for _, iface := range byPackage[pkgName] {
-			p.emitMock(pkg, iface)
-		}
+		pkg := builder.For(Name).Anchor(iface)
+		p.emitMock(pkg, iface)
 		out, err := pkg.Build()
 		if err != nil {
 			return err

@@ -365,7 +365,7 @@ func (b *Builder) Build() (*Pipeline, error) {
 	}
 
 	plan, planErrs := b.resolvePlan()
-	registry, regErrs := b.buildDirectiveRegistry()
+	registry, directiveOwners, regErrs := b.buildDirectiveRegistry()
 	parser, parserErr := b.buildDirectiveParser()
 	versionErrs := b.validateEmitVersions()
 	postStructural := make([]error, 0, len(planErrs)+len(regErrs)+len(versionErrs)+1)
@@ -382,26 +382,27 @@ func (b *Builder) Build() (*Pipeline, error) {
 
 	defaultPolicy, pluginPolicies := b.resolveLayoutPolicies()
 	return &Pipeline{
-		frontends:      b.frontends,
-		annotators:     b.annotators,
-		generators:     b.generators,
-		backend:        b.backends[0],
-		sink:           b.sink,
-		cache:          b.cache,
-		diag:           b.diag,
-		verbose:        b.verbose,
-		parallel:       b.parallel,
-		manifestPath:   b.manifestPath,
-		command:        b.command,
-		sourceRoot:     b.resolveSourceRoot(),
-		defaultPolicy:  defaultPolicy,
-		pluginPolicies: pluginPolicies,
-		outFilename:    b.outputFilename,
-		scope:          b.resolveScope(),
-		targetSym:      b.targetSymbol,
-		plan:           plan,
-		registry:       registry,
-		parser:         parser,
+		frontends:       b.frontends,
+		annotators:      b.annotators,
+		generators:      b.generators,
+		backend:         b.backends[0],
+		sink:            b.sink,
+		cache:           b.cache,
+		diag:            b.diag,
+		verbose:         b.verbose,
+		parallel:        b.parallel,
+		manifestPath:    b.manifestPath,
+		command:         b.command,
+		sourceRoot:      b.resolveSourceRoot(),
+		defaultPolicy:   defaultPolicy,
+		pluginPolicies:  pluginPolicies,
+		outFilename:     b.outputFilename,
+		scope:           b.resolveScope(),
+		targetSym:       b.targetSymbol,
+		plan:            plan,
+		registry:        registry,
+		parser:          parser,
+		directiveOwners: directiveOwners,
 	}, nil
 }
 
@@ -597,8 +598,9 @@ func (b *Builder) validateEmitVersions() []error {
 // builder-supplied schemas so manual WithDirective calls win on
 // collision — the surface is deliberately tilted toward the
 // caller's explicit declarations.
-func (b *Builder) buildDirectiveRegistry() (*directive.Registry, []error) {
+func (b *Builder) buildDirectiveRegistry() (*directive.Registry, map[directive.Name]string, []error) {
 	r := directive.NewRegistry()
+	owners := map[directive.Name]string{}
 	var errs []error
 	// Register the framework's core directives first so they're
 	// reserved against accidental override by builder-supplied or
@@ -623,10 +625,15 @@ func (b *Builder) buildDirectiveRegistry() (*directive.Registry, []error) {
 		for _, s := range dp.Directives() {
 			if err := r.Register(s); err != nil {
 				errs = append(errs, fmt.Errorf("%w: %w", ErrDuplicateDirective, err))
+				continue
 			}
+			// Record the plugin that owns this directive so the
+			// Layout phase can resolve per-directive `out=` / `pkg=`
+			// keys against the matching plugin's output.
+			owners[s.Name] = p.Name()
 		}
 	}
-	return r, errs
+	return r, owners, errs
 }
 
 // emitErrors writes one diagnostic per supplied error to the

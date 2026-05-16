@@ -5,7 +5,6 @@ package mocktest
 
 import (
 	"go.thesmos.sh/eidos/core/opt"
-	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/emit/builder"
 	"go.thesmos.sh/eidos/plugins/generator/mock"
 	"go.thesmos.sh/eidos/sdk"
@@ -81,8 +80,12 @@ func (p *Plugin) Generate(ctx *sdk.GeneratorContext) error {
 		if _, ok := mock.MetaIface.Get(s.Meta()); !ok {
 			continue
 		}
-		pkg := builder.For(Name, emit.Target{}).
-			Package(s.Package, s.Package)
+		// Anchor on the mock's source-side origin (the interface mock
+		// emitted against). Builder derives the package path from the
+		// origin; the pipeline's Layout phase composes placement
+		// from there, applying the `_test.go` → `<pkg>_test` shift
+		// and honouring any `+gen:out` overrides on the source.
+		pkg := builder.For(Name).Anchor(s.Origin())
 		p.emitTests(pkg, s)
 		out, err := pkg.Build()
 		if err != nil {

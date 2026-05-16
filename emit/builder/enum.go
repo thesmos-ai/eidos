@@ -34,6 +34,7 @@ func (b *PackageBuilder) Enum(name string, underlying emit.Ref, fn func(*EnumBui
 		Underlying: underlying,
 		Target:     b.ctx.target,
 	}
+	applyDefaultOrigin(b, &e.BaseEmit)
 	eb := &EnumBuilder{ctx: b.ctx, e: e}
 	if fn != nil {
 		fn(eb)

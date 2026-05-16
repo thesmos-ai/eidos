@@ -6,6 +6,7 @@ package pipeline
 import (
 	"cmp"
 	"fmt"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -226,10 +227,16 @@ func composeTarget(
 		// emit.Package and fall back to the source package so
 		// per-file slots still resolve into the source's directory.
 		switch {
-		case emitPkg != nil:
+		case emitPkg != nil && emitPkg.Name != "":
+			// Plugin's emit.Package has an opinion — honour it.
 			t.Package = emitPkg.Name
 			t.ImportPath = emitPkg.Path
 		case srcPkg != nil:
+			// Empty emit.Package.Name signals "no opinion from the
+			// plugin" — fall through to the origin's source package.
+			// This is the path plugins take when they construct their
+			// builder with Package("", ""), leaving placement to the
+			// routing layer.
 			t.Package = srcPkg.Name
 			t.ImportPath = srcPkg.Path
 		}
@@ -271,7 +278,7 @@ func composeTarget(
 	// Target.Package + Target.ImportPath through the directive
 	// precedence layer; the value-with-directory form stacks a
 	// relative path onto Target.Dir.
-	if spec, ok := selectOutDirective(outDirectivesFor(origin), pluginName); ok {
+	if spec, ok := selectOutDirective(outDirectivesFor(p, origin), pluginName); ok {
 		dir, filename := splitOutDirectivePath(spec.Path)
 		if filename != "" {
 			t.Filename = filename
@@ -280,6 +287,19 @@ func composeTarget(
 		if dir != "" {
 			t.Dir = filepath.Join(t.Dir, dir)
 			rl.ResolvedFrom["dir"] = manifest.LayerDirective
+			// Derive Package + ImportPath from the resolved Dir's
+			// basename when the directive carries a dir but no
+			// explicit `pkg=` override. Attribution stays at
+			// LayerFramework — the dir change came from the user but
+			// the pkg name is the framework's automatic choice, so
+			// downstream automatic adjustments (e.g. the _test.go
+			// shift) still apply.
+			if spec.Package == "" {
+				t.Package = filepath.Base(t.Dir)
+				if srcPkg != nil {
+					t.ImportPath = path.Join(srcPkg.Path, filepath.ToSlash(dir))
+				}
+			}
 		}
 		if spec.Package != "" {
 			t.Package = spec.Package
@@ -302,6 +322,26 @@ func composeTarget(
 		if dir != "" {
 			t.Dir = filepath.Join(t.Dir, dir)
 			rl.ResolvedFrom["dir"] = manifest.LayerCLI
+		}
+	}
+
+	// _test.go shift: when the resolved filename ends in `_test.go`
+	// and Package came from the framework-default layer (no
+	// explicit `pkg=` from directive, policy, or CLI) and isn't
+	// already suffixed `_test` (a plugin emitting into a `<pkg>_test`
+	// emit.Package has already opted into the external-test-package
+	// convention), append `_test` to Package and ImportPath. Applies
+	// Go's external test-package convention to every `_test.go`
+	// file the framework routes — overridable end-to-end at any
+	// higher precedence layer.
+	if strings.HasSuffix(t.Filename, "_test.go") &&
+		rl.ResolvedFrom["package"] == manifest.LayerFramework &&
+		t.Package != "" &&
+		!strings.HasSuffix(t.Package, "_test") {
+
+		t.Package += "_test"
+		if t.ImportPath != "" {
+			t.ImportPath += "_test"
 		}
 	}
 
@@ -660,24 +700,53 @@ type outDirectiveSpec struct {
 	Package    string
 }
 
-// outDirectivesFor returns every `+gen:out` directive attached to
-// n in source order, parsed into the [outDirectiveSpec] shape.
-// Directives without a positional value are skipped silently —
-// the schema requires the path argument and a bare `+gen:out` is
-// a no-op contributor.
-func outDirectivesFor(n node.Node) []outDirectiveSpec {
+// outDirectivesFor returns every routing-bearing directive attached
+// to n in source order, parsed into the [outDirectiveSpec] shape.
+// Two flavours contribute:
+//
+//   - The standalone `+gen:out <path>` directive (with optional
+//     `plugin=<name>` scope and `pkg=<name>` override). Skipped
+//     silently when its positional path is absent.
+//   - Any directive owned by a plugin (per
+//     [Pipeline.directiveOwners]) that carries `out=` and / or
+//     `pkg=` keys. The resulting spec is implicitly scoped to the
+//     directive's owning plugin — semantically identical to a
+//     `+gen:out plugin=<owner>` directive, but anchored at the
+//     directive that actually triggers the emission so users don't
+//     have to repeat the plugin name.
+func outDirectivesFor(p *Pipeline, n node.Node) []outDirectiveSpec {
 	var specs []outDirectiveSpec
 	for _, d := range n.Directives() {
-		if d.Name != OutDirective {
+		if d.Name == OutDirective {
+			if len(d.Args) == 0 {
+				continue
+			}
+			specs = append(specs, outDirectiveSpec{
+				Path:       d.Args[0],
+				PluginName: d.Value("plugin"),
+				Package:    d.Value("pkg"),
+			})
 			continue
 		}
-		if len(d.Args) == 0 {
+		// Per-directive routing keys: honoured when the directive
+		// is owned by a registered plugin and carries at least one
+		// routing key. The spec is recorded UNSCOPED — applying to
+		// every plugin emitting against this origin — so a
+		// companion plugin (e.g. mocktest discovering mock structs
+		// via meta) inherits the same routing without restating it.
+		// Users who need strict per-plugin scope use the standalone
+		// `+gen:out plugin=<name>` form.
+		if _, owned := p.directiveOwners[d.Name]; !owned {
+			continue
+		}
+		out := d.Value("out")
+		pkg := d.Value("pkg")
+		if out == "" && pkg == "" {
 			continue
 		}
 		specs = append(specs, outDirectiveSpec{
-			Path:       d.Args[0],
-			PluginName: d.Value("plugin"),
-			Package:    d.Value("pkg"),
+			Path:    out,
+			Package: pkg,
 		})
 	}
 	return specs

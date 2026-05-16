@@ -37,6 +37,7 @@ func (b *PackageBuilder) Struct(name string, fn func(*StructBuilder)) *PackageBu
 		Package:  b.pkg.Path,
 		Target:   b.ctx.target,
 	}
+	applyDefaultOrigin(b, &s.BaseEmit)
 	sb := &StructBuilder{ctx: b.ctx, s: s}
 	if fn != nil {
 		fn(sb)

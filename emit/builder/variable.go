@@ -36,6 +36,7 @@ func (b *PackageBuilder) Variable(
 		Init:     init,
 		Target:   b.ctx.target,
 	}
+	applyDefaultOrigin(b, &v.BaseEmit)
 	vb := &VariableBuilder{ctx: b.ctx, v: v}
 	if fn != nil {
 		fn(vb)
