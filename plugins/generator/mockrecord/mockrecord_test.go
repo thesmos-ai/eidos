@@ -1,7 +1,7 @@
 // Copyright Thesmos B.V. 2026
 // SPDX-License-Identifier: MIT
 
-package mocktest_test
+package mockrecord_test
 
 import (
 	"testing"
@@ -12,14 +12,14 @@ import (
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/plugins/generator/mock"
-	"go.thesmos.sh/eidos/plugins/generator/mocktest"
+	"go.thesmos.sh/eidos/plugins/generator/mockrecord"
 	"go.thesmos.sh/eidos/store"
 )
 
 // TestConformance runs the framework conformance suites against
-// the mocktest plugin. Generator-suite fixtures pre-populate the
-// emit graph by running the mock plugin first — mocktest is a
-// companion cross-cutter that discovers mock output via the
+// the mockrecord plugin. Generator-suite fixtures pre-populate
+// the emit graph by running the mock plugin first — mockrecord
+// is a cross-cutter that decorates mock output via the
 // `mock.iface` meta key, so the fixtures must reflect that
 // pipeline shape.
 func TestConformance(t *testing.T) {
@@ -27,14 +27,14 @@ func TestConformance(t *testing.T) {
 
 	t.Run("framework contracts", func(t *testing.T) {
 		t.Parallel()
-		plugintest.RunSuite(t, mocktest.New())
+		plugintest.RunSuite(t, mockrecord.New())
 	})
 
 	t.Run("generator contracts", func(t *testing.T) {
 		t.Parallel()
 		plugintest.RunGeneratorSuite(
 			t,
-			mocktest.New(),
+			mockrecord.New(),
 			[]plugintest.GeneratorFixture{
 				{
 					Name: "package with no mock-annotated interfaces",
@@ -58,8 +58,8 @@ func TestConformance(t *testing.T) {
 
 	t.Run("options round-trip", func(t *testing.T) {
 		t.Parallel()
-		plugintest.RunOptionsSuite(t, mocktest.New(), plugintest.OptionsFixture{
-			Valid:      map[string]string{"test_filename_suffix": "_alt_test.go"},
+		plugintest.RunOptionsSuite(t, mockrecord.New(), plugintest.OptionsFixture{
+			Valid:      map[string]string{"field_suffix": "History"},
 			UnknownKey: "no_such_field",
 		})
 	})
@@ -67,10 +67,10 @@ func TestConformance(t *testing.T) {
 
 // buildStoreWithMockOutput builds a store carrying one
 // `+gen:mock` source interface plus the mock plugin's emit
-// output. mocktest reads emit-side mock structs (via
+// output. mockrecord reads emit-side mock structs (via
 // [mock.MetaIface]), so the generator-suite's determinism and
 // no-panic checks need a store whose emit graph reflects what
-// mocktest sees in a real pipeline.
+// mockrecord sees in a real pipeline.
 func buildStoreWithMockOutput(t *testing.T) *store.Store {
 	t.Helper()
 	s := storefixture.New().

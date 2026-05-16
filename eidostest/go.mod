@@ -2,17 +2,7 @@ module go.thesmos.sh/eidos/eidostest
 
 go 1.26.2
 
-require (
-	go.thesmos.sh/eidos v1.0.2
-	go.thesmos.sh/eidos/backend/golang v1.0.2
-	go.thesmos.sh/eidos/frontend/golang v1.0.2
-)
-
-require (
-	golang.org/x/mod v0.36.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/tools v0.45.0 // indirect
-)
+require go.thesmos.sh/eidos v1.0.2
 
 replace (
 	go.thesmos.sh/eidos => ../
