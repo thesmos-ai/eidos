@@ -120,6 +120,30 @@ func derefStructTarget(dst any) (reflect.Value, error) {
 	return elem, nil
 }
 
+// applyDefaults walks schema and assigns each field's declared
+// default to target, ignoring fields without a default and
+// required fields (which by convention carry no default — the
+// pipeline supplies a real value at build time). Used by [Bind] to
+// pre-populate plugin options so consumers never see Go-zero values
+// for fields the schema says have a meaningful default. Parse or
+// assignment failures are silently skipped — these would indicate a
+// programmer error in the options struct's tags, and [Reflect]
+// already panics on those at schema-construction time, so reaching
+// applyDefaults with an unparseable default is impossible in
+// practice.
+func applyDefaults(target any, schema Schema) {
+	val, err := derefStructTarget(target)
+	if err != nil {
+		return
+	}
+	for _, f := range schema.Fields {
+		if !f.HasDefault {
+			continue
+		}
+		_ = assignField(val, f, f.DefaultStr)
+	}
+}
+
 // assignField parses raw per the field's kind and OneOf and sets the
 // destination struct's matching Go field. Returns [ErrInvalidValue]
 // for parse / enumeration failures.

@@ -4,7 +4,7 @@
 // Package debugweaver appends a debug-trace call to the
 // [emit.Method.Prebody] slot of every method in the emit store —
 // the canonical "entry trace" cross-cutting concern. The plugin
-// runs in [priority.GeneratorCrossCutting] and advertises the
+// runs in [sdk.GeneratorCrossCutting] and advertises the
 // `trace` capability so other cross-cutting plugins (audit,
 // metric, …) can declare a Requires dependency on a known
 // trace-entry contribution.
@@ -27,13 +27,11 @@
 package debugweaver
 
 import (
-	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/opt"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/emit/builder"
 	"go.thesmos.sh/eidos/node"
-	"go.thesmos.sh/eidos/plugin"
-	"go.thesmos.sh/eidos/priority"
+	"go.thesmos.sh/eidos/sdk"
 )
 
 // Name is the plugin's stable identifier.
@@ -46,7 +44,7 @@ const Capability = "trace"
 
 // DirectiveName is the bare directive name the plugin reads from
 // emit methods to suppress its contribution on a per-method basis.
-const DirectiveName directive.Name = "debug"
+const DirectiveName sdk.DirectiveName = "debug"
 
 // EntryID is the [emit.Provenance.ID] stamped on every debug-weaver
 // prebody contribution. Cross-cutting plugins that want to position
@@ -103,7 +101,7 @@ func (*Plugin) Name() string { return Name }
 
 // Priority places the plugin in the cross-cutting bucket so it
 // runs after foundation and composition generators.
-func (*Plugin) Priority() priority.Priority { return priority.GeneratorCrossCutting }
+func (*Plugin) Priority() sdk.Priority { return sdk.GeneratorCrossCutting }
 
 // Provides advertises the trace capability.
 func (*Plugin) Provides() []string { return []string{Capability} }
@@ -115,9 +113,9 @@ func (*Plugin) Requires() []string { return nil }
 // is allowed by the framework default but carries no plugin
 // semantics — debug-weaver applies to every method unconditionally
 // unless suppressed.
-func (*Plugin) Directives() []directive.Schema {
-	return []directive.Schema{
-		directive.NewSchema(DirectiveName).
+func (*Plugin) Directives() []sdk.DirectiveSchema {
+	return []sdk.DirectiveSchema{
+		sdk.NewDirective(DirectiveName).
 			On(node.KindMethod).
 			Describe("Suppresses (-) the debug-entry trace on the host method.").
 			Build(),
@@ -130,7 +128,7 @@ func (*Plugin) Directives() []directive.Schema {
 // "<Type>.<Method>")` — the renderer registers the import for
 // Options.Package on the host file's import set via the
 // [emit.NewExternal] expression.
-func (p *Plugin) Generate(ctx *plugin.GeneratorContext) error {
+func (p *Plugin) Generate(ctx *sdk.GeneratorContext) error {
 	c := builder.For(Name, emit.Target{})
 	for _, m := range ctx.Reader.EmitMethods().Slice() {
 		if m.HasNegatedDirective(DirectiveName) {

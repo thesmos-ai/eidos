@@ -6,7 +6,6 @@ package registrygen_test
 import (
 	"testing"
 
-	"go.thesmos.sh/eidos/core/opt"
 	"go.thesmos.sh/eidos/eidostest/plugintest"
 	"go.thesmos.sh/eidos/eidostest/storefixture"
 	"go.thesmos.sh/eidos/reference/registrygen"
@@ -23,14 +22,14 @@ func TestConformance(t *testing.T) {
 
 	t.Run("framework contracts", func(t *testing.T) {
 		t.Parallel()
-		plugintest.RunSuite(t, newPrimed(t))
+		plugintest.RunSuite(t, registrygen.New())
 	})
 
 	t.Run("generator contracts", func(t *testing.T) {
 		t.Parallel()
 		plugintest.RunGeneratorSuite(
 			t,
-			newPrimed(t),
+			registrygen.New(),
 			[]plugintest.GeneratorFixture{
 				{
 					Name: "empty package",
@@ -62,15 +61,4 @@ func TestConformance(t *testing.T) {
 			UnknownKey: "no_such_field",
 		})
 	})
-}
-
-// newPrimed returns a registrygen plugin with schema defaults
-// applied.
-func newPrimed(t *testing.T) *registrygen.Plugin {
-	t.Helper()
-	p := registrygen.New()
-	if err := p.SetOptions(opt.New(p.OptionsSchema(), nil)); err != nil {
-		t.Fatalf("registrygen: prime defaults: %v", err)
-	}
-	return p
 }

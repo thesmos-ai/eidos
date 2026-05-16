@@ -19,11 +19,9 @@ package shapewriter
 import (
 	"fmt"
 
-	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/meta"
 	"go.thesmos.sh/eidos/node"
-	"go.thesmos.sh/eidos/plugin"
-	"go.thesmos.sh/eidos/priority"
+	"go.thesmos.sh/eidos/sdk"
 )
 
 // Name is the plugin's stable identifier surfaced through
@@ -35,7 +33,7 @@ const Name = "shape-writer"
 // `-gen:` prefix) the plugin reads from each struct's directive
 // list. The positive form forces detection; the negative form
 // suppresses it.
-const DirectiveName directive.Name = "writer"
+const DirectiveName sdk.DirectiveName = "writer"
 
 // Detected is the meta key the plugin stamps with `true` when the
 // struct matches the writer shape and `false` otherwise. The key
@@ -71,7 +69,7 @@ func (*Plugin) Name() string { return Name }
 
 // Priority places the plugin in the shape-detector bucket so it
 // runs alongside other annotators that stamp `shape.*` metadata.
-func (*Plugin) Priority() priority.Priority { return priority.AnnotatorShape }
+func (*Plugin) Priority() sdk.Priority { return sdk.AnnotatorShape }
 
 // Provides returns nil — the plugin doesn't expose a capability
 // label for cross-plugin topo ordering. Downstream consumers reach
@@ -84,9 +82,9 @@ func (*Plugin) Requires() []string { return nil }
 // Directives declares the `+gen:writer` / `-gen:writer` schema with
 // the pipeline so directive validation rejects malformed uses at
 // frontend-parse time.
-func (*Plugin) Directives() []directive.Schema {
-	return []directive.Schema{
-		directive.NewSchema(DirectiveName).
+func (*Plugin) Directives() []sdk.DirectiveSchema {
+	return []sdk.DirectiveSchema{
+		sdk.NewDirective(DirectiveName).
 			On(node.KindStruct).
 			Describe("Forces (+) or suppresses (-) writer-shape detection on the host struct.").
 			Build(),
@@ -94,20 +92,19 @@ func (*Plugin) Directives() []directive.Schema {
 }
 
 // Annotate iterates the node store's struct bucket through
-// [plugin.Walk] and stamps the writer-shape metadata on each
-// struct.
-func (p *Plugin) Annotate(ctx *plugin.AnnotatorContext) error {
-	return plugin.Walk(ctx, p)
+// [sdk.Walk] and stamps the writer-shape metadata on each struct.
+func (p *Plugin) Annotate(ctx *sdk.AnnotatorContext) error {
+	return sdk.Walk(ctx, p)
 }
 
-// OnStruct is the [plugin.StructHook] entry point. The heuristic
-// runs first; the directive — when present — overrides its
-// outcome (positive forces detection, negative suppresses it).
-// The method back-link is recorded whenever the heuristic matched
-// AND the final detection is true, so a directive-driven match
-// without a real Write method records an empty back-link
-// alongside detected=true.
-func (*Plugin) OnStruct(_ *plugin.AnnotatorContext, s *node.Struct) {
+// OnStruct is the [sdk.StructHook] entry point. The heuristic runs
+// first; the directive — when present — overrides its outcome
+// (positive forces detection, negative suppresses it). The method
+// back-link is recorded whenever the heuristic matched AND the
+// final detection is true, so a directive-driven match without a
+// real Write method records an empty back-link alongside
+// detected=true.
+func (*Plugin) OnStruct(_ *sdk.AnnotatorContext, s *node.Struct) {
 	method, matched := matchSignature(s)
 	detected := matched
 	if d := s.Directive(DirectiveName); d != nil {

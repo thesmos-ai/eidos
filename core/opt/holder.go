@@ -32,11 +32,23 @@ type Holder[T any] struct {
 // holder so per-plugin schema reflection happens once per plugin
 // instance.
 //
+// As a convenience, Bind pre-applies every field's declared default
+// to target — fields tagged `default=…` arrive populated rather
+// than at their Go zero value. Required fields without a default
+// remain at their zero value until [Holder.SetOptions] supplies a
+// real value; Bind never errors on a required-without-default
+// field, leaving the validation to the build-time SetOptions call.
+// The pipeline's normal SetOptions(user_values) flow is unaffected
+// — defaults are reapplied on every Decode for any field the user
+// omits.
+//
 // target must be a non-nil pointer to a struct of the type the
 // generated schema describes — passing a value type is a programmer
 // error and panics during the [Reflect] call.
 func Bind[T any](target *T) *Holder[T] {
-	return &Holder[T]{schema: Reflect(*target), target: target}
+	h := &Holder[T]{schema: Reflect(*target), target: target}
+	applyDefaults(target, h.schema)
+	return h
 }
 
 // OptionsSchema returns the cached reflected schema. Satisfies the

@@ -6,7 +6,6 @@ package repogen_test
 import (
 	"testing"
 
-	"go.thesmos.sh/eidos/core/opt"
 	"go.thesmos.sh/eidos/eidostest/plugintest"
 	"go.thesmos.sh/eidos/eidostest/storefixture"
 	"go.thesmos.sh/eidos/reference/repogen"
@@ -24,14 +23,14 @@ func TestConformance(t *testing.T) {
 
 	t.Run("framework contracts", func(t *testing.T) {
 		t.Parallel()
-		plugintest.RunSuite(t, newPrimed(t))
+		plugintest.RunSuite(t, repogen.New())
 	})
 
 	t.Run("generator contracts", func(t *testing.T) {
 		t.Parallel()
 		plugintest.RunGeneratorSuite(
 			t,
-			newPrimed(t),
+			repogen.New(),
 			[]plugintest.GeneratorFixture{
 				{
 					Name: "package with no annotated structs",
@@ -86,19 +85,4 @@ func TestConformance(t *testing.T) {
 			UnknownKey: "no_such_field",
 		})
 	})
-}
-
-// newPrimed returns a repogen plugin with schema defaults
-// applied. The plugin's options surface (InterfaceSuffix=Repository,
-// StructSuffix=Repo, Naming=Pascal) only takes effect after
-// SetOptions decodes through the schema, which in production
-// happens at pipeline Build time. The conformance tests skip the
-// pipeline so they prime the plugin manually here.
-func newPrimed(t *testing.T) *repogen.Plugin {
-	t.Helper()
-	p := repogen.New()
-	if err := p.SetOptions(opt.New(p.OptionsSchema(), nil)); err != nil {
-		t.Fatalf("repogen: prime defaults: %v", err)
-	}
-	return p
 }

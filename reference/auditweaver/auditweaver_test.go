@@ -6,7 +6,6 @@ package auditweaver_test
 import (
 	"testing"
 
-	"go.thesmos.sh/eidos/core/opt"
 	"go.thesmos.sh/eidos/eidostest/plugintest"
 	"go.thesmos.sh/eidos/eidostest/storefixture"
 	"go.thesmos.sh/eidos/reference/auditweaver"
@@ -22,14 +21,14 @@ func TestConformance(t *testing.T) {
 
 	t.Run("framework contracts", func(t *testing.T) {
 		t.Parallel()
-		plugintest.RunSuite(t, newPrimed(t))
+		plugintest.RunSuite(t, auditweaver.New())
 	})
 
 	t.Run("generator contracts", func(t *testing.T) {
 		t.Parallel()
 		plugintest.RunGeneratorSuite(
 			t,
-			newPrimed(t),
+			auditweaver.New(),
 			[]plugintest.GeneratorFixture{
 				{
 					Name: "empty package",
@@ -62,15 +61,4 @@ func TestConformance(t *testing.T) {
 			UnknownKey: "no_such_field",
 		})
 	})
-}
-
-// newPrimed returns an auditweaver plugin with schema defaults
-// applied.
-func newPrimed(t *testing.T) *auditweaver.Plugin {
-	t.Helper()
-	p := auditweaver.New()
-	if err := p.SetOptions(opt.New(p.OptionsSchema(), nil)); err != nil {
-		t.Fatalf("auditweaver: prime defaults: %v", err)
-	}
-	return p
 }

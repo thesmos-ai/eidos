@@ -13,7 +13,7 @@
 // mock is suitable for table-driven tests without an extra mocking
 // dependency.
 //
-// mockgen sits in the [priority.GeneratorComposition] bucket; the
+// mockgen sits in the [sdk.GeneratorComposition] bucket; the
 // `Requires: ["repository"]` declaration documents the dependency
 // on repogen's output even though the strict-by-priority bucket
 // ordering already runs foundation generators first.
@@ -38,18 +38,16 @@ import (
 	"errors"
 	"strconv"
 
-	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/opt"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/emit/builder"
 	"go.thesmos.sh/eidos/node"
-	"go.thesmos.sh/eidos/plugin"
-	"go.thesmos.sh/eidos/priority"
 	"go.thesmos.sh/eidos/reference/internal/refconv"
+	"go.thesmos.sh/eidos/sdk"
 )
 
 // Name is the plugin's stable identifier surfaced through
-// [plugin.Plugin.Name].
+// [sdk.Plugin.Name].
 const Name = "mockgen"
 
 // Capability is the capability label mockgen advertises through
@@ -64,7 +62,7 @@ const RequiresRepository = "repository"
 // DirectiveName is the bare directive name (without the `+gen:` or
 // `-gen:` prefix) the plugin reads from interfaces on both the
 // source and the emit side.
-const DirectiveName directive.Name = "mock"
+const DirectiveName sdk.DirectiveName = "mock"
 
 // FilenameSuffix is appended to the source-file basename (without
 // the `.go` extension) to form the alongside-source output
@@ -127,7 +125,7 @@ func (*Plugin) Name() string { return Name }
 // Priority places the plugin in the composition generator bucket so
 // it runs after the foundation generators that synthesise the
 // interfaces it mocks.
-func (*Plugin) Priority() priority.Priority { return priority.GeneratorComposition }
+func (*Plugin) Priority() sdk.Priority { return sdk.GeneratorComposition }
 
 // Provides returns [Capability].
 func (*Plugin) Provides() []string { return []string{Capability} }
@@ -157,9 +155,9 @@ func (*Plugin) FilenameSuffix(lang string) string {
 // directives skip emit-side interfaces that would otherwise be
 // mocked. A negated directive on a source-side method skips that
 // individual method when its parent interface still opts in.
-func (*Plugin) Directives() []directive.Schema {
-	return []directive.Schema{
-		directive.NewSchema(DirectiveName).
+func (*Plugin) Directives() []sdk.DirectiveSchema {
+	return []sdk.DirectiveSchema{
+		sdk.NewDirective(DirectiveName).
 			On(node.KindInterface).
 			On(node.KindMethod).
 			On(emit.KindInterface).
@@ -189,7 +187,7 @@ func (*Plugin) Directives() []directive.Schema {
 // composes the rendered file's `package <pkg>_test` clause
 // without the framework knowing anything about Go's test-package
 // convention.
-func (p *Plugin) Generate(ctx *plugin.GeneratorContext) error {
+func (p *Plugin) Generate(ctx *sdk.GeneratorContext) error {
 	srcGroups, srcOrder := groupSourceInterfaces(ctx)
 	for _, path := range srcOrder {
 		srcPkg, ok := ctx.Reader.Store().Nodes().Packages().ByQName(path)
@@ -223,7 +221,7 @@ func (p *Plugin) Generate(ctx *plugin.GeneratorContext) error {
 // buildAndAdd finalises the in-progress package and folds it into
 // the emit store. Wrap-and-Join keeps the call sites in [Generate]
 // uniform across the source-side and emit-side passes.
-func buildAndAdd(ctx *plugin.GeneratorContext, pkg *builder.PackageBuilder) error {
+func buildAndAdd(ctx *sdk.GeneratorContext, pkg *builder.PackageBuilder) error {
 	out, err := pkg.Build()
 	if err != nil {
 		return err
@@ -245,7 +243,7 @@ var errAddPackage = errors.New("mockgen: add package to store")
 // returned order slice preserves first-encountered path order so
 // iteration of the grouping stays deterministic across runs.
 func groupSourceInterfaces(
-	ctx *plugin.GeneratorContext,
+	ctx *sdk.GeneratorContext,
 ) (map[string][]*node.Interface, []string) {
 	groups := map[string][]*node.Interface{}
 	order := []string{}
@@ -274,7 +272,7 @@ type emitInterfaceGroup struct {
 // groups every non-suppressed interface by its containing
 // emit.Package's (Name, Path). Order is first-encountered.
 func groupEmitInterfaces(
-	ctx *plugin.GeneratorContext,
+	ctx *sdk.GeneratorContext,
 ) (map[string]*emitInterfaceGroup, []string) {
 	pkgByQName := map[string]*emit.Package{}
 	for _, epkg := range ctx.Reader.Store().Emit().Packages().Items() {

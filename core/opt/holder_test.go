@@ -76,4 +76,22 @@ func TestBind(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("pre-applies declared defaults to the bound target", func(t *testing.T) {
+		t.Parallel()
+		var got holderOptions
+		opt.Bind(&got)
+		if got.Suffix != "Repo" {
+			t.Fatalf("Bind should pre-apply the default; got Suffix=%q, want %q", got.Suffix, "Repo")
+		}
+	})
+
+	t.Run("leaves required-without-default fields at zero", func(t *testing.T) {
+		t.Parallel()
+		var got holderOptions
+		opt.Bind(&got)
+		if got.Output != "" {
+			t.Fatalf("Bind should leave required-without-default at zero; got Output=%q", got.Output)
+		}
+	})
 }

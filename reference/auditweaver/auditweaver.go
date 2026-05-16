@@ -4,7 +4,7 @@
 // Package auditweaver appends an audit-record call to the
 // [emit.Method.Prebody] slot of every method in the emit store —
 // a cross-cutting concern paired with the debug-weaver entry
-// trace. The plugin runs in [priority.GeneratorCrossCutting] and
+// trace. The plugin runs in [sdk.GeneratorCrossCutting] and
 // declares `Requires: ["trace"]` so plan resolution orders it after
 // debug-weaver; the rendered prebody therefore lists the debug
 // trace first and the audit record second.
@@ -28,13 +28,11 @@
 package auditweaver
 
 import (
-	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/opt"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/emit/builder"
 	"go.thesmos.sh/eidos/node"
-	"go.thesmos.sh/eidos/plugin"
-	"go.thesmos.sh/eidos/priority"
+	"go.thesmos.sh/eidos/sdk"
 )
 
 // Name is the plugin's stable identifier.
@@ -50,7 +48,7 @@ const RequiresTrace = "trace"
 
 // DirectiveName is the bare directive name read from emit methods
 // to suppress the audit contribution on a per-method basis.
-const DirectiveName directive.Name = "audit"
+const DirectiveName sdk.DirectiveName = "audit"
 
 // EntryID is the [emit.Provenance.ID] stamped on every audit-weaver
 // prebody contribution. Other cross-cutting plugins may position
@@ -113,7 +111,7 @@ func New() *Plugin {
 func (*Plugin) Name() string { return Name }
 
 // Priority places the plugin in the cross-cutting bucket.
-func (*Plugin) Priority() priority.Priority { return priority.GeneratorCrossCutting }
+func (*Plugin) Priority() sdk.Priority { return sdk.GeneratorCrossCutting }
 
 // Provides advertises the audit capability.
 func (*Plugin) Provides() []string { return []string{Capability} }
@@ -126,9 +124,9 @@ func (*Plugin) Requires() []string { return []string{RequiresTrace} }
 // is allowed by the framework default but carries no plugin
 // semantics — audit-weaver applies to every method unconditionally
 // unless suppressed.
-func (*Plugin) Directives() []directive.Schema {
-	return []directive.Schema{
-		directive.NewSchema(DirectiveName).
+func (*Plugin) Directives() []sdk.DirectiveSchema {
+	return []sdk.DirectiveSchema{
+		sdk.NewDirective(DirectiveName).
 			On(node.KindMethod).
 			Describe("Suppresses (-) the audit record on the host method.").
 			Build(),
@@ -141,7 +139,7 @@ func (*Plugin) Directives() []directive.Schema {
 // "<Type>.<Method>")` — the renderer registers the import for
 // Options.Package on the host file's import set via the
 // [emit.NewExternal] expression.
-func (p *Plugin) Generate(ctx *plugin.GeneratorContext) error {
+func (p *Plugin) Generate(ctx *sdk.GeneratorContext) error {
 	c := builder.For(Name, emit.Target{})
 	for _, m := range ctx.Reader.EmitMethods().Slice() {
 		if m.HasNegatedDirective(DirectiveName) {

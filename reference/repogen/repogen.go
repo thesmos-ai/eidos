@@ -26,17 +26,15 @@ package repogen
 import (
 	"errors"
 
-	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/opt"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/emit/builder"
 	"go.thesmos.sh/eidos/node"
-	"go.thesmos.sh/eidos/plugin"
-	"go.thesmos.sh/eidos/priority"
+	"go.thesmos.sh/eidos/sdk"
 )
 
 // Name is the plugin's stable identifier surfaced through
-// [plugin.Plugin.Name].
+// [sdk.Plugin.Name].
 const Name = "repogen"
 
 // Capability is the capability label other plugins declare in
@@ -46,7 +44,7 @@ const Capability = "repository"
 
 // DirectiveName is the bare directive name (without the `+gen:` or
 // `-gen:` prefix) the plugin reads from each source struct.
-const DirectiveName directive.Name = "repo"
+const DirectiveName sdk.DirectiveName = "repo"
 
 // FilenameSuffix is appended to the source-file basename (without
 // the `.go` extension) to form the alongside-source output
@@ -118,7 +116,7 @@ func (*Plugin) Name() string { return Name }
 // Priority places the plugin in the foundation generator bucket so
 // it runs before composition-bucket generators (e.g. mockgen) that
 // consume its emitted interfaces.
-func (*Plugin) Priority() priority.Priority { return priority.GeneratorFoundation }
+func (*Plugin) Priority() sdk.Priority { return sdk.GeneratorFoundation }
 
 // Provides returns [Capability] — composition-bucket plugins
 // declare it as a Requires entry to document the dependency.
@@ -145,9 +143,9 @@ func (*Plugin) FilenameSuffix(lang string) string {
 // Directives declares the `+gen:repo` / `-gen:repo` schema with
 // the pipeline so directive validation rejects malformed uses at
 // frontend-parse time.
-func (*Plugin) Directives() []directive.Schema {
-	return []directive.Schema{
-		directive.NewSchema(DirectiveName).
+func (*Plugin) Directives() []sdk.DirectiveSchema {
+	return []sdk.DirectiveSchema{
+		sdk.NewDirective(DirectiveName).
 			On(node.KindStruct).
 			Describe("Forces (+) or suppresses (-) repository emission for the host struct.").
 			Build(),
@@ -171,7 +169,7 @@ func (*Plugin) Directives() []directive.Schema {
 // composes Dir / Filename / Package / ImportPath from the
 // origin and the resolved [pipeline.LayoutPolicy] for this
 // plugin.
-func (p *Plugin) Generate(ctx *plugin.GeneratorContext) error {
+func (p *Plugin) Generate(ctx *sdk.GeneratorContext) error {
 	groups, order := groupByPackage(ctx, p.shouldEmit)
 	for _, path := range order {
 		srcPkg, ok := ctx.Reader.Store().Nodes().Packages().ByQName(path)
@@ -205,7 +203,7 @@ var errAddPackage = errors.New("repogen: add package to store")
 // returned order slice preserves first-encountered path order so
 // iteration of the grouping stays deterministic across runs.
 func groupByPackage(
-	ctx *plugin.GeneratorContext,
+	ctx *sdk.GeneratorContext,
 	pred func(*node.Struct) bool,
 ) (map[string][]*node.Struct, []string) {
 	groups := map[string][]*node.Struct{}

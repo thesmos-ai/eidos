@@ -6,7 +6,6 @@ package mockgen_test
 import (
 	"testing"
 
-	"go.thesmos.sh/eidos/core/opt"
 	"go.thesmos.sh/eidos/eidostest/plugintest"
 	"go.thesmos.sh/eidos/eidostest/storefixture"
 	"go.thesmos.sh/eidos/reference/mockgen"
@@ -20,14 +19,14 @@ func TestConformance(t *testing.T) {
 
 	t.Run("framework contracts", func(t *testing.T) {
 		t.Parallel()
-		plugintest.RunSuite(t, newPrimed(t))
+		plugintest.RunSuite(t, mockgen.New())
 	})
 
 	t.Run("generator contracts", func(t *testing.T) {
 		t.Parallel()
 		plugintest.RunGeneratorSuite(
 			t,
-			newPrimed(t),
+			mockgen.New(),
 			[]plugintest.GeneratorFixture{
 				{
 					Name: "package with no annotated interfaces",
@@ -60,15 +59,4 @@ func TestConformance(t *testing.T) {
 			UnknownKey: "no_such_field",
 		})
 	})
-}
-
-// newPrimed returns a mockgen plugin with schema defaults
-// applied.
-func newPrimed(t *testing.T) *mockgen.Plugin {
-	t.Helper()
-	p := mockgen.New()
-	if err := p.SetOptions(opt.New(p.OptionsSchema(), nil)); err != nil {
-		t.Fatalf("mockgen: prime defaults: %v", err)
-	}
-	return p
 }

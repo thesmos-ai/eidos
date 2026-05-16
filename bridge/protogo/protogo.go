@@ -5,12 +5,10 @@ package protogo
 
 import (
 	"go.thesmos.sh/eidos/core/diag"
-	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/opt"
 	"go.thesmos.sh/eidos/frontend/protobuf"
 	"go.thesmos.sh/eidos/node"
-	"go.thesmos.sh/eidos/plugin"
-	"go.thesmos.sh/eidos/priority"
+	"go.thesmos.sh/eidos/sdk"
 )
 
 // Name is the plugin's stable identifier.
@@ -50,7 +48,7 @@ func (*Plugin) Name() string { return Name }
 // validation annotators, which lets shape stamps inform the
 // translation tables (when a future pair needs them) while
 // validation-time checks see the fully-translated meta.
-func (*Plugin) Priority() priority.Priority { return priority.AnnotatorRefinement }
+func (*Plugin) Priority() sdk.Priority { return sdk.AnnotatorRefinement }
 
 // Provides returns the bridge's capability label.
 func (*Plugin) Provides() []string { return []string{Capability} }
@@ -60,14 +58,14 @@ func (*Plugin) Provides() []string { return []string{Capability} }
 // meta on proto-derived nodes filtered by the cross-frontend
 // marker. Returning a non-nil empty slice satisfies the
 // [directive.Owner] contract without registering a schema.
-func (*Plugin) Directives() []directive.Schema { return nil }
+func (*Plugin) Directives() []sdk.DirectiveSchema { return nil }
 
 // Annotate walks every proto-derived [node.Package] in the
 // store and stamps the Go-namespaced translation meta on every
 // reachable type reference, field, and package. Packages whose
 // frontend-marker meta isn't `"protobuf"` are skipped — the
 // bridge is scoped to its source language.
-func (*Plugin) Annotate(ctx *plugin.AnnotatorContext) error {
+func (*Plugin) Annotate(ctx *sdk.AnnotatorContext) error {
 	ps := ctx.Diag.For(Name)
 	for _, pkg := range ctx.Reader.Packages().Slice() {
 		marker, ok := protobuf.MetaFrontend.Get(pkg.Meta())

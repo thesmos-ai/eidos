@@ -6,7 +6,6 @@ package debugweaver_test
 import (
 	"testing"
 
-	"go.thesmos.sh/eidos/core/opt"
 	"go.thesmos.sh/eidos/eidostest/plugintest"
 	"go.thesmos.sh/eidos/eidostest/storefixture"
 	"go.thesmos.sh/eidos/reference/debugweaver"
@@ -25,14 +24,14 @@ func TestConformance(t *testing.T) {
 
 	t.Run("framework contracts", func(t *testing.T) {
 		t.Parallel()
-		plugintest.RunSuite(t, newPrimed(t))
+		plugintest.RunSuite(t, debugweaver.New())
 	})
 
 	t.Run("generator contracts", func(t *testing.T) {
 		t.Parallel()
 		plugintest.RunGeneratorSuite(
 			t,
-			newPrimed(t),
+			debugweaver.New(),
 			[]plugintest.GeneratorFixture{
 				{
 					Name: "empty package",
@@ -65,15 +64,4 @@ func TestConformance(t *testing.T) {
 			UnknownKey: "no_such_field",
 		})
 	})
-}
-
-// newPrimed returns a debugweaver plugin with schema defaults
-// applied.
-func newPrimed(t *testing.T) *debugweaver.Plugin {
-	t.Helper()
-	p := debugweaver.New()
-	if err := p.SetOptions(opt.New(p.OptionsSchema(), nil)); err != nil {
-		t.Fatalf("debugweaver: prime defaults: %v", err)
-	}
-	return p
 }

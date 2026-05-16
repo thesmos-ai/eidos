@@ -38,14 +38,12 @@ import (
 	"io/fs"
 	"text/template"
 
-	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/kind"
 	"go.thesmos.sh/eidos/core/opt"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/emit/builder"
 	"go.thesmos.sh/eidos/node"
-	"go.thesmos.sh/eidos/plugin"
-	"go.thesmos.sh/eidos/priority"
+	"go.thesmos.sh/eidos/sdk"
 )
 
 // Name is the plugin's stable identifier.
@@ -56,7 +54,7 @@ const Capability = "registry"
 
 // DirectiveName is the bare directive name read from source
 // structs.
-const DirectiveName directive.Name = "register"
+const DirectiveName sdk.DirectiveName = "register"
 
 // Kind is the plugin-defined emit kind every [Registration] reports
 // from [Registration.Kind]. The dotted spelling keeps it outside
@@ -155,7 +153,7 @@ func (*Plugin) FilenameSuffix(lang string) string {
 
 // Priority places the plugin in the cross-cutting bucket so it
 // runs after foundation and composition generators.
-func (*Plugin) Priority() priority.Priority { return priority.GeneratorCrossCutting }
+func (*Plugin) Priority() sdk.Priority { return sdk.GeneratorCrossCutting }
 
 // Provides advertises the registry capability.
 func (*Plugin) Provides() []string { return []string{Capability} }
@@ -164,9 +162,9 @@ func (*Plugin) Provides() []string { return []string{Capability} }
 func (*Plugin) Requires() []string { return nil }
 
 // Directives declares the `+gen:register` schema.
-func (*Plugin) Directives() []directive.Schema {
-	return []directive.Schema{
-		directive.NewSchema(DirectiveName).
+func (*Plugin) Directives() []sdk.DirectiveSchema {
+	return []sdk.DirectiveSchema{
+		sdk.NewDirective(DirectiveName).
 			On(node.KindStruct).
 			Describe("Registers the host struct with the runtime registry on package init.").
 			Build(),
@@ -242,7 +240,7 @@ var _ emit.Node = (*Registration)(nil)
 // `+gen:register` annotated struct. The Layout phase resolves
 // each contribution's origin to a rendered file downstream;
 // the plugin itself sets no Target.
-func (p *Plugin) Generate(ctx *plugin.GeneratorContext) error {
+func (p *Plugin) Generate(ctx *sdk.GeneratorContext) error {
 	c := builder.For(Name, emit.Target{})
 	for _, s := range ctx.Reader.Structs().Slice() {
 		if !s.HasPositiveDirective(DirectiveName) {

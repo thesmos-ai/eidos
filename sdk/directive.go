@@ -1,0 +1,131 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
+package sdk
+
+import "go.thesmos.sh/eidos/core/directive"
+
+// Directive is one parsed `+gen:` or `-gen:` directive instance.
+// Frontends parse directives from source comments and attach them
+// to the originating node; annotators / generators read them via
+// [node.Node.Directives] or the node's HasDirective / Directive
+// accessors.
+type Directive = directive.Directive
+
+// DirectiveName is the bare name of a directive — what follows
+// the "+gen:" or "-gen:" prefix and precedes the first
+// whitespace. Defined as its own string-alias type so [Schema],
+// [Directive], and [Registry] signatures are self-documenting;
+// literal strings convert implicitly.
+type DirectiveName = directive.Name
+
+// DirectiveSchema is the contract for a single directive name —
+// which node kinds it may attach to, which other directives it
+// requires or excludes, what positional and key/value arguments
+// it accepts, and whether it permits the negated form.
+type DirectiveSchema = directive.Schema
+
+// SchemaBuilder is the fluent constructor for a [DirectiveSchema].
+// Construct via [NewDirective].
+type SchemaBuilder = directive.SchemaBuilder
+
+// PositionalArg describes one positional argument slot in a
+// [DirectiveSchema]'s argument vector.
+type PositionalArg = directive.PositionalArg
+
+// PositionalOption is a functional option applied by
+// [SchemaBuilder.Positional]. The helpers [Required], [OneOf],
+// [Default], and [Describe] produce ready-to-use options.
+type PositionalOption = directive.PositionalOption
+
+// Parser turns directive-bearing comment lines into [Directive]
+// values. Most plugin authors use the singleton [DefaultParser]
+// rather than constructing their own.
+type Parser = directive.Parser
+
+// Registry stores [DirectiveSchema] values keyed by name. The
+// pipeline maintains the project-wide registry; plugin code
+// typically reads through the pipeline's [FrontendContext.Registry]
+// rather than constructing its own.
+type Registry = directive.Registry
+
+// NewDirective begins a builder for the directive with the given
+// bare name. Chain [SchemaBuilder.On] / [SchemaBuilder.Requires]
+// / [SchemaBuilder.Positional] / … to declare the schema, then
+// call Build to obtain the [DirectiveSchema] value.
+var NewDirective = directive.NewSchema
+
+// FromSchema wraps an existing [DirectiveSchema] in a builder so
+// schemas loaded from disk can flow through the same registration
+// pipeline as programmatic ones.
+var FromSchema = directive.FromSchema
+
+// NewParser returns a [Parser] configured for the supplied
+// prefix. Most plugin code uses [DefaultParser] instead.
+var NewParser = directive.NewParser
+
+// DefaultParser returns the singleton [Parser] configured for
+// the project-wide [DefaultPrefix] ("gen"). Pipelines and
+// frontends call this so every directive across the process
+// parses identically.
+var DefaultParser = directive.DefaultParser
+
+// DefaultPrefix is the project-wide directive prefix every eidos
+// frontend, generator, and tool uses: "gen". Comments of the
+// form `+gen:NAME …` and `-gen:NAME …` carry directives.
+const DefaultPrefix = directive.DefaultPrefix
+
+// NewRegistry returns an empty [Registry] ready for use. Most
+// plugin code reads from the pipeline's shared registry rather
+// than constructing one.
+var NewRegistry = directive.NewRegistry
+
+// Required marks the next positional slot as mandatory; the
+// directive parser rejects calls that omit it.
+var Required = directive.Required
+
+// OneOf restricts the next positional slot's value to one of
+// the supplied strings. Values are compared verbatim.
+var OneOf = directive.OneOf
+
+// Default sets the value the next positional slot resolves to
+// when the source omits it. Default on a Required slot is a
+// no-op.
+var Default = directive.Default
+
+// Describe attaches a human-readable description to the next
+// positional slot. Validation does not consult Description;
+// it is purely informational.
+var Describe = directive.Describe
+
+// Validate checks every directive in directives against the
+// schemas in registry, in the context of a node of the given
+// kind, and emits positioned diagnostics into sink for each rule
+// violation. Returns true iff every directive passes.
+var Validate = directive.Validate
+
+// HasPositive reports whether list contains a directive named
+// name with [Directive.Negated] false — the `+gen:NAME` form.
+var HasPositive = directive.HasPositive
+
+// HasNegated reports whether list contains a directive named
+// name with [Directive.Negated] true — the `-gen:NAME` form.
+var HasNegated = directive.HasNegated
+
+// Error sentinels surfaced by the directive parser, registry,
+// and validator. Plugin code that wants to distinguish failure
+// modes wraps them with [errors.Is].
+var (
+	// ErrMalformedDirective is returned by [Parser.Parse] when
+	// the input is not a well-formed directive.
+	ErrMalformedDirective = directive.ErrMalformedDirective
+
+	// ErrInvalidPrefix is returned by [NewParser] when the
+	// supplied prefix is empty or contains reserved characters.
+	ErrInvalidPrefix = directive.ErrInvalidPrefix
+
+	// ErrSchemaConflict is returned by [Registry.Register] when
+	// a schema with the same [DirectiveName] is already
+	// registered.
+	ErrSchemaConflict = directive.ErrSchemaConflict
+)
