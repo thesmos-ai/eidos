@@ -4,8 +4,10 @@
 package emit_test
 
 import (
+	"encoding/json"
 	"testing"
 
+	"go.thesmos.sh/eidos/core/contract"
 	"go.thesmos.sh/eidos/emit"
 )
 
@@ -217,6 +219,123 @@ func TestMethod_Slots(t *testing.T) {
 		}
 		if a, b := m.Slot("x"), m.Slot("x"); a != b {
 			t.Fatalf("Slot lookup should be idempotent")
+		}
+	})
+}
+
+func TestMethod_OwnerContract(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Owner field accepts contract.Owner; accessors delegate", func(t *testing.T) {
+		t.Parallel()
+		owner := &emit.Struct{Name: "Repo", Package: "users"}
+		m := &emit.Method{Name: "Save", Owner: owner}
+		if got, want := m.OwnerName(), "Repo"; got != want {
+			t.Fatalf("OwnerName = %q, want %q", got, want)
+		}
+		if got, want := m.OwnerQName(), "users.Repo"; got != want {
+			t.Fatalf("OwnerQName = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("nil Owner yields empty strings", func(t *testing.T) {
+		t.Parallel()
+		m := &emit.Method{Name: "M"}
+		if got := m.OwnerName(); got != "" {
+			t.Fatalf("OwnerName = %q, want empty", got)
+		}
+		if got := m.OwnerQName(); got != "" {
+			t.Fatalf("OwnerQName = %q, want empty", got)
+		}
+	})
+}
+
+func TestMethod_TargetAndPackage(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Target field is settable for top-level routing", func(t *testing.T) {
+		t.Parallel()
+		target := emit.Target{Dir: "x", Filename: "x_enum.go", Package: "x"}
+		m := &emit.Method{Target: target}
+		if m.Target != target {
+			t.Fatalf("Target round-trip failed: got %+v want %+v", m.Target, target)
+		}
+	})
+
+	t.Run("Package field is settable for top-level methods", func(t *testing.T) {
+		t.Parallel()
+		m := &emit.Method{Package: "example.com/x"}
+		if m.Package != "example.com/x" {
+			t.Fatalf("Package = %q, want %q", m.Package, "example.com/x")
+		}
+	})
+}
+
+func TestMethod_QName(t *testing.T) {
+	t.Parallel()
+
+	t.Run("includes Package + OwnerName + Name when fully populated", func(t *testing.T) {
+		t.Parallel()
+		m := &emit.Method{
+			Name:    "String",
+			Package: "example.com/store",
+			Owner:   &emit.Struct{Name: "Status", Package: "example.com/store"},
+		}
+		if got, want := m.QName(), "example.com/store.Status.String"; got != want {
+			t.Fatalf("QName = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("falls back to OwnerQName.Name when Package is empty", func(t *testing.T) {
+		t.Parallel()
+		m := &emit.Method{
+			Name:  "String",
+			Owner: &emit.Struct{Name: "Status", Package: "example.com/store"},
+		}
+		if got, want := m.QName(), "example.com/store.Status.String"; got != want {
+			t.Fatalf("QName = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("returns just Name when Owner is nil and Package is empty", func(t *testing.T) {
+		t.Parallel()
+		m := &emit.Method{Name: "String"}
+		if got, want := m.QName(), "String"; got != want {
+			t.Fatalf("QName = %q, want %q", got, want)
+		}
+	})
+}
+
+func TestMethod_OwnerRef_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Owner is excluded from JSON; OwnerRef survives", func(t *testing.T) {
+		t.Parallel()
+		owner := &emit.Struct{Name: "Status", Package: "example.com/store"}
+		m := &emit.Method{
+			Name:     "String",
+			Owner:    owner,
+			OwnerRef: contract.RefOf(owner),
+		}
+		// musttag is satisfied: every JSON-exported field on
+		// Method carries a json tag. The embedded slotMap is
+		// intentionally state, not data — never serialised.
+		//
+		//nolint:musttag
+		buf, err := json.Marshal(m)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		var got emit.Method
+		//nolint:musttag
+		if err := json.Unmarshal(buf, &got); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if got.Owner != nil {
+			t.Fatalf("Owner should be nil after round-trip; got %+v", got.Owner)
+		}
+		if got.OwnerRef != m.OwnerRef {
+			t.Fatalf("OwnerRef round-trip mismatch: got %+v, want %+v", got.OwnerRef, m.OwnerRef)
 		}
 	})
 }

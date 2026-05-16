@@ -4,13 +4,29 @@
 package emit
 
 import (
+	"go.thesmos.sh/eidos/core/contract"
 	"go.thesmos.sh/eidos/core/kind"
 )
 
-// Method is a function attached to a [Struct] or [Interface]. A
-// Method on an Interface has a nil [Method.Receiver]; a Method on a
-// Struct carries the receiver type explicitly along with the
-// receiver variable name.
+// Method is a method declaration — a function with a receiver.
+// Methods attach to a [contract.Owner]: a [Struct] / [Interface] /
+// [Alias] on the emit side (the conventional cases) or a source-
+// side [node.Struct] / [node.Interface] / [node.Enum] / [node.Alias]
+// when a generator emits a method onto a user-declared type
+// (the enum-stringer / sentinel-error pattern). The render path is
+// identical in both cases; the Owner field just distinguishes the
+// graph the receiver type lives in.
+//
+// Methods can be reached two ways in the emit graph:
+//
+//   - As a child of an owner-eligible decl ([Struct.Methods],
+//     [Interface.Methods], [Alias.Methods]) — the conventional
+//     case, e.g. mockgen's struct methods, buildergen's setters.
+//   - As a top-level entry on [Package.Methods] — the case for
+//     methods on a source-side type the plugin did not emit. The
+//     [Method.Target] / [Method.Package] fields route the
+//     rendered output; the framework's layout phase stamps Target
+//     the same way it does for [Function].
 //
 // Method exposes four standard slots:
 //
@@ -26,6 +42,12 @@ type Method struct {
 
 	// Name is the method identifier.
 	Name string `json:"name"`
+
+	// Package is the import path the rendered method declares
+	// when the method is a top-level decl on [Package.Methods].
+	// Empty for nested methods (where Package is inherited from
+	// the owner's Package field at render time).
+	Package string `json:"package,omitempty"`
 
 	// Receiver is the receiver type of a struct method. nil for
 	// methods declared inside an interface.
@@ -54,19 +76,70 @@ type Method struct {
 	// slots rather than mutating Body directly.
 	Body []*Stmt `json:"body,omitempty"`
 
-	// Owner is the [Struct] or [Interface] that declares this
-	// method.
-	//
-	// Owner is excluded from JSON encoding to break the host →
-	// child cycle. Deserialized graphs re-wire Owner via
-	// [RewireOwners].
-	Owner Node `json:"-"`
+	// Target identifies where the backend writes this method's
+	// rendered output. Populated by the framework's layout phase
+	// for top-level methods on [Package.Methods]; left at the
+	// zero value for nested methods (which inherit routing from
+	// their owner).
+	Target Target `json:"target,omitzero"`
+
+	// Owner is the [contract.Owner] this method conceptually
+	// belongs to — an emit-side [Struct] / [Interface] / [Alias]
+	// for methods on emitted types, or a source-side
+	// [node.Struct] / [node.Interface] / [node.Enum] / [node.Alias]
+	// for methods on user-declared types. Excluded from JSON
+	// encoding to break the host → child cycle; deserialised
+	// graphs re-wire Owner via [RewireOwners] using [OwnerRef].
+	Owner contract.Owner `json:"-"`
+
+	// OwnerRef is the JSON-survivable form of Owner — the
+	// {Kind, QName} tuple the rewire pass resolves against the
+	// live store. Populated alongside Owner at construction time
+	// by the framework's package builder.
+	OwnerRef contract.OwnerRef `json:"owner_ref,omitzero"`
 
 	slotMap
 }
 
 // Kind returns [KindMethod].
 func (*Method) Kind() kind.Kind { return KindMethod }
+
+// OwnerName returns the [contract.Owner.OwnerName] of m's Owner,
+// or the empty string when Owner is nil. Plugins query this
+// instead of type-switching on the concrete Owner type to derive
+// the conceptual owner-type identifier.
+func (m *Method) OwnerName() string {
+	if m.Owner == nil {
+		return ""
+	}
+	return m.Owner.OwnerName()
+}
+
+// OwnerQName returns the [contract.Owner.OwnerQName] of m's
+// Owner, or the empty string when Owner is nil.
+func (m *Method) OwnerQName() string {
+	if m.Owner == nil {
+		return ""
+	}
+	return m.Owner.OwnerQName()
+}
+
+// QName returns the qualified name "<package>.<owner>.<name>"
+// for a top-level method, "<owner-qname>.<name>" for a nested
+// method (Owner is set, Package is empty), or "<name>" when both
+// are absent. Used for diagnostics and store-key composition.
+func (m *Method) QName() string {
+	switch {
+	case m.Package != "" && m.Owner != nil:
+		return m.Package + "." + m.Owner.OwnerName() + "." + m.Name
+	case m.Owner != nil:
+		return m.Owner.OwnerQName() + "." + m.Name
+	case m.Package != "":
+		return m.Package + "." + m.Name
+	default:
+		return m.Name
+	}
+}
 
 // Prebody returns the "prebody" slot for cross-cutting contributions
 // that run before [Method.Body].

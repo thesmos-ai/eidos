@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"go.thesmos.sh/eidos/core/contract"
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/node"
@@ -595,8 +596,15 @@ func parentOf(n node.Node) node.Node {
 // emitHostOrigin returns the Origin attribution of host — the
 // source-side node the emit struct / interface was generated
 // from. Returns nil for hosts without a BaseEmit origin or for
-// non-routable host kinds.
-func emitHostOrigin(host emit.Node) node.Node {
+// non-routable host kinds (including source-side hosts on top-
+// level methods anchored at a [node.Enum] etc.).
+//
+// host is typed [contract.Node] so callers passing either an
+// emit-side or source-side owner all flow through the same
+// origin-resolution path; the type assertion picks out the
+// emit-only Origin() method without restricting the input
+// surface upfront.
+func emitHostOrigin(host contract.Node) node.Node {
 	if host == nil {
 		return nil
 	}
@@ -693,7 +701,7 @@ func summariseMemberOutputs(hosts []emit.Node) []outputGroup {
 // attribution when the direct field is empty — the user sees
 // "mockgen" rather than unattributedPlugin for a method inside a
 // mockgen-emitted struct.
-func emitSetBy(host emit.Node) string {
+func emitSetBy(host contract.Node) string {
 	type setByAccessor interface{ SetBy() string }
 	if h, ok := host.(setByAccessor); ok {
 		if id := h.SetBy(); id != "" {
@@ -737,7 +745,7 @@ func emitMemberLine(host emit.Node) string {
 // emitOwnerLabel formats an emit owner reference — struct or
 // interface name, falling back to the kind tag when the owner is
 // neither.
-func emitOwnerLabel(owner emit.Node) string {
+func emitOwnerLabel(owner contract.Node) string {
 	switch o := owner.(type) {
 	case *emit.Struct:
 		return o.Name

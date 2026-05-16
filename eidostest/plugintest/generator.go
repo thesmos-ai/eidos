@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"go.thesmos.sh/eidos/core/contract"
 	"go.thesmos.sh/eidos/core/diag"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/plugin"
@@ -278,7 +279,7 @@ func emitProjection(s *store.Store) []string {
 // when an emit value was constructed without going through the
 // builder — surface as [unownedSentinel] so failure output
 // remains readable.
-func emitOwnerName(owner emit.Node) string {
+func emitOwnerName(owner contract.Node) string {
 	if owner == nil {
 		return unownedSentinel
 	}
