@@ -117,14 +117,6 @@ func run(ctx context.Context, env *cli.Env, plugins []plugin.Plugin, args []stri
 	}
 	cmdName, rest := args[0], args[1:]
 
-	// Pre-flight UX nudge for subcommands that load source via
-	// the Go frontend. The version subcommand inspects no
-	// source, so skip the check there.
-	switch cmdName {
-	case cmdRun, cmdPlan, cmdCheck, cmdExplain, cmdPrune:
-		preflightWorkspaceCheck(env)
-	}
-
 	switch cmdName {
 	case cmdRun:
 		return dispatchRun(ctx, env, plugins, rest)

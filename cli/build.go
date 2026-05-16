@@ -58,6 +58,7 @@ func buildPipeline(
 	if env.Brand == "" {
 		return nil, &ConfigError{Reason: "Env.Brand is required (the consumer's hardcoded tool identity)"}
 	}
+	preflightWorkspaceCheck(env)
 	enabled, err := filterEnabledPlugins(cfg, plugins)
 	if err != nil {
 		return nil, err
