@@ -46,6 +46,21 @@ func TestInterface_QName(t *testing.T) {
 	})
 }
 
+func TestInterface_OwnerContract(t *testing.T) {
+	t.Parallel()
+
+	t.Run("OwnerName returns the bare identifier", func(t *testing.T) {
+		t.Parallel()
+		assertEqualString(t, makeInterface().OwnerName(), "Repo")
+	})
+
+	t.Run("OwnerQName mirrors QName", func(t *testing.T) {
+		t.Parallel()
+		i := makeInterface()
+		assertEqualString(t, i.OwnerQName(), i.QName())
+	})
+}
+
 func TestInterface_IsGeneric(t *testing.T) {
 	t.Parallel()
 

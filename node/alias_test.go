@@ -25,6 +25,22 @@ func TestAlias_QName(t *testing.T) {
 	})
 }
 
+func TestAlias_OwnerContract(t *testing.T) {
+	t.Parallel()
+
+	t.Run("OwnerName returns the bare identifier", func(t *testing.T) {
+		t.Parallel()
+		a := &node.Alias{Name: "UserID", Package: "github.com/example/users"}
+		assertEqualString(t, a.OwnerName(), "UserID")
+	})
+
+	t.Run("OwnerQName mirrors QName", func(t *testing.T) {
+		t.Parallel()
+		a := &node.Alias{Name: "UserID", Package: "github.com/example/users"}
+		assertEqualString(t, a.OwnerQName(), a.QName())
+	})
+}
+
 func TestAlias_IsGeneric(t *testing.T) {
 	t.Parallel()
 

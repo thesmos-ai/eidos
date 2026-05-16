@@ -39,6 +39,21 @@ func TestStruct_QName(t *testing.T) {
 	})
 }
 
+func TestStruct_OwnerContract(t *testing.T) {
+	t.Parallel()
+
+	t.Run("OwnerName returns the bare identifier", func(t *testing.T) {
+		t.Parallel()
+		assertEqualString(t, makeStruct().OwnerName(), "User")
+	})
+
+	t.Run("OwnerQName mirrors QName", func(t *testing.T) {
+		t.Parallel()
+		s := makeStruct()
+		assertEqualString(t, s.OwnerQName(), s.QName())
+	})
+}
+
 func TestStruct_FieldByName(t *testing.T) {
 	t.Parallel()
 

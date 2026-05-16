@@ -36,6 +36,21 @@ func TestEnum_QName(t *testing.T) {
 	})
 }
 
+func TestEnum_OwnerContract(t *testing.T) {
+	t.Parallel()
+
+	t.Run("OwnerName returns the bare identifier", func(t *testing.T) {
+		t.Parallel()
+		assertEqualString(t, makeEnum().OwnerName(), "Status")
+	})
+
+	t.Run("OwnerQName mirrors QName", func(t *testing.T) {
+		t.Parallel()
+		e := makeEnum()
+		assertEqualString(t, e.OwnerQName(), e.QName())
+	})
+}
+
 func TestEnum_VariantByName(t *testing.T) {
 	t.Parallel()
 
