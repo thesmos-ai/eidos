@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/emit/refconv"
 	"go.thesmos.sh/eidos/node"
-	"go.thesmos.sh/eidos/reference/internal/refconv"
 )
 
 // TestFromNode covers every [node.TypeRef] variant the lifter

@@ -31,8 +31,8 @@ import (
 	"go.thesmos.sh/eidos/core/opt"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/emit/builder"
+	"go.thesmos.sh/eidos/emit/refconv"
 	"go.thesmos.sh/eidos/node"
-	"go.thesmos.sh/eidos/reference/internal/refconv"
 	"go.thesmos.sh/eidos/sdk"
 )
 

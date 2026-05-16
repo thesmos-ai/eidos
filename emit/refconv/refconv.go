@@ -2,11 +2,15 @@
 // SPDX-License-Identifier: MIT
 
 // Package refconv lifts language-agnostic [node.TypeRef] values into
-// concrete [emit.Ref] values. Reference plugins that consume source
-// declarations (buildergen, mockgen) share the conversion through
-// this package so the rules stay aligned across the reference
-// surface — a new TypeRef variant lands here once and every consumer
-// inherits the support.
+// concrete [emit.Ref] values. Plugins that consume source-side
+// declarations share the conversion through this package so the
+// rules stay aligned across every consumer — a new TypeRef variant
+// lands here once and every plugin inherits the support.
+//
+// The produced emit ref's OriginNode points back at the source
+// [node.TypeRef] so backends and downstream consumers can reach
+// source-side meta (e.g., bridge-annotator-stamped `go.type` for
+// proto→Go translation).
 package refconv
 
 import (
@@ -18,13 +22,12 @@ import (
 // refs map to [emit.Builtin] and [emit.External]; composites map to
 // their corresponding emit constructors. Type parameters render as
 // unqualified identifiers — sufficient for the in-method context
-// reference plugins emit. The frontend guarantees non-nil refs for
+// most plugins emit. The frontend guarantees non-nil refs for
 // every parsed type, so the function does not guard against a nil
 // receiver.
 //
 // The produced emit ref's OriginNode points back at r so backends
-// and downstream consumers can reach the source-side meta (e.g.,
-// bridge-annotator-stamped `go.type` for proto→Go translation).
+// and downstream consumers can reach the source-side meta.
 func FromNode(r *node.TypeRef) emit.Ref {
 	ref := liftFromNode(r)
 	setOrigin(ref, r)
@@ -50,16 +53,15 @@ func liftFromNode(r *node.TypeRef) emit.Ref {
 		return emit.Builtin(r.Name)
 	case r.IsAnonInterface():
 		// Anonymous interfaces sit in two practical buckets at the
-		// reference-plugin tier: the empty interface (the
-		// constraint-fallback shape the Go frontend emits for the
-		// predeclared `any`) and inline interfaces with methods or
-		// embeds (which the reference plugins do not yet preserve
-		// structurally). For the former, render through the
-		// `any` builtin so type-parameter constraints round-trip
-		// correctly; for the latter, fall back to the same
-		// keyword — the rendered output keeps compiling at the
-		// cost of losing the inline shape, which is a separate
-		// follow-up for the reference surface.
+		// plugin tier: the empty interface (the constraint-fallback
+		// shape the Go frontend emits for the predeclared `any`)
+		// and inline interfaces with methods or embeds (which
+		// plugins do not yet preserve structurally). For the
+		// former, render through the `any` builtin so
+		// type-parameter constraints round-trip correctly; for
+		// the latter, fall back to the same keyword — the
+		// rendered output keeps compiling at the cost of losing
+		// the inline shape, which is a separate follow-up.
 		return emit.Builtin("any")
 	}
 	args := make([]emit.Ref, 0, len(r.TypeArgs))
