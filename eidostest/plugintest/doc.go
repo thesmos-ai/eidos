@@ -18,9 +18,11 @@
 // compliance, deterministic [plugin.CapabilityProvider] ordering,
 // unique [plugin.DirectiveProvider] schema names, well-formed
 // [plugin.EmitVersioned] entries, stable [plugin.NodesOnly]
-// declaration, and stable [plugin.FilenameProvider.FilenameSuffix]
-// per language. Each contract is its own subtest so a single
-// regression surfaces with the specific contract that broke.
+// declaration, stable [plugin.FilenameProvider.Outputs] per
+// language, and a well-formed Outputs slice (non-empty suffixes,
+// unique tags, at-most-one empty-tag output at index 0). Each
+// contract is its own subtest so a single regression surfaces
+// with the specific contract that broke.
 //
 // # Per-role contracts
 //

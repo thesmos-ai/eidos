@@ -18,7 +18,7 @@
 // framework's routing layer composes every emit decl's
 // [emit.Target] from the source struct's origin plus the project
 // / per-plugin output config and CLI overrides. The plugin
-// declares its filename suffix via [Plugin.FilenameSuffix] and
+// declares its output set via [Plugin.Outputs] and
 // sets [emit.BaseEmit.OriginNode] on every emit decl; the
 // Layout phase does the rest.
 package repogen
@@ -55,10 +55,10 @@ const DirectiveName sdk.DirectiveName = "repo"
 // output with hand-authored code.
 const FilenameSuffix = "_repo.go"
 
-// Language is the backend language whose suffix
-// [Plugin.FilenameSuffix] returns. Other languages get the empty
-// signal until matching templates and per-language suffix
-// configuration land.
+// Language is the backend language whose output set
+// [Plugin.Outputs] returns. Other languages get an empty slice
+// until matching templates and per-language output declarations
+// land.
 const Language = "golang"
 
 // NamingPascal selects the canonical PascalCase identifier shape
@@ -125,19 +125,18 @@ func (*Plugin) Provides() []string { return []string{Capability} }
 // Requires returns nil — repogen has no upstream dependency.
 func (*Plugin) Requires() []string { return nil }
 
-// FilenameSuffix returns the per-source filename suffix the Layout
-// phase appends to the source's basename when composing the
-// rendered output path for every decl this plugin emits.
-// Implements [plugin.FilenameProvider]. The plugin emits standard
-// Go decls today; consumers targeting another backend language
-// receive the empty signal so the Layout phase surfaces a
-// missing-FilenameProvider error rather than producing a Go
-// suffix that wouldn't match the rendered output.
-func (*Plugin) FilenameSuffix(lang string) string {
+// Outputs returns the ordered set of rendered files this plugin
+// produces in the named language. Implements
+// [plugin.FilenameProvider]. The plugin emits standard Go decls
+// today; consumers targeting another backend language receive
+// nil so the Layout phase surfaces a missing-FilenameProvider
+// error rather than producing a Go suffix that wouldn't match
+// the rendered output.
+func (*Plugin) Outputs(lang string) []sdk.Output {
 	if lang == Language {
-		return FilenameSuffix
+		return []sdk.Output{{Suffix: FilenameSuffix}}
 	}
-	return ""
+	return nil
 }
 
 // Directives declares the `+gen:repo` / `-gen:repo` schema with

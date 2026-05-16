@@ -11,6 +11,7 @@ import (
 	"go.thesmos.sh/eidos/core/diag"
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/pipeline"
+	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/sink"
 )
 
@@ -295,6 +296,96 @@ type stubFEWithDirectives struct {
 }
 
 func (s *stubFEWithDirectives) Directives() []directive.Schema { return s.schemas }
+
+// TestBuilder_Build_OutputsValidation pins the four Outputs-shape
+// rules the framework enforces at Build time for every
+// [plugin.FilenameProvider]: every Suffix is non-empty; tags
+// within one slice are unique; at most one Output declares an
+// empty Tag; the empty-Tag Output is at index 0 when present.
+// Each failure surfaces [pipeline.ErrInvalidOutputs].
+func TestBuilder_Build_OutputsValidation(t *testing.T) {
+	t.Parallel()
+
+	build := func(outputs []plugin.Output) error {
+		_, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(&outputsGen{name: "gen", outputs: outputs}).
+			WithBackend(&stubBE{name: "be"}).
+			Build()
+		return err
+	}
+
+	t.Run("rejects an output with empty Suffix", func(t *testing.T) {
+		t.Parallel()
+		err := build([]plugin.Output{{Suffix: ""}})
+		if !errors.Is(err, pipeline.ErrInvalidOutputs) {
+			t.Fatalf("Build should return ErrInvalidOutputs for empty Suffix; got %v", err)
+		}
+	})
+
+	t.Run("rejects duplicate Tag values", func(t *testing.T) {
+		t.Parallel()
+		err := build([]plugin.Output{
+			{Suffix: "_x.go"},
+			{Tag: "test", Suffix: "_x_test.go"},
+			{Tag: "test", Suffix: "_y_test.go"},
+		})
+		if !errors.Is(err, pipeline.ErrInvalidOutputs) {
+			t.Fatalf("Build should return ErrInvalidOutputs for duplicate Tag; got %v", err)
+		}
+	})
+
+	t.Run("rejects more than one output with empty Tag", func(t *testing.T) {
+		t.Parallel()
+		err := build([]plugin.Output{
+			{Suffix: "_x.go"},
+			{Suffix: "_y.go"},
+		})
+		if !errors.Is(err, pipeline.ErrInvalidOutputs) {
+			t.Fatalf("Build should return ErrInvalidOutputs for two empty-Tag outputs; got %v", err)
+		}
+	})
+
+	t.Run("rejects empty-Tag output not at index 0", func(t *testing.T) {
+		t.Parallel()
+		err := build([]plugin.Output{
+			{Tag: "test", Suffix: "_x_test.go"},
+			{Suffix: "_x.go"},
+		})
+		if !errors.Is(err, pipeline.ErrInvalidOutputs) {
+			t.Fatalf("Build should return ErrInvalidOutputs for misplaced empty-Tag output; got %v", err)
+		}
+	})
+
+	t.Run("accepts a well-formed single-Output slice", func(t *testing.T) {
+		t.Parallel()
+		if err := build([]plugin.Output{{Suffix: "_x.go"}}); err != nil {
+			t.Fatalf("Build rejected a well-formed Outputs slice: %v", err)
+		}
+	})
+
+	t.Run("accepts a well-formed multi-Output slice", func(t *testing.T) {
+		t.Parallel()
+		err := build([]plugin.Output{
+			{Suffix: "_x.go"},
+			{Tag: "test", Suffix: "_x_test.go"},
+		})
+		if err != nil {
+			t.Fatalf("Build rejected a well-formed multi-Output slice: %v", err)
+		}
+	})
+
+	t.Run("accepts every-output-tagged (no empty-tag primary)", func(t *testing.T) {
+		t.Parallel()
+		err := build([]plugin.Output{
+			{Tag: "production", Suffix: "_x.go"},
+			{Tag: "test", Suffix: "_x_test.go"},
+		})
+		if err != nil {
+			t.Fatalf("Build rejected an all-tagged Outputs slice: %v", err)
+		}
+	})
+}
 
 func TestBuilder_Build_EmitVersionCompatibility(t *testing.T) {
 	t.Parallel()

@@ -227,11 +227,12 @@ type recGen struct {
 }
 
 func (g *recGen) Name() string { return g.name }
-func (g *recGen) FilenameSuffix(_ string) string {
-	if g.suffix == "" {
-		return "_gen.go"
+func (g *recGen) Outputs(_ string) []plugin.Output {
+	suffix := g.suffix
+	if suffix == "" {
+		suffix = "_gen.go"
 	}
-	return g.suffix
+	return []plugin.Output{{Suffix: suffix}}
 }
 
 func (g *recGen) Generate(ctx *plugin.GeneratorContext) error {
@@ -348,6 +349,19 @@ type emitVersionedFE struct {
 func (f *emitVersionedFE) Name() string                       { return f.name }
 func (*emitVersionedFE) Load(_ *plugin.FrontendContext) error { return nil }
 func (f *emitVersionedFE) EmitVersions() []string             { return f.versions }
+
+// outputsGen is a generator that returns a caller-supplied Outputs
+// slice for any language. Used to drive the Build-time
+// Outputs-shape validation check against deliberately malformed
+// configurations.
+type outputsGen struct {
+	name    string
+	outputs []plugin.Output
+}
+
+func (g *outputsGen) Name() string                            { return g.name }
+func (g *outputsGen) Outputs(_ string) []plugin.Output        { return g.outputs }
+func (*outputsGen) Generate(_ *plugin.GeneratorContext) error { return nil }
 
 // hasPanicMessage returns true if any diagnostic in d carries msg
 // in its detail (where the panic message and stack are stored) or
@@ -467,8 +481,15 @@ type layoutGen struct {
 	pkg    *emit.Package
 }
 
-func (g *layoutGen) Name() string                   { return g.name }
-func (g *layoutGen) FilenameSuffix(_ string) string { return g.suffix }
+func (g *layoutGen) Name() string { return g.name }
+
+func (g *layoutGen) Outputs(_ string) []plugin.Output {
+	if g.suffix == "" {
+		return nil
+	}
+	return []plugin.Output{{Suffix: g.suffix}}
+}
+
 func (g *layoutGen) Generate(ctx *plugin.GeneratorContext) error {
 	stampSetByOnEmitPackage(g.pkg, g.name)
 	return ctx.Store.Emit().AddPackage(g.pkg)
@@ -565,8 +586,14 @@ type slotContributingGen struct {
 	contribute func(ctx *plugin.GeneratorContext) error
 }
 
-func (g *slotContributingGen) Name() string                   { return g.name }
-func (g *slotContributingGen) FilenameSuffix(_ string) string { return g.suffix }
+func (g *slotContributingGen) Name() string { return g.name }
+func (g *slotContributingGen) Outputs(_ string) []plugin.Output {
+	if g.suffix == "" {
+		return nil
+	}
+	return []plugin.Output{{Suffix: g.suffix}}
+}
+
 func (g *slotContributingGen) Generate(ctx *plugin.GeneratorContext) error {
 	if g.contribute == nil {
 		return nil

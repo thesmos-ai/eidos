@@ -76,9 +76,16 @@ type OptionsProvider = plugin.OptionsProvider
 type TemplateProvider = plugin.TemplateProvider
 
 // FilenameProvider is the optional capability generators
-// implement to declare the filename suffix the pipeline applies
-// to every decl they emit.
+// implement to declare the ordered set of outputs the pipeline
+// composes into rendered filenames for every decl they emit.
 type FilenameProvider = plugin.FilenameProvider
+
+// Output is one entry in a [FilenameProvider]'s ordered output
+// set — Tag scopes the output within the plugin's namespace
+// (empty for the primary output); Suffix is the per-source-basename
+// trailer the Layout phase appends to compose the rendered output
+// filename.
+type Output = plugin.Output
 
 // Versioned is the optional plugin capability for declaring a
 // plugin version string. The version composes into the plugin's

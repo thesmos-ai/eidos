@@ -1516,16 +1516,17 @@ func TestLayout_OutDirective_NoArgs(t *testing.T) {
 	})
 }
 
-// TestLayout_EmptySuffixIsFiltered pins the collection-boundary
+// TestLayout_EmptyOutputsIsFiltered pins the collection-boundary
 // contract: a plugin that implements [plugin.FilenameProvider]
-// but returns the empty string is filtered out of the suffix
-// lookup and surfaces [pipeline.ErrMissingFilenameProvider] when
-// it emits a routable decl — the same code path as a plugin
-// that doesn't implement the capability at all.
-func TestLayout_EmptySuffixIsFiltered(t *testing.T) {
+// but returns an empty Outputs slice for the active language is
+// filtered out of the suffix lookup and surfaces
+// [pipeline.ErrMissingFilenameProvider] when it emits a routable
+// decl — the same code path as a plugin that doesn't implement
+// the capability at all.
+func TestLayout_EmptyOutputsIsFiltered(t *testing.T) {
 	t.Parallel()
 
-	t.Run("empty FilenameSuffix() is treated as no declaration", func(t *testing.T) {
+	t.Run("empty Outputs() is treated as no declaration", func(t *testing.T) {
 		t.Parallel()
 		origin := &node.Struct{
 			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "x/x.go"}},

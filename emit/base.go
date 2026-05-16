@@ -61,6 +61,22 @@ type BaseEmit struct {
 	// string as "unattributed" and drop it from any plugin set.
 	// Access via [BaseEmit.SetBy].
 	SetByName string `json:"set_by,omitempty"`
+
+	// OutputTag identifies the [go.thesmos.sh/eidos/plugin.Output]
+	// this decl belongs to within its owning plugin's namespace.
+	// Empty means the plugin's primary output; non-empty values
+	// must match one of the values
+	// [go.thesmos.sh/eidos/plugin.FilenameProvider.Outputs] returns
+	// for the active backend language. The Layout phase reads this
+	// field to resolve a per-decl filename suffix against the
+	// owning plugin's declared output set.
+	//
+	// Direct field assignment is not the supported authoring API.
+	// Plugins stamp the tag indirectly through the sub-context
+	// `PackageBuilder.File(tag)` returns; reading the field is
+	// always safe for downstream consumers (later generators,
+	// weavers iterating decls, backends rendering output).
+	OutputTag string `json:"output_tag,omitempty"`
 }
 
 // Pos returns [BaseEmit.SourcePos].

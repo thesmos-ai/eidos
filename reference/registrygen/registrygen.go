@@ -137,18 +137,18 @@ func New() *Plugin {
 // Name returns [Name].
 func (*Plugin) Name() string { return Name }
 
-// FilenameSuffix returns the per-source suffix the routing layer
-// composes into each rendered file's name. The plugin ships
-// golang templates today and returns [FilenameSuffix] for that
-// language; other languages get the empty string until matching
+// Outputs returns the ordered set of rendered files this plugin
+// produces in the named language. The plugin ships golang
+// templates today and returns one Output with [FilenameSuffix]
+// for that language; other languages get nil until matching
 // templates land. registrygen has no per-decl filename override
 // — the routing layer's `+gen:out` directive remains available
 // on source structs when a user wants to pin a specific name.
-func (*Plugin) FilenameSuffix(lang string) string {
+func (*Plugin) Outputs(lang string) []sdk.Output {
 	if lang == Language {
-		return FilenameSuffix
+		return []sdk.Output{{Suffix: FilenameSuffix}}
 	}
-	return ""
+	return nil
 }
 
 // Priority places the plugin in the cross-cutting bucket so it

@@ -551,20 +551,25 @@ func clearConflictedTargets(v *store.EmitView, key string) {
 // collectFilenameSuffixes builds the plugin-name → filename-suffix
 // lookup the Layout phase consults to compose Target.Filename. The
 // map contains one entry per registered generator that implements
-// [plugin.FilenameProvider] AND returns a non-empty suffix —
-// generators that don't implement the capability OR that return
-// the empty string are both absent from the map. The two cases
-// are equivalent at the routing layer: both signal "I don't
-// declare a routable suffix", and either kind of attribution
-// failure surfaces [ErrMissingFilenameProvider] when a decl
-// emitted by such a plugin reaches the Layout phase.
+// [plugin.FilenameProvider] AND returns at least one Output for
+// the active backend's language — generators that don't implement
+// the capability OR that return an empty slice are both absent
+// from the map. The two cases are equivalent at the routing
+// layer: both signal "I don't declare routable output", and
+// either kind of attribution failure surfaces
+// [ErrMissingFilenameProvider] when a decl emitted by such a
+// plugin reaches the Layout phase.
 //
-// Closing the empty-suffix case at the collection boundary
+// Closing the empty-Outputs case at the collection boundary
 // (rather than tolerating it downstream) prevents the
 // source-overwrite footgun the spec calls out: a routable decl
 // composed with an empty suffix would produce Target.Filename =
 // <source-basename>, which on a fresh write would clobber the
 // originating source file on disk.
+//
+// The map records the primary Output's Suffix per plugin. Decls
+// emitted by a plugin route to its primary output's filename
+// regardless of per-decl tag values stamped on the decl.
 func (p *Pipeline) collectFilenameSuffixes() map[string]string {
 	out := map[string]string{}
 	lang := p.backendLanguage()
@@ -573,17 +578,20 @@ func (p *Pipeline) collectFilenameSuffixes() map[string]string {
 		if !ok {
 			continue
 		}
-		suffix := fp.FilenameSuffix(lang)
-		if suffix == "" {
+		outputs := fp.Outputs(lang)
+		if len(outputs) == 0 {
 			continue
 		}
-		out[gen.Name()] = suffix
+		if outputs[0].Suffix == "" {
+			continue
+		}
+		out[gen.Name()] = outputs[0].Suffix
 	}
 	return out
 }
 
 // backendLanguage returns the configured backend's language —
-// the value passed to [plugin.FilenameProvider.FilenameSuffix]
+// the value passed to [plugin.FilenameProvider.Outputs]
 // (and to [plugin.TemplateProvider.Templates]) so plugins narrow
 // their per-language surfaces to the active backend. Returns
 // the empty string when no backend is configured; under that

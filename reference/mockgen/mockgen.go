@@ -82,10 +82,10 @@ const FilenameSuffix = "_mock_test.go"
 // qualify naturally.
 const TestPackageSuffix = "_test"
 
-// Language is the backend language whose suffix
-// [Plugin.FilenameSuffix] returns. Other languages get the empty
-// signal until matching templates and per-language suffix
-// configuration land.
+// Language is the backend language whose output set
+// [Plugin.Outputs] returns. Other languages get an empty slice
+// until matching templates and per-language output declarations
+// land.
 const Language = "golang"
 
 // Options carries the plugin's user-tunable settings. Routing is
@@ -135,19 +135,18 @@ func (*Plugin) Provides() []string { return []string{Capability} }
 // but the declared dependency carries documentary intent.
 func (*Plugin) Requires() []string { return []string{RequiresRepository} }
 
-// FilenameSuffix returns the per-source filename suffix the Layout
-// phase appends to the source's basename when composing the
-// rendered output path for every decl this plugin emits.
-// Implements [plugin.FilenameProvider]. The plugin emits standard
-// Go decls today; consumers targeting another backend language
-// receive the empty signal so the Layout phase surfaces a
-// missing-FilenameProvider error rather than producing a Go
-// suffix that wouldn't match the rendered output.
-func (*Plugin) FilenameSuffix(lang string) string {
+// Outputs returns the ordered set of rendered files this plugin
+// produces in the named language. Implements
+// [plugin.FilenameProvider]. The plugin emits standard Go decls
+// today; consumers targeting another backend language receive
+// nil so the Layout phase surfaces a missing-FilenameProvider
+// error rather than producing a Go suffix that wouldn't match
+// the rendered output.
+func (*Plugin) Outputs(lang string) []sdk.Output {
 	if lang == Language {
-		return FilenameSuffix
+		return []sdk.Output{{Suffix: FilenameSuffix}}
 	}
-	return ""
+	return nil
 }
 
 // Directives declares the `+gen:mock` / `-gen:mock` schema.

@@ -41,6 +41,14 @@ order:
    precedence pipeline, and the cross-package reference
    resolution the backend handles automatically.
 
+7. **[multi-file-output.md](multi-file-output.md)** — How a
+   single plugin emits more than one rendered file per source.
+   The `Outputs(lang) []Output` contract, per-decl
+   `OutputTag` tagging via `pkg.File(tag)`, per-output routing
+   overrides (`+gen:out tag=...`, `-o <plugin>:<tag>=...`),
+   project-config schema, and the migration from
+   `FilenameSuffix`.
+
 ## Reference plugins
 
 Every reference plugin in `reference/` is a complete, tested,

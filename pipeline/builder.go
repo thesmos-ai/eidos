@@ -368,13 +368,15 @@ func (b *Builder) Build() (*Pipeline, error) {
 	registry, directiveOwners, regErrs := b.buildDirectiveRegistry()
 	parser, parserErr := b.buildDirectiveParser()
 	versionErrs := b.validateEmitVersions()
-	postStructural := make([]error, 0, len(planErrs)+len(regErrs)+len(versionErrs)+1)
+	outputErrs := b.validateOutputs()
+	postStructural := make([]error, 0, len(planErrs)+len(regErrs)+len(versionErrs)+len(outputErrs)+1)
 	postStructural = append(postStructural, planErrs...)
 	postStructural = append(postStructural, regErrs...)
 	if parserErr != nil {
 		postStructural = append(postStructural, parserErr)
 	}
 	postStructural = append(postStructural, versionErrs...)
+	postStructural = append(postStructural, outputErrs...)
 	if len(postStructural) > 0 {
 		b.emitErrors(postStructural)
 		return nil, errors.Join(postStructural...)
@@ -549,6 +551,83 @@ func (b *Builder) buildDirectiveParser() (*directive.Parser, error) {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidDirectivePrefix, err)
 	}
 	return p, nil
+}
+
+// validateOutputs returns one error per [plugin.FilenameProvider]
+// whose Outputs slice for the active backend's language violates
+// any of the shape rules the framework enforces: every Suffix
+// must be non-empty; tags within the slice must be unique; at
+// most one Output may declare an empty Tag; the empty-Tag Output
+// must be at index 0 when present. The rules protect every
+// downstream consumer (Layout dispatch, directive resolution,
+// CLI scoping, manifest attribution) from ambiguous routing
+// states — a malformed slice would silently collapse two outputs
+// into one filename or leave a tagged decl with no matching
+// suffix to resolve against.
+//
+// Plugins returning a nil or empty slice for the active language
+// are not validated by this hook — they signal "no routable
+// output" and surface
+// [ErrMissingFilenameProvider] from the Layout phase only if
+// they actually emit a routable decl.
+//
+// The Build-time check uses the backend's language even though
+// plugins may ship outputs for languages the configured backend
+// does not target — only the active language matters at run
+// time. Validation against unused languages would be both
+// pointless (the framework never reads those entries) and
+// surprising (a plugin shipping malformed entries for an
+// unsupported language would fail Build despite the run never
+// touching those entries).
+func (b *Builder) validateOutputs() []error {
+	if len(b.backends) == 0 {
+		return nil
+	}
+	lang := b.backends[0].Language()
+	var errs []error
+	for _, gen := range b.generators {
+		fp, ok := any(gen).(plugin.FilenameProvider)
+		if !ok {
+			continue
+		}
+		outputs := fp.Outputs(lang)
+		if len(outputs) == 0 {
+			continue
+		}
+		seenTags := make(map[string]int, len(outputs))
+		emptyTagCount := 0
+		for i, o := range outputs {
+			if o.Suffix == "" {
+				errs = append(errs, fmt.Errorf(
+					"%w: %s: outputs[%d]: Suffix is required",
+					ErrInvalidOutputs, gen.Name(), i,
+				))
+			}
+			if prev, dup := seenTags[o.Tag]; dup {
+				errs = append(errs, fmt.Errorf(
+					"%w: %s: outputs declare tag %q at indices %d and %d",
+					ErrInvalidOutputs, gen.Name(), o.Tag, prev, i,
+				))
+			}
+			seenTags[o.Tag] = i
+			if o.Tag == "" {
+				emptyTagCount++
+				if i != 0 {
+					errs = append(errs, fmt.Errorf(
+						"%w: %s: outputs[%d]: empty-Tag output must be declared at index 0",
+						ErrInvalidOutputs, gen.Name(), i,
+					))
+				}
+			}
+		}
+		if emptyTagCount > 1 {
+			errs = append(errs, fmt.Errorf(
+				"%w: %s: %d outputs declare an empty Tag; at most one is permitted (the plugin's primary output)",
+				ErrInvalidOutputs, gen.Name(), emptyTagCount,
+			))
+		}
+	}
+	return errs
 }
 
 // validateEmitVersions returns one error per plugin whose declared

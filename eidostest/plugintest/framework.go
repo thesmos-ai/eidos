@@ -18,8 +18,9 @@ import (
 // deterministic [plugin.CapabilityProvider] ordering, unique
 // [plugin.DirectiveProvider] schema names, well-formed
 // [plugin.EmitVersioned] entries, stable [plugin.NodesOnly]
-// declaration, and stable [plugin.FilenameProvider.FilenameSuffix]
-// per language.
+// declaration, stable [plugin.FilenameProvider.Outputs] per
+// language, and a well-formed Outputs slice (non-empty suffixes,
+// unique tags, at-most-one empty-tag output at index 0).
 //
 // Per-role contract checks (idempotency, determinism, diagnostic
 // discipline) belong on the role-specific suites: see
@@ -54,8 +55,11 @@ func RunSuite(t *testing.T, p plugin.Plugin) {
 	t.Run("NodesOnly returns a stable declaration", func(t *testing.T) {
 		assertNodesOnlyStability(t, p)
 	})
-	t.Run("FilenameProvider returns stable suffixes per language", func(t *testing.T) {
+	t.Run("FilenameProvider returns stable Outputs per language", func(t *testing.T) {
 		assertFilenameProviderStability(t, p)
+	})
+	t.Run("FilenameProvider returns a well-formed Outputs slice", func(t *testing.T) {
+		assertOutputsShape(t, p)
 	})
 }
 
@@ -224,9 +228,9 @@ func assertNodesOnlyStability(tb testing.TB, p plugin.Plugin) {
 }
 
 // assertFilenameProviderStability pins the
-// [plugin.FilenameProvider] contract: FilenameSuffix returns
-// the same value for the same language across calls. A plugin
-// whose suffix flipped between calls would produce different
+// [plugin.FilenameProvider] contract: Outputs returns the same
+// slice for the same language across calls. A plugin whose
+// Outputs flipped between calls would produce different
 // filenames on consecutive runs — a layout-determinism
 // violation the pipeline cannot recover from.
 //
@@ -236,6 +240,11 @@ func assertNodesOnlyStability(tb testing.TB, p plugin.Plugin) {
 // string. Plugins that target a language not in this list are
 // covered by the per-language stability invariant: the second
 // call with the same argument equals the first.
+//
+// The well-formed-Outputs shape rules (non-empty suffixes,
+// unique tags, at-most-one empty-tag output at index 0) are
+// enforced by [assertOutputsShape] in addition to this
+// stability check — both run as part of [RunSuite].
 func assertFilenameProviderStability(tb testing.TB, p plugin.Plugin) {
 	tb.Helper()
 	fp, ok := any(p).(plugin.FilenameProvider)
@@ -243,12 +252,68 @@ func assertFilenameProviderStability(tb testing.TB, p plugin.Plugin) {
 		return
 	}
 	for _, lang := range []string{"go", "rust", "ts", "py", ""} {
-		first := fp.FilenameSuffix(lang)
-		second := fp.FilenameSuffix(lang)
-		if first != second {
+		first := fp.Outputs(lang)
+		second := fp.Outputs(lang)
+		if !slices.Equal(first, second) {
 			tb.Errorf(
-				"FilenameProvider.FilenameSuffix(%q) not stable: first=%q second=%q",
+				"FilenameProvider.Outputs(%q) not stable: first=%+v second=%+v",
 				lang, first, second,
+			)
+		}
+	}
+}
+
+// assertOutputsShape pins the well-formedness rules on a
+// [plugin.FilenameProvider]'s returned Outputs slice — the same
+// rules the pipeline's Build-time validation enforces, run from
+// the conformance suite so plugin authors see violations during
+// development. Rules: every Suffix is non-empty; tags within
+// the slice are unique; at most one Output declares an empty
+// Tag; when present, the empty-Tag Output is at index 0.
+//
+// The check runs against the same languages
+// [assertFilenameProviderStability] exercises so a plugin
+// shipping outputs for multiple backends gets the shape check
+// on each set.
+func assertOutputsShape(tb testing.TB, p plugin.Plugin) {
+	tb.Helper()
+	fp, ok := any(p).(plugin.FilenameProvider)
+	if !ok {
+		return
+	}
+	for _, lang := range []string{"go", "rust", "ts", "py", ""} {
+		outputs := fp.Outputs(lang)
+		seenTags := make(map[string]int, len(outputs))
+		emptyTagCount := 0
+		for i, o := range outputs {
+			if o.Suffix == "" {
+				tb.Errorf(
+					"FilenameProvider.Outputs(%q)[%d]: Suffix is required",
+					lang, i,
+				)
+			}
+			if prev, dup := seenTags[o.Tag]; dup {
+				tb.Errorf(
+					"FilenameProvider.Outputs(%q): tag %q appears at index %d and %d",
+					lang, o.Tag, prev, i,
+				)
+			}
+			seenTags[o.Tag] = i
+			if o.Tag == "" {
+				emptyTagCount++
+				if i != 0 {
+					tb.Errorf(
+						"FilenameProvider.Outputs(%q)[%d]: empty-tag output must be declared at index 0",
+						lang, i,
+					)
+				}
+			}
+		}
+		if emptyTagCount > 1 {
+			tb.Errorf(
+				"FilenameProvider.Outputs(%q): %d outputs declare an empty Tag; "+
+					"at most one is permitted (the plugin's primary output)",
+				lang, emptyTagCount,
 			)
 		}
 	}

@@ -9,6 +9,7 @@ import (
 
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/eidostest/plugintest"
+	"go.thesmos.sh/eidos/plugin"
 )
 
 // TestRunSuite_PassesForWellFormedPlugin pins the happy path of
@@ -178,7 +179,86 @@ func TestAssertFilenameProviderStability_RejectsFlapping(t *testing.T) {
 	t.Parallel()
 	fake := newFakeT()
 	plugintest.AssertFilenameProviderStability(fake, &flappingSuffixPlugin{})
-	assertFakeMentions(t, fake, "FilenameProvider.FilenameSuffix")
+	assertFakeMentions(t, fake, "FilenameProvider.Outputs")
+}
+
+// TestAssertOutputsShape covers each Outputs-shape rule the
+// conformance check enforces — every failure mode reports the
+// matching diagnostic; valid slices report nothing.
+func TestAssertOutputsShape(t *testing.T) {
+	t.Parallel()
+
+	t.Run("rejects an output with empty Suffix", func(t *testing.T) {
+		t.Parallel()
+		fake := newFakeT()
+		plugintest.AssertOutputsShape(fake, &malformedOutputsPlugin{
+			outputs: []plugin.Output{{Suffix: ""}},
+		})
+		assertFakeMentions(t, fake, "Suffix is required")
+	})
+
+	t.Run("rejects duplicate Tag values", func(t *testing.T) {
+		t.Parallel()
+		fake := newFakeT()
+		plugintest.AssertOutputsShape(fake, &malformedOutputsPlugin{
+			outputs: []plugin.Output{
+				{Suffix: "_x.go"},
+				{Tag: "test", Suffix: "_x_test.go"},
+				{Tag: "test", Suffix: "_y_test.go"},
+			},
+		})
+		assertFakeMentions(t, fake, `tag "test" appears at index`)
+	})
+
+	t.Run("rejects more than one output with empty Tag", func(t *testing.T) {
+		t.Parallel()
+		fake := newFakeT()
+		plugintest.AssertOutputsShape(fake, &malformedOutputsPlugin{
+			outputs: []plugin.Output{
+				{Suffix: "_x.go"},
+				{Suffix: "_y.go"},
+			},
+		})
+		assertFakeMentions(t, fake, "outputs declare an empty Tag")
+	})
+
+	t.Run("rejects empty-Tag output not at index 0", func(t *testing.T) {
+		t.Parallel()
+		fake := newFakeT()
+		plugintest.AssertOutputsShape(fake, &malformedOutputsPlugin{
+			outputs: []plugin.Output{
+				{Tag: "test", Suffix: "_x_test.go"},
+				{Suffix: "_x.go"},
+			},
+		})
+		assertFakeMentions(t, fake, "empty-tag output must be declared at index 0")
+	})
+
+	t.Run("accepts a well-formed multi-output slice silently", func(t *testing.T) {
+		t.Parallel()
+		fake := newFakeT()
+		plugintest.AssertOutputsShape(fake, &malformedOutputsPlugin{
+			outputs: []plugin.Output{
+				{Suffix: "_x.go"},
+				{Tag: "test", Suffix: "_x_test.go"},
+			},
+		})
+		if fake.failed {
+			t.Fatalf("well-formed Outputs reported a failure: errs=%v fatals=%v", fake.errs, fake.fatals)
+		}
+	})
+
+	t.Run("non-implementer passes silently", func(t *testing.T) {
+		t.Parallel()
+		fake := newFakeT()
+		plugintest.AssertOutputsShape(fake, plugintest.NewFixturePlugin())
+		// FixturePlugin implements FilenameProvider with a valid
+		// single-output slice for "go" only; every other language
+		// returns nil and is therefore skipped.
+		if fake.failed {
+			t.Fatalf("default fixture reported a failure: errs=%v fatals=%v", fake.errs, fake.fatals)
+		}
+	})
 }
 
 // assertFakeMentions fails t when none of the recorded error /

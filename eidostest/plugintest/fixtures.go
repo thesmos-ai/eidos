@@ -64,9 +64,10 @@ type FixturePlugin struct {
 	// EmitMajors backs [FixturePlugin.EmitVersions].
 	EmitMajors []string
 
-	// SuffixByLang maps target language to filename suffix for
-	// [FixturePlugin.FilenameSuffix].
-	SuffixByLang map[string]string
+	// OutputsByLang maps target language to the Outputs slice
+	// [FixturePlugin.Outputs] returns. Each entry contributes one
+	// rendered file when the backend matches the language key.
+	OutputsByLang map[string][]plugin.Output
 
 	// NodesOnlyDecl backs [FixturePlugin.NodesOnly].
 	NodesOnlyDecl bool
@@ -88,7 +89,9 @@ func NewFixturePlugin() *FixturePlugin {
 		},
 		VersionString: "v1.0.0",
 		EmitMajors:    []string{"1"},
-		SuffixByLang:  map[string]string{"go": "_fixture.go"},
+		OutputsByLang: map[string][]plugin.Output{
+			"go": {{Suffix: "_fixture.go"}},
+		},
 		NodesOnlyDecl: true,
 	}
 }
@@ -118,8 +121,8 @@ func (p *FixturePlugin) Version() string { return p.VersionString }
 // EmitVersions satisfies [plugin.EmitVersioned].
 func (p *FixturePlugin) EmitVersions() []string { return p.EmitMajors }
 
-// FilenameSuffix satisfies [plugin.FilenameProvider].
-func (p *FixturePlugin) FilenameSuffix(lang string) string { return p.SuffixByLang[lang] }
+// Outputs satisfies [plugin.FilenameProvider].
+func (p *FixturePlugin) Outputs(lang string) []plugin.Output { return p.OutputsByLang[lang] }
 
 // NodesOnly satisfies [plugin.NodesOnly].
 func (p *FixturePlugin) NodesOnly() bool { return p.NodesOnlyDecl }

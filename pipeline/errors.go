@@ -89,6 +89,18 @@ var ErrIncompatibleEmitVersion = errors.New("pipeline: incompatible emit version
 // callers can match on it via [errors.Is].
 var ErrInvalidDirectivePrefix = errors.New("pipeline: invalid directive prefix")
 
+// ErrInvalidOutputs is returned by [Builder.Build] when a plugin
+// implementing [plugin.FilenameProvider] returns a malformed
+// Outputs slice for the active backend's language. The shape
+// rules — every Suffix is non-empty, tags within one slice are
+// unique, at most one Output declares an empty Tag, and the
+// empty-Tag Output is at index 0 when present — protect every
+// downstream consumer (Layout dispatch, directive resolution,
+// CLI scoping, manifest attribution) from ambiguous routing
+// states. The wrapping message names the plugin and describes
+// the specific rule that fired.
+var ErrInvalidOutputs = errors.New("pipeline: invalid plugin Outputs")
+
 // ErrMissingFilenameProvider is surfaced by the Layout phase when a
 // plugin emits a routable decl or a File-level slot contribution
 // but does not implement [plugin.FilenameProvider]. The Layout

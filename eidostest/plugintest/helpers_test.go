@@ -170,7 +170,8 @@ func (p *flappingNodesOnlyPlugin) NodesOnly() bool {
 }
 
 // flappingSuffixPlugin satisfies [plugin.FilenameProvider] but
-// returns a different suffix on every call for the "go" language.
+// returns a different Outputs slice on every call for the "go"
+// language.
 type flappingSuffixPlugin struct{ count int }
 
 // Name returns a stable identifier.
@@ -180,9 +181,29 @@ func (*flappingSuffixPlugin) Name() string { return "flapping-suffix" }
 // clears.
 func (*flappingSuffixPlugin) Generate(_ *plugin.GeneratorContext) error { return nil }
 
-// FilenameSuffix increments a counter and returns a different
-// value each call so the suffix-stability check rejects.
-func (p *flappingSuffixPlugin) FilenameSuffix(_ string) string {
+// Outputs increments a counter and returns a slice whose primary
+// Suffix differs on every call so the Outputs-stability check
+// rejects.
+func (p *flappingSuffixPlugin) Outputs(_ string) []plugin.Output {
 	p.count++
-	return fmt.Sprintf("_v%d.go", p.count)
+	return []plugin.Output{{Suffix: fmt.Sprintf("_v%d.go", p.count)}}
 }
+
+// malformedOutputsPlugin satisfies [plugin.FilenameProvider] with
+// a caller-supplied Outputs slice. Used to drive the
+// Outputs-shape conformance check against deliberately malformed
+// configurations.
+type malformedOutputsPlugin struct {
+	outputs []plugin.Output
+}
+
+// Name returns a stable identifier.
+func (*malformedOutputsPlugin) Name() string { return "malformed-outputs" }
+
+// Generate satisfies [plugin.Generator] so the role probe clears.
+func (*malformedOutputsPlugin) Generate(_ *plugin.GeneratorContext) error { return nil }
+
+// Outputs returns the configured slice unchanged for every
+// language so the shape check exercises the rules across the
+// language matrix the suite probes.
+func (p *malformedOutputsPlugin) Outputs(_ string) []plugin.Output { return p.outputs }

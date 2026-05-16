@@ -20,6 +20,7 @@ var (
 	AssertEmitVersionedStability      = assertEmitVersionedStability
 	AssertNodesOnlyStability          = assertNodesOnlyStability
 	AssertFilenameProviderStability   = assertFilenameProviderStability
+	AssertOutputsShape                = assertOutputsShape
 
 	// Annotator-suite assertions.
 	AssertAnnotateEmptyStoreDoesNotPanic   = assertAnnotateEmptyStoreDoesNotPanic

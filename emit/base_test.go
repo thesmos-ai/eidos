@@ -4,6 +4,8 @@
 package emit_test
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"go.thesmos.sh/eidos/core/directive"
@@ -180,6 +182,66 @@ func TestBaseEmit_Origin(t *testing.T) {
 		var b emit.BaseEmit
 		if b.Origin() != nil {
 			t.Fatalf("zero-value BaseEmit should report nil Origin")
+		}
+	})
+}
+
+func TestBaseEmit_OutputTag(t *testing.T) {
+	t.Parallel()
+
+	t.Run("zero value carries an empty OutputTag", func(t *testing.T) {
+		t.Parallel()
+		var b emit.BaseEmit
+		if b.OutputTag != "" {
+			t.Fatalf("zero-value OutputTag = %q, want empty", b.OutputTag)
+		}
+	})
+
+	t.Run("a non-empty OutputTag round-trips through struct literal", func(t *testing.T) {
+		t.Parallel()
+		b := emit.BaseEmit{OutputTag: "test"}
+		if b.OutputTag != "test" {
+			t.Fatalf("OutputTag = %q, want %q", b.OutputTag, "test")
+		}
+	})
+
+	t.Run("empty OutputTag is omitted from JSON output", func(t *testing.T) {
+		t.Parallel()
+		var b emit.BaseEmit
+		// musttag is satisfied: every JSON-exported field on
+		// BaseEmit carries a json tag. The interface-typed
+		// OriginNode field is tagged `json:"-"` and never
+		// serialised; the linter can't statically prove the
+		// negative.
+		//
+		//nolint:musttag
+		raw, err := json.Marshal(b)
+		if err != nil {
+			t.Fatalf("Marshal: %v", err)
+		}
+		if strings.Contains(string(raw), "output_tag") {
+			t.Fatalf("empty OutputTag should be omitted; got %s", raw)
+		}
+	})
+
+	t.Run("non-empty OutputTag round-trips through JSON", func(t *testing.T) {
+		t.Parallel()
+		b := emit.BaseEmit{OutputTag: "test"}
+		//nolint:musttag
+		raw, err := json.Marshal(b)
+		if err != nil {
+			t.Fatalf("Marshal: %v", err)
+		}
+		if !strings.Contains(string(raw), `"output_tag":"test"`) {
+			t.Fatalf(`marshalled JSON missing "output_tag":"test"; got %s`, raw)
+		}
+		var out emit.BaseEmit
+		//nolint:musttag
+		if err := json.Unmarshal(raw, &out); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+		if out.OutputTag != "test" {
+			t.Fatalf("round-trip OutputTag = %q, want %q", out.OutputTag, "test")
 		}
 	})
 }
