@@ -14,7 +14,8 @@ const Name = "readernoerror"
 // Detector returns the [shape.Detector] this package contributes.
 func Detector() shape.Detector {
 	return shape.Detector{
-		Name: Name,
+		Name:     Name,
+		Priority: 400,
 		Detect: map[string]shape.DetectFunc{
 			"golang": detectGolang,
 		},

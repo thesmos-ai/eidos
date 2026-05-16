@@ -8,6 +8,7 @@ import (
 
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/meta"
+	"go.thesmos.sh/eidos/node"
 )
 
 // Mixin is one orthogonal invariant assertion that decorates a
@@ -38,6 +39,55 @@ type Mixin struct {
 	// umbrella plugin's stamping is permissive and accepts any
 	// KV (unknown keys still stamp).
 	Params []string
+
+	// SiblingParams enumerates param keys whose VALUES are sibling
+	// callable names the refinement resolver should rewrite into
+	// qualified names — e.g. `readafterwrite write=Save` has
+	// `SiblingParams: []string{"write"}` so the resolver looks
+	// `Save` up in scope and rewrites the stamp to its qname.
+	//
+	// Leave empty when every param is an opaque literal.
+	SiblingParams []string
+
+	// Validate, when non-nil, runs in the validation-bucket
+	// annotator pass after sibling resolution completes. Receives
+	// every callable the mixin is attached to (across the store)
+	// as [MixinAttachment] values. Use for invariants like
+	// "every readafterwrite's write partner resolves to a known
+	// callable".
+	Validate MixinValidator
+}
+
+// MixinValidator is the signature of the optional per-mixin
+// invariant check the [Validator] annotator runs after sibling
+// resolution. Returns the list of violations found (empty / nil
+// on success); the validator attaches each violation to its host
+// node's diagnostic sink.
+type MixinValidator func(attachments []MixinAttachment) []MixinViolation
+
+// MixinAttachment is one callable's attachment to a mixin, as
+// observed by the validator after sibling resolution. The
+// validator iterates this list to correlate the mixin's params
+// across the store.
+type MixinAttachment struct {
+	// Host is the callable the mixin is attached to.
+	Host node.Node
+
+	// Params maps the mixin's KV parameter keys to their stamped
+	// values. Sibling-param values are qualified names after the
+	// resolver runs; literal-param values are the raw strings.
+	Params map[string]string
+}
+
+// MixinViolation is one invariant breach reported by a
+// [MixinValidator]. The validator surfaces it as a positioned
+// diagnostic against the host node.
+type MixinViolation struct {
+	// Host is the node the diagnostic attaches to.
+	Host node.Node
+
+	// Message is the human-readable violation summary.
+	Message string
 }
 
 // MixinDirectiveName is the `+gen:` directive consumers write to

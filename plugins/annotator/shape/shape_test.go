@@ -316,6 +316,63 @@ func TestPlugin_DetectorDispatch(t *testing.T) {
 		runAnnotate(t, shape.New().Detectors(det), pkgWithFunction(fn))
 		assertShape(t, fn.Meta(), "appendWriter")
 	})
+
+	t.Run("higher Detector.Priority wins regardless of registration order", func(t *testing.T) {
+		t.Parallel()
+		low := shape.Detector{
+			Name: "low", Priority: 100,
+			Detect: map[string]shape.DetectFunc{
+				"golang": func(node.Node) (shape.Match, bool) {
+					return shape.Match{}, true
+				},
+			},
+		}
+		high := shape.Detector{
+			Name: "high", Priority: 900,
+			Detect: map[string]shape.DetectFunc{
+				"golang": func(node.Node) (shape.Match, bool) {
+					return shape.Match{}, true
+				},
+			},
+		}
+		fn := &node.Function{Name: "X", Package: "x"}
+		// Register low first, high second: priority sort puts
+		// high in front, so the stamp is "high".
+		runAnnotate(t, shape.New().Detectors(low, high), pkgWithFunction(fn))
+		assertShape(t, fn.Meta(), "high")
+	})
+
+	t.Run("Match.StringStamps and ListStamps land alongside the universal triple", func(t *testing.T) {
+		t.Parallel()
+		extraKey := meta.EnsureKey("shape.test.extra", meta.StringParser)
+		listKey := meta.EnsureKey("shape.test.list", meta.StringListParser)
+		det := shape.Detector{
+			Name: "test",
+			Detect: map[string]shape.DetectFunc{
+				"golang": func(node.Node) (shape.Match, bool) {
+					return shape.Match{
+						ValueType: "v",
+						StringStamps: []shape.StringStamp{
+							{Key: extraKey, Value: "extra-value"},
+						},
+						ListStamps: []shape.ListStamp{
+							{Key: listKey, Value: []string{"a", "b"}},
+						},
+					}, true
+				},
+			},
+		}
+		fn := &node.Function{Name: "X", Package: "x"}
+		runAnnotate(t, shape.New().Detectors(det), pkgWithFunction(fn))
+
+		if got, _ := extraKey.Get(fn.Meta()); got != "extra-value" {
+			t.Fatalf("extra string stamp = %q, want %q", got, "extra-value")
+		}
+		got, _ := listKey.Get(fn.Meta())
+		if !reflect.DeepEqual(got, []string{"a", "b"}) {
+			t.Fatalf("list stamp = %v, want [a b]", got)
+		}
+	})
 }
 
 // runAnnotate wires the supplied package into a fresh store, runs

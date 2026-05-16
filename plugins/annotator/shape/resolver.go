@@ -38,6 +38,7 @@ const ResolverName = "shape.contract.resolver"
 // plugin — construct one via [Plugin.Resolver].
 type Resolver struct {
 	contracts map[string]Contract
+	mixins    map[string]Mixin
 
 	// Per-Annotate scope indexes built by [Resolver.BeforeNodes]
 	// and consumed by the per-callable hooks. Reset every
@@ -62,7 +63,10 @@ type methodOwner struct {
 //	pipe.Use(s)
 //	pipe.Use(s.Resolver())
 func (p *Plugin) Resolver() *Resolver {
-	return &Resolver{contracts: p.contracts}
+	return &Resolver{
+		contracts: p.contracts,
+		mixins:    p.mixins,
+	}
 }
 
 // Name returns [ResolverName].
@@ -105,17 +109,24 @@ func (r *Resolver) BeforeNodes(ctx *sdk.AnnotatorContext) {
 	})
 }
 
-// OnMethod resolves contract memberships on m using the owning
-// struct or interface as the partner-lookup scope.
+// OnMethod resolves contract memberships and mixin sibling
+// params on m using the owning struct or interface as the
+// partner-lookup scope.
 func (r *Resolver) OnMethod(ctx *sdk.AnnotatorContext, m *node.Method) {
 	owner := r.methodOwner[m]
-	r.resolve(ctx, m, m.Meta(), methodQName(owner.qname, m.Name), methodScope(owner))
+	scope := methodScope(owner)
+	hostQName := methodQName(owner.qname, m.Name)
+	r.resolve(ctx, m, m.Meta(), hostQName, scope)
+	r.resolveMixins(ctx, m, m.Meta(), scope)
 }
 
-// OnFunction resolves contract memberships on fn using fn's
-// containing package's functions as the partner-lookup scope.
+// OnFunction resolves contract memberships and mixin sibling
+// params on fn using fn's containing package's functions as the
+// partner-lookup scope.
 func (r *Resolver) OnFunction(ctx *sdk.AnnotatorContext, fn *node.Function) {
-	r.resolve(ctx, fn, fn.Meta(), fn.QName(), packageScope(r.funcPkg[fn]))
+	scope := packageScope(r.funcPkg[fn])
+	r.resolve(ctx, fn, fn.Meta(), fn.QName(), scope)
+	r.resolveMixins(ctx, fn, fn.Meta(), scope)
 }
 
 // resolveScope is the abstract sibling-lookup the per-callable
@@ -251,6 +262,10 @@ func (r *Resolver) resolvePartner(
 		return
 	}
 	if isQualified(raw) {
+		// User supplied an explicit cross-scope qname — no
+		// rewriting needed, but the partner still needs the
+		// back-stamp.
+		r.backstamp(spec, partnerRole, hostQName, hostRole, raw)
 		return
 	}
 	qname := scope(raw)
@@ -350,4 +365,50 @@ func (r *Resolver) bagByQName(qname string) *meta.Bag {
 // practice.
 func isQualified(name string) bool {
 	return strings.Contains(name, ".")
+}
+
+// resolveMixins iterates every mixin attached to bag and rewrites
+// declared [Mixin.SiblingParams] values from raw names to
+// qualified names sourced from the host's scope. Mixins without
+// SiblingParams are no-ops here.
+func (r *Resolver) resolveMixins(ctx *sdk.AnnotatorContext, host node.Node, bag *meta.Bag, scope resolveScope) {
+	attached := Mixins(bag)
+	if len(attached) == 0 {
+		return
+	}
+	sink := ctx.Diag.For(ResolverName)
+	for _, name := range attached {
+		spec, ok := r.mixins[name]
+		if !ok {
+			continue
+		}
+		for _, param := range spec.SiblingParams {
+			r.resolveMixinSibling(host, bag, spec.Name, param, scope, sink)
+		}
+	}
+}
+
+// resolveMixinSibling rewrites a single mixin sibling-param value
+// from raw name to qname. Idempotent: skips already-qualified
+// stamps and skips when the param is absent.
+func (*Resolver) resolveMixinSibling(
+	host node.Node,
+	bag *meta.Bag,
+	mixinName, param string,
+	scope resolveScope,
+	sink *diag.PluginSink,
+) {
+	key := MixinParamKey(mixinName, param)
+	raw, present := key.Get(bag)
+	if !present || raw == "" || isQualified(raw) {
+		return
+	}
+	qname := scope(raw)
+	if qname == "" {
+		sink.Errorf(host.Pos(),
+			"shape.mixin %q: sibling param %q=%q not found in scope",
+			mixinName, param, raw)
+		return
+	}
+	key.Set(bag, qname, ResolverName)
 }

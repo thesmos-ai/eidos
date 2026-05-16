@@ -14,7 +14,8 @@ const Name = "batchreader"
 // Detector returns the [shape.Detector] this package contributes.
 func Detector() shape.Detector {
 	return shape.Detector{
-		Name: Name,
+		Name:     Name,
+		Priority: 950,
 		Detect: map[string]shape.DetectFunc{
 			"golang": detectGolang,
 		},

@@ -155,6 +155,17 @@ func GoPointerElem(r *node.TypeRef) *node.TypeRef {
 	return r.Elem
 }
 
+// GoIsPointerReceiver reports whether m is a method bound to a
+// pointer receiver (`func (r *Repo) Save(...)`). Returns false for
+// value-receiver methods and for interface methods (whose
+// [node.Method.Receiver] is nil).
+func GoIsPointerReceiver(m *node.Method) bool {
+	if m == nil || m.Receiver == nil {
+		return false
+	}
+	return m.Receiver.TypeKind == node.TypeRefPointer
+}
+
 // QName returns the qualified type spelling for a type ref —
 // `Package.Name` when Package is set, just `Name` otherwise.
 // Detectors use this to populate [Match.KeyType] and

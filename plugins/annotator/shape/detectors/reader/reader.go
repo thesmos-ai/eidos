@@ -20,7 +20,8 @@ const Name = "reader"
 //	pipe.Use(shape.New().Detectors(reader.Detector()))
 func Detector() shape.Detector {
 	return shape.Detector{
-		Name: Name,
+		Name:     Name,
+		Priority: 420,
 		Detect: map[string]shape.DetectFunc{
 			"golang": detectGolang,
 		},

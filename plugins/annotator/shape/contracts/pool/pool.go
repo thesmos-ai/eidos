@@ -3,10 +3,7 @@
 
 package pool
 
-import (
-	"go.thesmos.sh/eidos/node"
-	"go.thesmos.sh/eidos/plugins/annotator/shape"
-)
+import "go.thesmos.sh/eidos/plugins/annotator/shape"
 
 // Name is the canonical contract name this package stamps.
 const Name = "pool"
@@ -34,16 +31,16 @@ func Contract() shape.Contract {
 // callable per role. Two Gets would mean two distinct pools
 // folded into one contract membership, which the downstream
 // codegen cannot reconcile.
-func validate(members map[string][]node.Node) []shape.ContractViolation {
+func validate(members map[string][]shape.ContractMember) []shape.ContractViolation {
 	var out []shape.ContractViolation
 	for _, role := range Roles {
 		got := len(members[role])
 		if got <= 1 {
 			continue
 		}
-		for _, host := range members[role][1:] {
+		for _, m := range members[role][1:] {
 			out = append(out, shape.ContractViolation{
-				Host:    host,
+				Host:    m.Host,
 				Message: "pool requires exactly one " + role + "; got " + plural(got),
 			})
 		}

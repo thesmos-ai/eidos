@@ -4,8 +4,6 @@
 package shape
 
 import (
-	"slices"
-
 	"go.thesmos.sh/eidos/core/diag"
 	"go.thesmos.sh/eidos/core/meta"
 	"go.thesmos.sh/eidos/core/position"
@@ -35,13 +33,20 @@ const ValidatorName = "shape.contract.validator"
 // umbrella plugin's contract registrations.
 type Validator struct {
 	contracts map[string]Contract
+	mixins    map[string]Mixin
 
 	// members accumulates the (callable, role, contract) triples
 	// observed during the walk. Used by [Validator.AfterNodes] to
 	// group callables into per-contract member sets before
 	// invoking each [Contract.Validate] hook. Reset every
 	// Annotate call.
-	members map[string]map[string][]node.Node
+	members map[string]map[string][]ContractMember
+
+	// attachments accumulates one [MixinAttachment] per (mixin,
+	// host) pair observed during the walk. Used by
+	// [Validator.AfterNodes] to invoke each [Mixin.Validate]
+	// hook. Reset every Annotate call.
+	attachments map[string][]MixinAttachment
 }
 
 // Validator returns a fresh [Validator] sharing p's contract
@@ -53,7 +58,10 @@ type Validator struct {
 //	pipe.Use(s.Resolver())
 //	pipe.Use(s.Validator())
 func (p *Plugin) Validator() *Validator {
-	return &Validator{contracts: p.contracts}
+	return &Validator{
+		contracts: p.contracts,
+		mixins:    p.mixins,
+	}
 }
 
 // Name returns [ValidatorName].
@@ -71,10 +79,11 @@ func (v *Validator) Annotate(ctx *sdk.AnnotatorContext) error {
 	return sdk.Walk(ctx, v)
 }
 
-// BeforeNodes resets the per-Annotate member accumulator so the
+// BeforeNodes resets the per-Annotate accumulators so the
 // validator stays stateless across runs.
 func (v *Validator) BeforeNodes(*sdk.AnnotatorContext) {
-	v.members = make(map[string]map[string][]node.Node)
+	v.members = make(map[string]map[string][]ContractMember)
+	v.attachments = make(map[string][]MixinAttachment)
 }
 
 // OnMethod runs the required-partner check on m for every
@@ -91,10 +100,10 @@ func (v *Validator) OnFunction(ctx *sdk.AnnotatorContext, fn *node.Function) {
 	v.visit(ctx, fn, fn.Meta())
 }
 
-// AfterNodes invokes each registered [Contract.Validate] hook
-// against its accumulated member set and surfaces any returned
-// [ContractViolation] entries as positioned diagnostics on
-// ctx.Diag.
+// AfterNodes invokes each registered [Contract.Validate] and
+// [Mixin.Validate] hook against its accumulated member /
+// attachment set and surfaces any returned violations as
+// positioned diagnostics on ctx.Diag.
 func (v *Validator) AfterNodes(ctx *sdk.AnnotatorContext) {
 	sink := ctx.Diag.For(ValidatorName)
 	for contractName, members := range v.members {
@@ -107,24 +116,39 @@ func (v *Validator) AfterNodes(ctx *sdk.AnnotatorContext) {
 				"shape.contract %q: %s", contractName, violation.Message)
 		}
 	}
+	for mixinName, attachments := range v.attachments {
+		spec, ok := v.mixins[mixinName]
+		if !ok || spec.Validate == nil {
+			continue
+		}
+		for _, violation := range spec.Validate(attachments) {
+			sink.Errorf(posOf(violation.Host),
+				"shape.mixin %q: %s", mixinName, violation.Message)
+		}
+	}
 }
 
-// visit runs the per-callable required-partner check and
-// accumulates host into the member set.
+// visit runs the per-callable required-partner check on contract
+// memberships, accumulates host into the contract member set,
+// and accumulates host's mixin attachments for the AfterNodes
+// validator pass.
 func (v *Validator) visit(ctx *sdk.AnnotatorContext, host node.Node, bag *meta.Bag) {
-	memberships := Contracts(bag)
-	if len(memberships) == 0 {
-		return
-	}
 	sink := ctx.Diag.For(ValidatorName)
-	for _, contractName := range memberships {
+	for _, contractName := range Contracts(bag) {
 		spec, ok := v.contracts[contractName]
 		if !ok {
 			continue
 		}
 		role, _ := ContractRoleKey(spec.Name).Get(bag)
 		v.checkRequired(host, bag, role, spec, sink)
-		v.accumulate(contractName, role, host)
+		v.accumulate(spec, role, host, bag)
+	}
+	for _, mixinName := range Mixins(bag) {
+		spec, ok := v.mixins[mixinName]
+		if !ok {
+			continue
+		}
+		v.accumulateMixin(spec, host, bag)
 	}
 }
 
@@ -153,20 +177,53 @@ func (*Validator) checkRequired(
 	}
 }
 
-// accumulate records host as a member of (contractName, role) in
-// the per-contract member set. Roles are deduplicated by host
-// pointer so the same callable joining a contract twice (via
-// self-stamp + back-stamp) appears once per role.
-func (v *Validator) accumulate(contractName, role string, host node.Node) {
-	byRole, ok := v.members[contractName]
+// accumulate records host as a member of (spec.Name, role) in
+// the per-contract member set, snapshotting the host's partner
+// stamps into a [ContractMember] so [Contract.Validate] can read
+// the pairings directly. Roles are deduplicated by host pointer
+// so the same callable joining a contract twice (via self-stamp
+// + back-stamp) appears once per role.
+func (v *Validator) accumulate(spec Contract, role string, host node.Node, bag *meta.Bag) {
+	byRole, ok := v.members[spec.Name]
 	if !ok {
-		byRole = make(map[string][]node.Node)
-		v.members[contractName] = byRole
+		byRole = make(map[string][]ContractMember)
+		v.members[spec.Name] = byRole
 	}
-	if slices.Contains(byRole[role], host) {
-		return
+	for _, existing := range byRole[role] {
+		if existing.Host == host {
+			return
+		}
 	}
-	byRole[role] = append(byRole[role], host)
+	partners := make(map[string]string)
+	for _, partnerRole := range spec.Roles {
+		if partnerRole == role {
+			continue
+		}
+		if v, ok := ContractPartnerKey(spec.Name, partnerRole).Get(bag); ok && v != "" {
+			partners[partnerRole] = v
+		}
+	}
+	byRole[role] = append(byRole[role], ContractMember{Host: host, Partners: partners})
+}
+
+// accumulateMixin records host's attachment to spec, snapshotting
+// the mixin's declared params from bag so [Mixin.Validate] can
+// read them without re-walking the meta. Deduplicated by host
+// pointer.
+func (v *Validator) accumulateMixin(spec Mixin, host node.Node, bag *meta.Bag) {
+	for _, existing := range v.attachments[spec.Name] {
+		if existing.Host == host {
+			return
+		}
+	}
+	params := make(map[string]string)
+	for _, p := range spec.Params {
+		if val, ok := MixinParamKey(spec.Name, p).Get(bag); ok && val != "" {
+			params[p] = val
+		}
+	}
+	v.attachments[spec.Name] = append(v.attachments[spec.Name],
+		MixinAttachment{Host: host, Params: params})
 }
 
 // posOf returns n's source position via the [node.Node.Pos]

@@ -18,8 +18,9 @@ var Roles = []string{"step", "compensate"}
 
 // Contract returns the [shape.Contract] this package contributes.
 // Every step requires a compensate partner; the [Validate] hook
-// additionally checks that every step has a paired compensation
-// after the resolver has run.
+// additionally checks that each step's compensate partner is
+// unique — two steps cannot share one compensation, since the
+// downstream codegen needs a one-to-one mapping for reversal.
 func Contract() shape.Contract {
 	return shape.Contract{
 		Name:     Name,
@@ -29,23 +30,39 @@ func Contract() shape.Contract {
 	}
 }
 
-// validate enforces the saga structural invariant: the number of
-// resolved compensate members must match the number of step
-// members so every step has a paired compensation.
-func validate(members map[string][]node.Node) []shape.ContractViolation {
-	steps := len(members["step"])
-	comps := len(members["compensate"])
-	if steps == comps {
-		return nil
+// validate enforces saga's per-step pairing invariant. The
+// Required check on `compensate` handles the missing-partner
+// case; this hook adds the uniqueness check: each step must pair
+// with a distinct compensate.
+func validate(members map[string][]shape.ContractMember) []shape.ContractViolation {
+	var out []shape.ContractViolation
+	seen := make(map[string]string)
+	for _, step := range members["step"] {
+		comp := step.Partners["compensate"]
+		if comp == "" {
+			continue
+		}
+		if prev, exists := seen[comp]; exists {
+			out = append(out, shape.ContractViolation{
+				Host:    step.Host,
+				Message: "saga: compensation " + comp + " is already paired with step " + prev,
+			})
+			continue
+		}
+		seen[comp] = stepLabel(step.Host)
 	}
-	if steps == 0 {
-		return nil
+	return out
+}
+
+// stepLabel returns a human-readable identifier for a saga step
+// host — function or method name — for inclusion in diagnostic
+// messages. Returns the empty string for any other node kind.
+func stepLabel(n node.Node) string {
+	switch x := n.(type) {
+	case *node.Function:
+		return x.Name
+	case *node.Method:
+		return x.Name
 	}
-	host := members["step"][0]
-	return []shape.ContractViolation{
-		{
-			Host:    host,
-			Message: "saga: step / compensate count mismatch",
-		},
-	}
+	return ""
 }

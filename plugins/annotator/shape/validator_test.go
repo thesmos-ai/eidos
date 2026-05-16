@@ -122,11 +122,11 @@ func TestValidator_ContractValidate(t *testing.T) {
 
 	t.Run("validator hook receives the member set keyed by role", func(t *testing.T) {
 		t.Parallel()
-		var captured map[string][]node.Node
+		var captured map[string][]shape.ContractMember
 		spec := shape.Contract{
 			Name:  "tx",
 			Roles: []string{"begin", "commit"},
-			Validate: func(members map[string][]node.Node) []shape.ContractViolation {
+			Validate: func(members map[string][]shape.ContractMember) []shape.ContractViolation {
 				captured = members
 				return nil
 			},
@@ -158,10 +158,10 @@ func TestValidator_ContractValidate(t *testing.T) {
 		spec := shape.Contract{
 			Name:  "tx",
 			Roles: []string{"begin", "commit"},
-			Validate: func(members map[string][]node.Node) []shape.ContractViolation {
+			Validate: func(members map[string][]shape.ContractMember) []shape.ContractViolation {
 				return []shape.ContractViolation{
 					{
-						Host:    members["begin"][0],
+						Host:    members["begin"][0].Host,
 						Message: "tx: synthetic invariant breach",
 					},
 				}

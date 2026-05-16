@@ -147,6 +147,36 @@ func TestResolver_NameRewrite(t *testing.T) {
 			t.Fatalf("partner rewrite not idempotent: first=%q second=%q", first, second)
 		}
 	})
+
+	t.Run("qualified partner names are accepted as-is and back-stamped cross-scope", func(t *testing.T) {
+		t.Parallel()
+		begin := contractMethod(
+			"Begin",
+			contractDirective("tx", "begin", map[string]string{
+				"commit": "x.Other.Commit",
+			}),
+		)
+		other := &node.Struct{
+			Name: "Other", Package: "x",
+			Methods: []*node.Method{{Name: "Commit"}},
+		}
+		repo := &node.Struct{
+			Name: "Repo", Package: "x",
+			Methods: []*node.Method{begin},
+		}
+		runWithResolver(t, txContract(), &node.Package{
+			Name: "x", Path: "x",
+			Structs: []*node.Struct{repo, other},
+		})
+
+		// Host stamp is preserved verbatim (no rewriting).
+		assertMeta(t, begin.Meta(),
+			shape.ContractPartnerKey("tx", "commit"),
+			"x.Other.Commit")
+		// And the cross-scope partner gets back-stamped.
+		assertMeta(t, other.Methods[0].Meta(),
+			shape.ContractRoleKey("tx"), "commit")
+	})
 }
 
 // TestResolver_BackStamp covers the resolver's second job —

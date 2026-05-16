@@ -7,10 +7,13 @@ import (
 	"reflect"
 	"testing"
 
+	"go.thesmos.sh/eidos/core/diag"
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/meta"
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/plugins/annotator/shape"
+	"go.thesmos.sh/eidos/sdk"
+	"go.thesmos.sh/eidos/store"
 )
 
 // atomicMixin is the canonical zero-param test mixin used by the
@@ -218,5 +221,96 @@ func assertMixins(t *testing.T, bag *meta.Bag, want []string) {
 	got := shape.Mixins(bag)
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Mixins = %v, want %v", got, want)
+	}
+}
+
+// TestMixin_SiblingResolution covers the resolver rewriting
+// declared [shape.Mixin.SiblingParams] values from raw names to
+// qualified names — exercising the per-mixin sibling-resolution
+// pass added alongside the contract resolver.
+func TestMixin_SiblingResolution(t *testing.T) {
+	t.Parallel()
+	rafw := shape.Mixin{
+		Name:          "readafterwrite",
+		Params:        []string{"write"},
+		SiblingParams: []string{"write"},
+	}
+	find := mixinFn("Find", &directive.Directive{
+		Name: shape.MixinDirectiveName,
+		Args: []string{"readafterwrite"},
+		KV:   map[string]string{"write": "Save"},
+	})
+	save := &node.Function{Name: "Save", Package: "x"}
+	pkg := &node.Package{
+		Name: "x", Path: "x",
+		Functions: []*node.Function{find, save},
+	}
+
+	umbrella := shape.New().Mixins(rafw)
+	ctx := contracttestCtxForMixin(t, pkg)
+	if err := umbrella.Annotate(ctx); err != nil {
+		t.Fatalf("umbrella.Annotate: %v", err)
+	}
+	if err := umbrella.Resolver().Annotate(ctx); err != nil {
+		t.Fatalf("resolver.Annotate: %v", err)
+	}
+
+	got, _ := shape.MixinParamKey("readafterwrite", "write").Get(find.Meta())
+	if got != "x.Save" {
+		t.Fatalf("mixin sibling param = %q, want %q", got, "x.Save")
+	}
+}
+
+// TestMixin_Validate covers the validator invoking the
+// [shape.Mixin.Validate] hook after sibling resolution. The
+// flagging mixin emits one violation per attachment; the
+// validator surfaces it as a positioned diagnostic.
+func TestMixin_Validate(t *testing.T) {
+	t.Parallel()
+	flagging := shape.Mixin{
+		Name: "flagging",
+		Validate: func(attachments []shape.MixinAttachment) []shape.MixinViolation {
+			out := make([]shape.MixinViolation, 0, len(attachments))
+			for _, a := range attachments {
+				out = append(out, shape.MixinViolation{
+					Host: a.Host, Message: "synthetic flag",
+				})
+			}
+			return out
+		},
+	}
+	fn := mixinFn("X", &directive.Directive{
+		Name: shape.MixinDirectiveName,
+		Args: []string{"flagging"},
+	})
+	pkg := &node.Package{Name: "x", Path: "x", Functions: []*node.Function{fn}}
+	ctx := contracttestCtxForMixin(t, pkg)
+	umbrella := shape.New().Mixins(flagging)
+	if err := umbrella.Annotate(ctx); err != nil {
+		t.Fatalf("umbrella.Annotate: %v", err)
+	}
+	if err := umbrella.Resolver().Annotate(ctx); err != nil {
+		t.Fatalf("resolver.Annotate: %v", err)
+	}
+	if err := umbrella.Validator().Annotate(ctx); err != nil {
+		t.Fatalf("validator.Annotate: %v", err)
+	}
+	assertContainsDiag(t, ctx.Diag.Diagnostics(), diag.Error, "synthetic flag")
+}
+
+// contracttestCtxForMixin builds an annotator context backed by a
+// fresh store seeded with pkg and stamped with the "golang"
+// frontend marker. Used by the mixin pipeline tests above.
+func contracttestCtxForMixin(t *testing.T, pkg *node.Package) *sdk.AnnotatorContext {
+	t.Helper()
+	s := store.New()
+	if err := s.Nodes().AddPackage(pkg); err != nil {
+		t.Fatalf("AddPackage: %v", err)
+	}
+	frontendMarker.Set(pkg.Meta(), "golang", "test")
+	return &sdk.AnnotatorContext{
+		Store:  s,
+		Reader: store.NewReader(s),
+		Diag:   diag.New(),
 	}
 }

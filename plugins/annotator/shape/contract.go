@@ -34,6 +34,17 @@ type Contract struct {
 	// resolver rejects directives that name an undeclared role.
 	Roles []string
 
+	// Params enumerates KV keys the directive accepts as opaque
+	// parameters rather than partner-callable references. Use for
+	// non-callable arguments like a field name (`cas version=Version`)
+	// or a literal value (`rate-limit limit=100 burst=10`). Params
+	// land under `shape.contract.<name>.param.<key>`; the resolver
+	// never tries to look them up as siblings.
+	//
+	// Leave empty when every KV besides `role=` names a partner
+	// callable.
+	Params []string
+
 	// Required maps a role to the partner roles that must be
 	// specified when this role's directive appears. The refinement
 	// resolver emits a positioned diagnostic when any required
@@ -56,10 +67,31 @@ type Contract struct {
 
 // ContractValidator is the signature of the optional per-contract
 // invariant check the [Validator] annotator runs after sibling
-// resolution completes. Returns the list of violations found
+// resolution completes. Receives the per-contract-instance member
+// set grouped by role; each [ContractMember] carries the host
+// callable plus the qualified-name partner stamps the resolver
+// already rewrote, so the validator can correlate pairings (e.g.
+// which saga step paired with which compensate) without re-walking
+// the meta bag itself. Returns the list of violations found
 // (empty / nil on success); the validator annotator attaches each
 // violation to its host node's diagnostic sink.
-type ContractValidator func(members map[string][]node.Node) []ContractViolation
+type ContractValidator func(members map[string][]ContractMember) []ContractViolation
+
+// ContractMember is one callable's participation in a resolved
+// contract instance, as the validator sees it after sibling
+// resolution. The validator picks up the host node plus a partner
+// pointer map keyed by partner role.
+type ContractMember struct {
+	// Host is the callable participating in the contract.
+	Host node.Node
+
+	// Partners maps partner role names to the resolved qualified
+	// name of the callable filling that role for this specific
+	// host. Empty values mean the partner stamp was not set on
+	// this host (the Required check, when configured, surfaces
+	// the omission separately).
+	Partners map[string]string
+}
 
 // ContractViolation is one invariant breach reported by a
 // [ContractValidator]. The [Validator] annotator surfaces it as
@@ -105,6 +137,19 @@ func ContractPartnerKey(contract, role string) meta.Key[string] {
 	)
 }
 
+// ContractParamKey returns the typed meta key carrying an opaque
+// directive parameter value — stamped at
+// `shape.contract.<contract>.param.<key>`. Used for KV pairs
+// declared in [Contract.Params] (non-callable values like field
+// names or literals). The refinement resolver does not touch
+// param values.
+func ContractParamKey(contract, key string) meta.Key[string] {
+	return meta.EnsureKey(
+		"shape.contract."+contract+".param."+key,
+		meta.StringParser,
+	)
+}
+
 // contractStampedBy is the setBy attribution used for every
 // contract-related stamp this plugin writes. Distinct from
 // [PluginName] so meta provenance distinguishes structural-shape
@@ -132,7 +177,8 @@ func (p *Plugin) applyContracts(bag *meta.Bag, dirs []*directive.Directive) {
 		if name == "" {
 			continue
 		}
-		if _, registered := p.contracts[name]; !registered {
+		spec, registered := p.contracts[name]
+		if !registered {
 			continue
 		}
 		role := d.KV["role"]
@@ -140,14 +186,31 @@ func (p *Plugin) applyContracts(bag *meta.Bag, dirs []*directive.Directive) {
 			continue
 		}
 		ContractRoleKey(name).Set(bag, role, contractStampedBy)
+		params := paramSet(spec.Params)
 		for k, v := range d.KV {
 			if k == "role" || v == "" {
+				continue
+			}
+			if _, isParam := params[k]; isParam {
+				ContractParamKey(name, k).Set(bag, v, contractStampedBy)
 				continue
 			}
 			ContractPartnerKey(name, k).Set(bag, v, contractStampedBy)
 		}
 		appendContract(bag, name)
 	}
+}
+
+// paramSet builds a lookup set from a [Contract.Params] slice for
+// O(1) "is this KV key a param?" checks inside the stamping loop.
+// Returns an empty (but non-nil) map when params is empty so the
+// caller can skip a nil check.
+func paramSet(params []string) map[string]struct{} {
+	out := make(map[string]struct{}, len(params))
+	for _, p := range params {
+		out[p] = struct{}{}
+	}
+	return out
 }
 
 // contractNameFromDirective returns the contract name declared by

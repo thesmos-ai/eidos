@@ -9,6 +9,7 @@ import (
 	"go.thesmos.sh/eidos/core/diag"
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/node"
+	"go.thesmos.sh/eidos/plugins/annotator/shape"
 	"go.thesmos.sh/eidos/plugins/annotator/shape/contracts/internal/contracttest"
 	"go.thesmos.sh/eidos/plugins/annotator/shape/contracts/saga"
 )
@@ -20,18 +21,21 @@ func TestContract_Identity(t *testing.T) {
 		saga.Name, saga.Roles)
 }
 
-func TestContract_ValidateAcceptsPairedSteps(t *testing.T) {
+func TestContract_ValidateAcceptsDistinctCompensations(t *testing.T) {
 	t.Parallel()
 	c := saga.Contract()
-	members := map[string][]node.Node{
-		"step": {&node.Function{Name: "Charge"}, &node.Function{Name: "Ship"}},
+	members := map[string][]shape.ContractMember{
+		"step": {
+			{Host: &node.Function{Name: "Charge"}, Partners: map[string]string{"compensate": "x.Refund"}},
+			{Host: &node.Function{Name: "Ship"}, Partners: map[string]string{"compensate": "x.Unship"}},
+		},
 		"compensate": {
-			&node.Function{Name: "Refund"},
-			&node.Function{Name: "Unship"},
+			{Host: &node.Function{Name: "Refund"}},
+			{Host: &node.Function{Name: "Unship"}},
 		},
 	}
 	if got := c.Validate(members); len(got) != 0 {
-		t.Fatalf("Validate(paired) = %+v; want no violations", got)
+		t.Fatalf("Validate(distinct) = %+v; want no violations", got)
 	}
 }
 
@@ -62,11 +66,12 @@ func TestContract_PipelineRoundTrip(t *testing.T) {
 	contracttest.AssertRole(t, refund.Meta(), saga.Name, "compensate")
 }
 
-// TestContract_ValidatorFlagsCountMismatch exercises the Validate
-// hook through the actual [shape.Validator] annotator — two
-// steps both pointing at the same compensate produces a 2-vs-1
-// count mismatch the validator must surface.
-func TestContract_ValidatorFlagsCountMismatch(t *testing.T) {
+// TestContract_ValidatorFlagsSharedCompensate exercises the
+// Validate hook through the actual [shape.Validator] annotator
+// — two steps pointing at the same compensate produces a
+// "already paired with step" diagnostic the validator must
+// surface.
+func TestContract_ValidatorFlagsSharedCompensate(t *testing.T) {
 	t.Parallel()
 	stepA := &node.Function{
 		Name: "Charge", Package: "x",
@@ -94,5 +99,5 @@ func TestContract_ValidatorFlagsCountMismatch(t *testing.T) {
 		Functions: []*node.Function{stepA, stepB, refund},
 	}
 	diags := contracttest.RunPipeline(t, saga.Contract(), pkg)
-	contracttest.AssertContainsDiag(t, diags, diag.Error, "count mismatch")
+	contracttest.AssertContainsDiag(t, diags, diag.Error, "already paired")
 }

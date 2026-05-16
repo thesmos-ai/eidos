@@ -4,6 +4,8 @@
 package shape
 
 import (
+	"sort"
+
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/meta"
 	"go.thesmos.sh/eidos/node"
@@ -80,6 +82,15 @@ type Detector struct {
 	// leaves it empty.
 	Name string
 
+	// Priority controls dispatch order. Higher Priority detectors
+	// run first within [Plugin.Detectors]; equal Priorities tie-
+	// break on registration order. Per-shape sub-packages encode
+	// their catalog priority here so the consumer cannot
+	// accidentally register a permissive shape before a more
+	// specific one (e.g. Writer before Deleter). A zero value
+	// places the detector at the end of the dispatch order.
+	Priority int
+
 	// Detect maps a frontend marker (`"golang"`, `"protobuf"`, …)
 	// to the per-language detection function. Sources from any
 	// frontend not in this map are skipped without stamping.
@@ -88,7 +99,9 @@ type Detector struct {
 
 // Match is the stamp a detector returns on a positive hit. KeyType
 // and ValueType carry qualified-type strings for shapes that have
-// a key/value distinction; leave them empty for shapes that don't.
+// a key/value distinction; per-shape extras flow through
+// [Match.StringStamps] and [Match.ListStamps] for shapes whose
+// meta surface is richer than the universal triple.
 type Match struct {
 	// Shape is the canonical shape name (e.g. `"reader"`). When
 	// empty, the umbrella plugin uses the parent [Detector.Name]
@@ -104,6 +117,32 @@ type Match struct {
 	// ValueType is the qualified type of the value/output. Empty
 	// for shapes without a value.
 	ValueType string
+
+	// StringStamps carries per-shape extras the detector wants
+	// the umbrella plugin to stamp under its own per-shape
+	// namespace — for shapes whose meta surface extends beyond
+	// the universal triple. Each entry is `{Key, Value}`; the
+	// umbrella stamps with the detector's setBy attribution.
+	StringStamps []StringStamp
+
+	// ListStamps is the list-typed analogue of [Match.StringStamps]
+	// — used by shapes that record collections (e.g. the full
+	// non-error return-type list for a multi-value reader).
+	ListStamps []ListStamp
+}
+
+// StringStamp is one (typed key, string value) pair a detector
+// returns through [Match.StringStamps] for the umbrella plugin to
+// stamp on the host callable's meta bag.
+type StringStamp struct {
+	Key   meta.Key[string]
+	Value string
+}
+
+// ListStamp is the list-typed counterpart to [StringStamp].
+type ListStamp struct {
+	Key   meta.Key[[]string]
+	Value []string
 }
 
 // Plugin is the umbrella shape plugin. One instance per pipeline
@@ -148,9 +187,15 @@ type Plugin struct {
 func New() *Plugin { return &Plugin{} }
 
 // Detectors registers one or more per-shape signature detectors
-// with the plugin. Returns the plugin so calls chain.
+// with the plugin and sorts the cumulative list by [Detector.Priority]
+// (descending) so the first-positive-match cascade honours the
+// catalog ordering regardless of registration order. Returns the
+// plugin so calls chain.
 func (p *Plugin) Detectors(ds ...Detector) *Plugin {
 	p.detectors = append(p.detectors, ds...)
+	sort.SliceStable(p.detectors, func(i, j int) bool {
+		return p.detectors[i].Priority > p.detectors[j].Priority
+	})
 	return p
 }
 
@@ -358,11 +403,12 @@ func shapeNameFromDirective(d *directive.Directive) string {
 	return d.KV["kind"]
 }
 
-// stamp writes the Match across the three structural-shape
-// contract meta keys. KeyType and ValueType only land when the
-// detector populated them — shapes without a key/value leave
-// those keys absent so consumers reading them can distinguish
-// "no key by design" from "key happened to be empty".
+// stamp writes the Match across the structural-shape contract
+// meta keys and any per-shape extras the detector returned via
+// [Match.StringStamps] / [Match.ListStamps]. KeyType / ValueType
+// stamps only land when the detector populated them — shapes
+// without a key/value leave those keys absent so consumers can
+// distinguish "no key by design" from "key happened to be empty".
 func stamp(bag *meta.Bag, m Match, setBy string) {
 	MetaShape.Set(bag, m.Shape, setBy)
 	if m.KeyType != "" {
@@ -370,6 +416,12 @@ func stamp(bag *meta.Bag, m Match, setBy string) {
 	}
 	if m.ValueType != "" {
 		MetaValueType.Set(bag, m.ValueType, setBy)
+	}
+	for _, s := range m.StringStamps {
+		s.Key.Set(bag, s.Value, setBy)
+	}
+	for _, s := range m.ListStamps {
+		s.Key.Set(bag, s.Value, setBy)
 	}
 }
 

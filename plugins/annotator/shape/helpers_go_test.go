@@ -294,6 +294,48 @@ func TestGoSliceElem(t *testing.T) {
 	})
 }
 
+// TestGoIsPointerReceiver covers the receiver-pointer-ness
+// helper used by detectors that discriminate value- vs
+// pointer-receiver methods.
+func TestGoIsPointerReceiver(t *testing.T) {
+	t.Parallel()
+
+	t.Run("pointer receiver returns true", func(t *testing.T) {
+		t.Parallel()
+		m := &node.Method{
+			Receiver: &node.TypeRef{
+				TypeKind: node.TypeRefPointer,
+				Elem:     &node.TypeRef{Name: "Repo"},
+			},
+		}
+		if !shape.GoIsPointerReceiver(m) {
+			t.Fatalf("expected pointer-receiver method to be recognised")
+		}
+	})
+
+	t.Run("value receiver returns false", func(t *testing.T) {
+		t.Parallel()
+		m := &node.Method{Receiver: &node.TypeRef{Name: "Repo"}}
+		if shape.GoIsPointerReceiver(m) {
+			t.Fatalf("value-receiver method must not be recognised as pointer")
+		}
+	})
+
+	t.Run("interface method (nil receiver) returns false", func(t *testing.T) {
+		t.Parallel()
+		if shape.GoIsPointerReceiver(&node.Method{}) {
+			t.Fatalf("interface-method (nil receiver) must not be recognised")
+		}
+	})
+
+	t.Run("nil method returns false", func(t *testing.T) {
+		t.Parallel()
+		if shape.GoIsPointerReceiver(nil) {
+			t.Fatalf("nil method must not be recognised")
+		}
+	})
+}
+
 // TestGoPointerElem covers the pointer-element extractor used by
 // detectors that recognise *T-shaped values.
 func TestGoPointerElem(t *testing.T) {

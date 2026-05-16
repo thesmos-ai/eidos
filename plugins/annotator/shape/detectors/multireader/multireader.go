@@ -22,7 +22,8 @@ var ValueTypes = meta.NewKey("shape.multireader.value_types", meta.StringListPar
 // Detector returns the [shape.Detector] this package contributes.
 func Detector() shape.Detector {
 	return shape.Detector{
-		Name: Name,
+		Name:     Name,
+		Priority: 650,
 		Detect: map[string]shape.DetectFunc{
 			"golang": detectGolang,
 		},
@@ -31,7 +32,8 @@ func Detector() shape.Detector {
 
 // detectGolang accepts a callable with exactly one non-context
 // parameter and two or more non-error returns followed by a
-// trailing error.
+// trailing error. The full non-error return list is stamped via
+// [ValueTypes] so consumers can recover every value type.
 func detectGolang(n node.Node) (shape.Match, bool) {
 	params, returns := shape.GoCallable(n)
 	keys := shape.GoStripContext(params)
@@ -42,8 +44,15 @@ func detectGolang(n node.Node) (shape.Match, bool) {
 	if len(values) < 2 {
 		return shape.Match{}, false
 	}
+	qnames := make([]string, len(values))
+	for i, v := range values {
+		qnames[i] = shape.QName(v)
+	}
 	return shape.Match{
 		KeyType:   shape.QName(keys[0].Type),
-		ValueType: shape.QName(values[0]),
+		ValueType: qnames[0],
+		ListStamps: []shape.ListStamp{
+			{Key: ValueTypes, Value: qnames},
+		},
 	}, true
 }

@@ -22,7 +22,8 @@ var MetaType = meta.NewKey("shape.lookup.meta_type", meta.StringParser)
 // Detector returns the [shape.Detector] this package contributes.
 func Detector() shape.Detector {
 	return shape.Detector{
-		Name: Name,
+		Name:     Name,
+		Priority: 850,
 		Detect: map[string]shape.DetectFunc{
 			"golang": detectGolang,
 		},
@@ -31,7 +32,8 @@ func Detector() shape.Detector {
 
 // detectGolang accepts a callable with exactly one non-context
 // parameter and exactly three returns: a value, metadata, and a
-// bare bool sentinel. No error return.
+// bare bool sentinel. No error return. The metadata type is
+// stamped via [MetaType] alongside the universal triple.
 func detectGolang(n node.Node) (shape.Match, bool) {
 	params, returns := shape.GoCallable(n)
 	keys := shape.GoStripContext(params)
@@ -44,5 +46,8 @@ func detectGolang(n node.Node) (shape.Match, bool) {
 	return shape.Match{
 		KeyType:   shape.QName(keys[0].Type),
 		ValueType: shape.QName(returns[0]),
+		StringStamps: []shape.StringStamp{
+			{Key: MetaType, Value: shape.QName(returns[1])},
+		},
 	}, true
 }

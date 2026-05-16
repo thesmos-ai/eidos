@@ -10,6 +10,7 @@ import (
 	"go.thesmos.sh/eidos/core/diag"
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/node"
+	"go.thesmos.sh/eidos/plugins/annotator/shape"
 	"go.thesmos.sh/eidos/plugins/annotator/shape/contracts/internal/contracttest"
 	"go.thesmos.sh/eidos/plugins/annotator/shape/contracts/pool"
 )
@@ -36,9 +37,9 @@ func TestContract_DeclaresRequiredAndValidate(t *testing.T) {
 func TestContract_ValidateAcceptsExactlyOneEach(t *testing.T) {
 	t.Parallel()
 	c := pool.Contract()
-	members := map[string][]node.Node{
-		"get": {&node.Function{Name: "Get"}},
-		"put": {&node.Function{Name: "Put"}},
+	members := map[string][]shape.ContractMember{
+		"get": {{Host: &node.Function{Name: "Get"}}},
+		"put": {{Host: &node.Function{Name: "Put"}}},
 	}
 	if got := c.Validate(members); len(got) != 0 {
 		t.Fatalf("Validate(one-each) = %+v; want no violations", got)
