@@ -2112,6 +2112,118 @@ func TestLayout_UnscopedMultiOutputOverride(t *testing.T) {
 	})
 }
 
+// TestLayout_SlotMultiOutputRouting pins the per-output dispatch
+// for origin-anchored slot contributions: a slot item whose
+// [emit.BaseEmit.OutputTag] names a tagged output lands in the
+// matching tagged file's slot, leaving the plugin's primary
+// output's file slot untouched. The path makes
+// `pkg.File(tag).AppendOriginSlot`-style multi-output slot
+// scoping real even though the slot tuple itself doesn't carry
+// a tag — the dispatch threads through the item's stamped
+// OutputTagName.
+func TestLayout_SlotMultiOutputRouting(t *testing.T) {
+	t.Parallel()
+
+	t.Run("tagged slot item resolves to the tagged output's File slot", func(t *testing.T) {
+		t.Parallel()
+		nodePkg := &node.Package{Name: "users", Path: "example.com/users"}
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "internal/users/user.go"}},
+			Name:     "User", Package: "example.com/users",
+		}
+		gen := &multiOutputSlotGen{origin: origin}
+		s := &recBE{
+			name: "be", lang: "stub",
+			render: func(ctx *plugin.BackendContext) {
+				// Observe the resolved files via the emit store —
+				// slot-materialised files live in the view's Files
+				// index, not under any Package.Files slice.
+				ctx.Reader.EmitFiles().Each(func(f *emit.File) {
+					_ = ctx.Sink.Write(f.Target(), []byte("body"))
+				})
+			},
+		}
+		mem := sink.NewMemory()
+		p, err := pipeline.New().
+			WithFrontend(&nodePackageFE{name: "fe", pkg: nodePkg}).
+			WithGenerator(gen).
+			WithBackend(s).
+			WithSink(mem).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "x"))
+
+		// Layout creates one File per resolved Target. The two slot
+		// items (one primary, one tagged) should land in two
+		// distinct Files with the per-output filenames.
+		files := mem.Files()
+		var primaryFound, taggedFound bool
+		for tgt := range files {
+			switch tgt.Filename {
+			case "user_enum.go":
+				primaryFound = true
+			case "user_enum_test.go":
+				taggedFound = true
+			}
+		}
+		if !primaryFound {
+			t.Errorf("primary output file (user_enum.go) not created; files=%v", files)
+		}
+		if !taggedFound {
+			t.Errorf("tagged output file (user_enum_test.go) not created; files=%v", files)
+		}
+	})
+}
+
+// multiOutputSlotGen is the fixture for
+// [TestLayout_SlotMultiOutputRouting]: a multi-output plugin that
+// queues two slot contributions against its origin — one
+// untagged and one tagged — and lets the framework dispatch them
+// to per-output Files via the OutputTag on each item.
+type multiOutputSlotGen struct {
+	origin node.Node
+}
+
+// Name returns the configured plugin identifier.
+func (*multiOutputSlotGen) Name() string { return "enum" }
+
+// Outputs declares the production + test output set.
+func (*multiOutputSlotGen) Outputs(_ string) []plugin.Output {
+	return []plugin.Output{
+		{Suffix: "_enum.go"},
+		{Tag: "test", Suffix: "_enum_test.go"},
+	}
+}
+
+// Generate appends one untagged and one tagged slot contribution
+// against the fixture's origin. Both contributions share the same
+// slot name; the dispatch routes each to its own File via the
+// item's OutputTag.
+func (g *multiOutputSlotGen) Generate(ctx *plugin.GeneratorContext) error {
+	prov := emit.Provenance{SetBy: "enum"}
+	primary := &emit.Struct{
+		BaseEmit: emit.BaseEmit{
+			SetByName:  "enum",
+			OriginNode: g.origin,
+		},
+		Name:    "PrimaryStub",
+		Package: "users",
+	}
+	tagged := &emit.Struct{
+		BaseEmit: emit.BaseEmit{
+			SetByName:     "enum",
+			OriginNode:    g.origin,
+			OutputTagName: "test",
+		},
+		Name:    "TaggedStub",
+		Package: "users",
+	}
+	if err := ctx.Store.Emit().AppendOriginSlot(g.origin, "top", primary, prov); err != nil {
+		return err
+	}
+	return ctx.Store.Emit().AppendOriginSlot(g.origin, "top", tagged, prov)
+}
+
 // TestLayout_TestShift_FiresPerOutput pins per-Target
 // independence of the `_test.go → <pkg>_test` package shift.
 // Each tagged output composes its own Target; the shift fires

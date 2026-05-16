@@ -591,10 +591,14 @@ func materialiseOriginSlots(
 	for _, tup := range pending {
 		setBy := tup.Prov.SetBy
 		// Origin-anchored slot contributions resolve through the
-		// contributor's primary (empty-tag) output. Per-output
-		// slot scoping (the future `pkg.File(tag).AppendOriginSlot`
-		// path) will plumb a per-tuple OutputTag through here.
-		suffix, ok := resolveSuffix(ps, outputs, setBy, "", "slot "+tup.SlotName, "")
+		// OutputTag stamped on the queued item — empty for the
+		// contributor's primary output, non-empty for a tagged
+		// secondary output. The item is a full [emit.Node] whose
+		// [emit.BaseEmit.OutputTagName] flows through the standard
+		// per-output dispatch the same way decl-level OutputTag
+		// values do.
+		outputTag := tup.Item.OutputTag()
+		suffix, ok := resolveSuffix(ps, outputs, setBy, outputTag, "slot "+tup.SlotName, "")
 		if !ok {
 			continue
 		}
@@ -607,9 +611,9 @@ func materialiseOriginSlots(
 			p,
 			ps,
 			setBy,
-			"",
+			outputTag,
 			suffix,
-			false,
+			len(outputs[setBy]) > 1,
 			tup.Origin,
 			"",
 			"slot "+tup.SlotName,
