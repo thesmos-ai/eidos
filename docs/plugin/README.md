@@ -29,6 +29,12 @@ order:
    funcmap extensions / overrides — walked through end-to-end
    with `registrygen` as the canonical example.
 
+5. **[composition.md](composition.md)** — Multi-generator
+   composition. Seven generators collaborate to produce a
+   production HTTP handler from one annotated source struct,
+   each shipping its own template and contributing into the
+   host method's slots without coordinating with each other.
+
 ## Reference plugins
 
 Every reference plugin in `reference/` is a complete, tested,

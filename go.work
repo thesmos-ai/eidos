@@ -5,6 +5,7 @@ use (
 	./backend/golang
 	./bridge/protogo
 	./cli
+	./cmd/eidos-reference
 	./eidostest
 	./frontend/golang
 	./frontend/protobuf
