@@ -10,7 +10,7 @@ import (
 	"go.thesmos.sh/eidos/core/meta"
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/plugins/annotator/shape"
-	"go.thesmos.sh/eidos/plugins/annotator/shape/writer"
+	"go.thesmos.sh/eidos/plugins/annotator/shape/detectors/writer"
 	"go.thesmos.sh/eidos/sdk"
 	"go.thesmos.sh/eidos/store"
 )

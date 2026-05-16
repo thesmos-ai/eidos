@@ -124,6 +124,37 @@ func GoIterSeq2Args(r *node.TypeRef) (*node.TypeRef, *node.TypeRef) {
 	return r.TypeArgs[0], r.TypeArgs[1]
 }
 
+// GoIsBool reports whether r is the bare builtin `bool` type.
+// Used by detectors that recognise sentinel-bool return slots
+// (Predicate, ReaderWithBool, Lookup).
+func GoIsBool(r *node.TypeRef) bool {
+	if r == nil {
+		return false
+	}
+	return r.Name == "bool" && r.Package == ""
+}
+
+// GoSliceElem returns the element type of a slice ref, or nil
+// when r is not a slice. Used by detectors that recognise
+// `[]T`-shaped returns or parameters (BatchReader, …).
+func GoSliceElem(r *node.TypeRef) *node.TypeRef {
+	if r == nil || r.TypeKind != node.TypeRefSlice {
+		return nil
+	}
+	return r.Elem
+}
+
+// GoPointerElem returns the element type of a pointer ref, or
+// nil when r is not a pointer. Used by detectors that recognise
+// `*T`-shaped returns (PointerReader, …) or parameters (Mutator
+// in its pointer-receiver variant).
+func GoPointerElem(r *node.TypeRef) *node.TypeRef {
+	if r == nil || r.TypeKind != node.TypeRefPointer {
+		return nil
+	}
+	return r.Elem
+}
+
 // QName returns the qualified type spelling for a type ref —
 // `Package.Name` when Package is set, just `Name` otherwise.
 // Detectors use this to populate [Match.KeyType] and

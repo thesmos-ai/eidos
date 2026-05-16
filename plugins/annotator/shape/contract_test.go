@@ -42,7 +42,8 @@ func TestContract_DirectiveStamping(t *testing.T) {
 
 	t.Run("stamps role and partner refs for a registered contract", func(t *testing.T) {
 		t.Parallel()
-		fn := contractFn("Begin",
+		fn := contractFn(
+			"Begin",
 			&directive.Directive{
 				Name: shape.ContractDirectiveName,
 				Args: []string{"tx"},
@@ -63,7 +64,8 @@ func TestContract_DirectiveStamping(t *testing.T) {
 
 	t.Run("multiple contracts on one callable: both stamped, ordered, no interference", func(t *testing.T) {
 		t.Parallel()
-		fn := contractFn("Mixed",
+		fn := contractFn(
+			"Mixed",
 			&directive.Directive{
 				Name: shape.ContractDirectiveName,
 				Args: []string{"tx"},
@@ -75,7 +77,8 @@ func TestContract_DirectiveStamping(t *testing.T) {
 				KV:   map[string]string{"role": "append", "subscribe": "Sub"},
 			},
 		)
-		runAnnotate(t,
+		runAnnotate(
+			t,
 			shape.New().Contracts(txContract(), outboxContract()),
 			pkgWithFunction(fn),
 		)
@@ -99,7 +102,8 @@ func TestContract_DirectiveStamping(t *testing.T) {
 				KV:   map[string]string{"role": "begin"},
 			},
 		}
-		runAnnotate(t,
+		runAnnotate(
+			t,
 			shape.New().
 				Detectors(testReaderDetector()).
 				Contracts(txContract()),
@@ -114,7 +118,8 @@ func TestContract_DirectiveStamping(t *testing.T) {
 
 	t.Run("unknown contract name is silently skipped (resolver diagnoses later)", func(t *testing.T) {
 		t.Parallel()
-		fn := contractFn("X",
+		fn := contractFn(
+			"X",
 			&directive.Directive{
 				Name: shape.ContractDirectiveName,
 				Args: []string{"never-registered"},
@@ -130,7 +135,8 @@ func TestContract_DirectiveStamping(t *testing.T) {
 
 	t.Run("missing role= is silently skipped at Phase 1", func(t *testing.T) {
 		t.Parallel()
-		fn := contractFn("Begin",
+		fn := contractFn(
+			"Begin",
 			&directive.Directive{
 				Name: shape.ContractDirectiveName,
 				Args: []string{"tx"},
@@ -145,7 +151,8 @@ func TestContract_DirectiveStamping(t *testing.T) {
 
 	t.Run("negated directive is ignored", func(t *testing.T) {
 		t.Parallel()
-		fn := contractFn("Begin",
+		fn := contractFn(
+			"Begin",
 			&directive.Directive{
 				Name:    shape.ContractDirectiveName,
 				Args:    []string{"tx"},
@@ -161,7 +168,8 @@ func TestContract_DirectiveStamping(t *testing.T) {
 
 	t.Run("partner refs with empty value are skipped", func(t *testing.T) {
 		t.Parallel()
-		fn := contractFn("Begin",
+		fn := contractFn(
+			"Begin",
 			&directive.Directive{
 				Name: shape.ContractDirectiveName,
 				Args: []string{"tx"},
@@ -182,7 +190,8 @@ func TestContract_DirectiveStamping(t *testing.T) {
 
 	t.Run("duplicate contract directive does not duplicate the contracts list entry", func(t *testing.T) {
 		t.Parallel()
-		fn := contractFn("Begin",
+		fn := contractFn(
+			"Begin",
 			&directive.Directive{
 				Name: shape.ContractDirectiveName,
 				Args: []string{"tx"},

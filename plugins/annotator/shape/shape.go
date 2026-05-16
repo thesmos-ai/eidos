@@ -118,6 +118,7 @@ type Match struct {
 type Plugin struct {
 	detectors []Detector
 	contracts map[string]Contract
+	mixins    map[string]Mixin
 
 	// frontByMethod / frontByFunc map callable pointers to the
 	// frontend marker stamped on their containing package.
@@ -170,6 +171,23 @@ func (p *Plugin) Contracts(cs ...Contract) *Plugin {
 	return p
 }
 
+// Mixins registers one or more named mixins with the plugin.
+// Returns the plugin so calls chain.
+//
+// Mixins are looked up by [Mixin.Name] when the `+gen:mixin`
+// directive is parsed; registering two mixins under the same
+// name overwrites the earlier registration in favour of the
+// latest call.
+func (p *Plugin) Mixins(ms ...Mixin) *Plugin {
+	if p.mixins == nil {
+		p.mixins = make(map[string]Mixin, len(ms))
+	}
+	for _, m := range ms {
+		p.mixins[m.Name] = m
+	}
+	return p
+}
+
 // Name returns [PluginName].
 func (*Plugin) Name() string { return PluginName }
 
@@ -208,6 +226,17 @@ func (*Plugin) Directives() []sdk.DirectiveSchema {
 			).
 			Positional("name").
 			RequiredKeys("role").
+			Build(),
+		sdk.NewDirective(MixinDirectiveName).
+			Describe(
+				"Attaches a mixin to the annotated callable. Mixins are " +
+					"orthogonal invariant assertions that decorate a callable " +
+					"on top of its structural shape (atomic, idempotent, " +
+					"monotonic, ...). Positional `name` carries the mixin name; " +
+					"every KV pair is stamped under the mixin's parameter " +
+					"namespace.",
+			).
+			Positional("name").
 			Build(),
 	}
 }
@@ -261,13 +290,14 @@ func (p *Plugin) OnFunction(_ *sdk.AnnotatorContext, fn *node.Function) {
 	p.handle(fn, fn.Meta(), fn.Directives(), p.frontByFunc[fn])
 }
 
-// handle is the per-callable pipeline. Contract membership stamps
-// run unconditionally — they are orthogonal to structural shape
-// and never collide with it. Structural-shape detection then
-// follows the override-then-detect cascade with the
-// already-stamped guard.
+// handle is the per-callable pipeline. Contract and mixin
+// attachment stamps run unconditionally — they are orthogonal
+// to structural shape and never collide with it. Structural-shape
+// detection then follows the override-then-detect cascade with
+// the already-stamped guard.
 func (p *Plugin) handle(n node.Node, bag *meta.Bag, dirs []*directive.Directive, front string) {
 	p.applyContracts(bag, dirs)
+	p.applyMixins(bag, dirs)
 
 	if IsStamped(bag) {
 		return

@@ -1,0 +1,394 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
+package shape_test
+
+import (
+	"maps"
+	"strings"
+	"testing"
+
+	"go.thesmos.sh/eidos/core/diag"
+	"go.thesmos.sh/eidos/core/directive"
+	"go.thesmos.sh/eidos/node"
+	"go.thesmos.sh/eidos/plugin"
+	"go.thesmos.sh/eidos/plugins/annotator/shape"
+	"go.thesmos.sh/eidos/priority"
+	"go.thesmos.sh/eidos/sdk"
+	"go.thesmos.sh/eidos/store"
+)
+
+// TestResolver_Contract pins the role / capability / hook surface
+// the framework asserts at registration / build time.
+func TestResolver_Contract(t *testing.T) {
+	t.Parallel()
+
+	t.Run("name is stable", func(t *testing.T) {
+		t.Parallel()
+		r := shape.New().Resolver()
+		if got := r.Name(); got == "" {
+			t.Fatalf("Name() returned empty string")
+		}
+		first := r.Name()
+		second := r.Name()
+		if first != second {
+			t.Fatalf("Name() flapped: first=%q, second=%q", first, second)
+		}
+	})
+
+	t.Run("priority is AnnotatorRefinement", func(t *testing.T) {
+		t.Parallel()
+		if got, want := shape.New().Resolver().Priority(), priority.AnnotatorRefinement; got != want {
+			t.Fatalf("Priority() = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("satisfies plugin.Annotator", func(t *testing.T) {
+		t.Parallel()
+		var _ plugin.Annotator = shape.New().Resolver()
+	})
+
+	t.Run("Annotate on empty store does not panic", func(t *testing.T) {
+		t.Parallel()
+		ctx := newAnnotatorContext(t, store.New())
+		if err := shape.New().Resolver().Annotate(ctx); err != nil {
+			t.Fatalf("Annotate(empty): %v", err)
+		}
+	})
+}
+
+// TestResolver_NameRewrite covers Phase 2's primary job —
+// rewriting raw partner names into qualified names sourced from
+// the same scope as the host callable.
+func TestResolver_NameRewrite(t *testing.T) {
+	t.Parallel()
+
+	t.Run("same-struct method partner resolves to ownerQName.method", func(t *testing.T) {
+		t.Parallel()
+		begin := contractMethod(
+			"Begin",
+			contractDirective("tx", "begin", map[string]string{"commit": "Commit"}),
+		)
+		commit := &node.Method{Name: "Commit"}
+		s := &node.Struct{
+			Name: "Repo", Package: "x",
+			Methods: []*node.Method{begin, commit},
+		}
+		runWithResolver(t, txContract(), pkgWithStruct(s))
+
+		assertMeta(t, begin.Meta(),
+			shape.ContractPartnerKey("tx", "commit"),
+			"x.Repo.Commit")
+	})
+
+	t.Run("same-interface method partner resolves to ownerQName.method", func(t *testing.T) {
+		t.Parallel()
+		begin := contractMethod(
+			"Begin",
+			contractDirective("tx", "begin", map[string]string{"commit": "Commit"}),
+		)
+		commit := &node.Method{Name: "Commit"}
+		i := &node.Interface{
+			Name: "Repo", Package: "x",
+			Methods: []*node.Method{begin, commit},
+		}
+		runWithResolver(t, txContract(), pkgWithInterface(i))
+
+		assertMeta(t, begin.Meta(),
+			shape.ContractPartnerKey("tx", "commit"),
+			"x.Repo.Commit")
+	})
+
+	t.Run("same-package free-function partner resolves to package.function", func(t *testing.T) {
+		t.Parallel()
+		begin := contractFn(
+			"Begin",
+			contractDirective("tx", "begin", map[string]string{"commit": "Commit"}),
+		)
+		commit := &node.Function{Name: "Commit", Package: "x"}
+		pkg := &node.Package{
+			Name: "x", Path: "x",
+			Functions: []*node.Function{begin, commit},
+		}
+		runWithResolver(t, txContract(), pkg)
+
+		assertMeta(t, begin.Meta(),
+			shape.ContractPartnerKey("tx", "commit"),
+			"x.Commit")
+	})
+
+	t.Run("partner that does not exist surfaces a diagnostic", func(t *testing.T) {
+		t.Parallel()
+		begin := contractMethod(
+			"Begin",
+			contractDirective("tx", "begin", map[string]string{"commit": "NonExistent"}),
+		)
+		s := &node.Struct{Name: "Repo", Package: "x", Methods: []*node.Method{begin}}
+
+		diags := runWithResolverDiags(t, txContract(), pkgWithStruct(s))
+		assertContainsDiag(t, diags, diag.Error, "NonExistent")
+	})
+
+	t.Run("rewrite is idempotent: second pass leaves qname unchanged", func(t *testing.T) {
+		t.Parallel()
+		begin := contractMethod(
+			"Begin",
+			contractDirective("tx", "begin", map[string]string{"commit": "Commit"}),
+		)
+		commit := &node.Method{Name: "Commit"}
+		s := &node.Struct{Name: "Repo", Package: "x", Methods: []*node.Method{begin, commit}}
+
+		s2, p := setupResolverPipeline(t, txContract(), pkgWithStruct(s))
+		runPlugins(t, s2, p)
+		first, _ := shape.ContractPartnerKey("tx", "commit").Get(begin.Meta())
+		runPlugins(t, s2, p)
+		second, _ := shape.ContractPartnerKey("tx", "commit").Get(begin.Meta())
+		if first != second {
+			t.Fatalf("partner rewrite not idempotent: first=%q second=%q", first, second)
+		}
+	})
+}
+
+// TestResolver_BackStamp covers Phase 2's second job — stamping
+// the contract membership and the back-pointer onto the resolved
+// partner callable.
+func TestResolver_BackStamp(t *testing.T) {
+	t.Parallel()
+
+	t.Run("partner gets contract membership and its own role", func(t *testing.T) {
+		t.Parallel()
+		begin := contractMethod(
+			"Begin",
+			contractDirective("tx", "begin", map[string]string{"commit": "Commit"}),
+		)
+		commit := &node.Method{Name: "Commit"}
+		s := &node.Struct{Name: "Repo", Package: "x", Methods: []*node.Method{begin, commit}}
+		runWithResolver(t, txContract(), pkgWithStruct(s))
+
+		if got := shape.Contracts(commit.Meta()); len(got) != 1 || got[0] != "tx" {
+			t.Fatalf("partner Contracts = %v, want [tx]", got)
+		}
+		assertMeta(t, commit.Meta(), shape.ContractRoleKey("tx"), "commit")
+	})
+
+	t.Run("partner gets reverse partner pointer to the originating callable", func(t *testing.T) {
+		t.Parallel()
+		begin := contractMethod(
+			"Begin",
+			contractDirective("tx", "begin", map[string]string{"commit": "Commit"}),
+		)
+		commit := &node.Method{Name: "Commit"}
+		s := &node.Struct{Name: "Repo", Package: "x", Methods: []*node.Method{begin, commit}}
+		runWithResolver(t, txContract(), pkgWithStruct(s))
+
+		assertMeta(t, commit.Meta(),
+			shape.ContractPartnerKey("tx", "begin"),
+			"x.Repo.Begin")
+	})
+
+	t.Run("partner that self-stamped its role is not overwritten", func(t *testing.T) {
+		t.Parallel()
+		begin := contractMethod(
+			"Begin",
+			contractDirective("tx", "begin", map[string]string{"commit": "Commit"}),
+		)
+		// Commit self-stamps with role=commit AND its own partner
+		// pointer; the resolver must preserve those stamps.
+		commit := contractMethod(
+			"Commit",
+			contractDirective("tx", "commit", map[string]string{"begin": "Begin"}),
+		)
+		s := &node.Struct{Name: "Repo", Package: "x", Methods: []*node.Method{begin, commit}}
+		runWithResolver(t, txContract(), pkgWithStruct(s))
+
+		assertMeta(t, commit.Meta(), shape.ContractRoleKey("tx"), "commit")
+		assertMeta(t, commit.Meta(),
+			shape.ContractPartnerKey("tx", "begin"),
+			"x.Repo.Begin")
+		// And the Begin's commit partner is the qname of Commit
+		assertMeta(t, begin.Meta(),
+			shape.ContractPartnerKey("tx", "commit"),
+			"x.Repo.Commit")
+	})
+}
+
+// TestResolver_Diagnostics pins the validation failures that
+// surface as positioned diagnostics rather than panics or silent
+// misbehaviour.
+func TestResolver_Diagnostics(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unknown self-role surfaces a diagnostic", func(t *testing.T) {
+		t.Parallel()
+		fn := contractFn(
+			"X",
+			contractDirective("tx", "no-such-role", nil),
+		)
+		diags := runWithResolverDiags(t, txContract(), pkgWithFunction(fn))
+		assertContainsDiag(t, diags, diag.Error, "no-such-role")
+	})
+
+	t.Run("unknown partner role surfaces a diagnostic", func(t *testing.T) {
+		t.Parallel()
+		begin := contractMethod(
+			"Begin",
+			contractDirective("tx", "begin", map[string]string{"nonsense": "Foo"}),
+		)
+		s := &node.Struct{Name: "Repo", Package: "x", Methods: []*node.Method{begin}}
+		diags := runWithResolverDiags(t, txContract(), pkgWithStruct(s))
+		assertContainsDiag(t, diags, diag.Error, "nonsense")
+	})
+
+	t.Run("unregistered contract surfaces a diagnostic", func(t *testing.T) {
+		t.Parallel()
+		// The umbrella plugin's Phase 1 silently skips unregistered
+		// contracts (no stamp lands). To exercise the resolver's
+		// own diag path we register the contract for Phase 1 but
+		// register a different one with the resolver — the
+		// resolver sees a stamped contract name it cannot resolve.
+		// In practice this happens when Phase 1 and Phase 2 are
+		// configured asymmetrically (configuration error).
+		fn := contractFn(
+			"Begin",
+			contractDirective("tx", "begin", nil),
+		)
+		s := store.New()
+		pkg := pkgWithFunction(fn)
+		if err := s.Nodes().AddPackage(pkg); err != nil {
+			t.Fatalf("AddPackage: %v", err)
+		}
+		frontendMarker.Set(pkg.Meta(), "golang", "test")
+
+		umbrella := shape.New().Contracts(txContract())
+		resolverOnly := shape.New() // resolver knows no contracts
+		ctx := newAnnotatorContext(t, s)
+		if err := umbrella.Annotate(ctx); err != nil {
+			t.Fatalf("umbrella.Annotate: %v", err)
+		}
+		if err := resolverOnly.Resolver().Annotate(ctx); err != nil {
+			t.Fatalf("resolver.Annotate: %v", err)
+		}
+		assertContainsDiag(t, ctx.Diag.Diagnostics(), diag.Error, "tx")
+	})
+
+	t.Run("valid contract membership emits no diagnostics", func(t *testing.T) {
+		t.Parallel()
+		begin := contractMethod(
+			"Begin",
+			contractDirective("tx", "begin", map[string]string{"commit": "Commit"}),
+		)
+		commit := &node.Method{Name: "Commit"}
+		s := &node.Struct{Name: "Repo", Package: "x", Methods: []*node.Method{begin, commit}}
+		diags := runWithResolverDiags(t, txContract(), pkgWithStruct(s))
+		for _, d := range diags {
+			if d.Severity >= diag.Error {
+				t.Fatalf("unexpected error diagnostic: %+v", d)
+			}
+		}
+	})
+}
+
+// contractMethod builds a [node.Method] with the supplied
+// directive list — used by every resolver test that exercises a
+// method-bound contract.
+func contractMethod(name string, dirs ...*directive.Directive) *node.Method {
+	return &node.Method{
+		Name:     name,
+		BaseNode: node.BaseNode{DirectiveList: dirs},
+	}
+}
+
+// contractDirective constructs a `+gen:contract` [*directive.Directive]
+// from the supplied contract name, role, and (optional) partner KVs.
+// The role= entry is always populated; nil kv produces a directive
+// with no partner refs.
+func contractDirective(name, role string, kv map[string]string) *directive.Directive {
+	out := map[string]string{"role": role}
+	maps.Copy(out, kv)
+	return &directive.Directive{
+		Name: shape.ContractDirectiveName,
+		Args: []string{name},
+		KV:   out,
+	}
+}
+
+// runWithResolver wires the supplied package into a fresh store,
+// then runs the umbrella plugin followed by its resolver — the
+// canonical Phase 1 + Phase 2 sequence — failing the test on any
+// returned error.
+func runWithResolver(t *testing.T, c shape.Contract, pkg *node.Package) {
+	t.Helper()
+	_ = runWithResolverDiags(t, c, pkg)
+}
+
+// runWithResolverDiags is the same wiring as [runWithResolver]
+// but returns the diagnostic snapshot so callers can assert on
+// emitted diags.
+func runWithResolverDiags(t *testing.T, c shape.Contract, pkg *node.Package) []diag.Diag {
+	t.Helper()
+	s, p := setupResolverPipeline(t, c, pkg)
+	runPlugins(t, s, p)
+	return p.diag.Diagnostics()
+}
+
+// resolverPipeline is the (store, plugins, diag-sink) bundle
+// returned by [setupResolverPipeline] so individual tests can
+// drive the same wiring twice (for the idempotency probe).
+type resolverPipeline struct {
+	umbrella *shape.Plugin
+	resolver *shape.Resolver
+	diag     *diag.Sink
+}
+
+// setupResolverPipeline builds the resolver pipeline against pkg
+// in a fresh store, registering c as the only contract. Returns
+// the store + plugin bundle so the caller can invoke the pipeline
+// itself (canonical use: idempotency tests that run twice).
+func setupResolverPipeline(t *testing.T, c shape.Contract, pkg *node.Package) (*store.Store, *resolverPipeline) {
+	t.Helper()
+	s := store.New()
+	if err := s.Nodes().AddPackage(pkg); err != nil {
+		t.Fatalf("AddPackage: %v", err)
+	}
+	frontendMarker.Set(pkg.Meta(), "golang", "test")
+
+	umbrella := shape.New().Contracts(c)
+	return s, &resolverPipeline{
+		umbrella: umbrella,
+		resolver: umbrella.Resolver(),
+		diag:     diag.New(),
+	}
+}
+
+// runPlugins drives umbrella → resolver against s using p's diag
+// sink. Both passes share the sink so diagnostics accumulate
+// across phases for collective inspection.
+func runPlugins(t *testing.T, s *store.Store, p *resolverPipeline) {
+	t.Helper()
+	ctx := &sdk.AnnotatorContext{
+		Store:  s,
+		Reader: store.NewReader(s),
+		Diag:   p.diag,
+	}
+	if err := p.umbrella.Annotate(ctx); err != nil {
+		t.Fatalf("umbrella.Annotate: %v", err)
+	}
+	if err := p.resolver.Annotate(ctx); err != nil {
+		t.Fatalf("resolver.Annotate: %v", err)
+	}
+}
+
+// assertContainsDiag fails the test when no diagnostic in diags
+// matches both sev and contains substr in its message. The error
+// includes the full diagnostic list so the failure pinpoints
+// what was (or wasn't) emitted.
+func assertContainsDiag(t *testing.T, diags []diag.Diag, sev diag.Severity, substr string) {
+	t.Helper()
+	for _, d := range diags {
+		if d.Severity == sev && strings.Contains(d.Message, substr) {
+			return
+		}
+	}
+	t.Fatalf("no %v diagnostic containing %q; got %d diags: %+v",
+		sev, substr, len(diags), diags)
+}

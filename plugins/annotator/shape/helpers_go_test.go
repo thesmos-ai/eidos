@@ -245,6 +245,77 @@ func TestGoIterHelpers(t *testing.T) {
 	})
 }
 
+// TestGoIsBool covers the bare-builtin-bool recognizer used by
+// sentinel-bool-returning shape detectors.
+func TestGoIsBool(t *testing.T) {
+	t.Parallel()
+
+	t.Run("bare bool returns true", func(t *testing.T) {
+		t.Parallel()
+		if !shape.GoIsBool(&node.TypeRef{Name: "bool"}) {
+			t.Fatalf("bare bool should be recognised")
+		}
+	})
+
+	t.Run("qualified bool returns false", func(t *testing.T) {
+		t.Parallel()
+		if shape.GoIsBool(&node.TypeRef{Name: "bool", Package: "x"}) {
+			t.Fatalf("qualified bool must not be recognised as builtin")
+		}
+	})
+
+	t.Run("nil ref returns false", func(t *testing.T) {
+		t.Parallel()
+		if shape.GoIsBool(nil) {
+			t.Fatalf("nil ref must not be recognised")
+		}
+	})
+}
+
+// TestGoSliceElem covers the slice-element extractor used by
+// detectors that recognise []T-shaped values.
+func TestGoSliceElem(t *testing.T) {
+	t.Parallel()
+
+	t.Run("slice returns its element type", func(t *testing.T) {
+		t.Parallel()
+		v := &node.TypeRef{Name: "Article", Package: "x"}
+		ref := &node.TypeRef{TypeKind: node.TypeRefSlice, Elem: v}
+		if got := shape.GoSliceElem(ref); got != v {
+			t.Fatalf("GoSliceElem = %v, want %v", got, v)
+		}
+	})
+
+	t.Run("non-slice returns nil", func(t *testing.T) {
+		t.Parallel()
+		if got := shape.GoSliceElem(&node.TypeRef{Name: "string"}); got != nil {
+			t.Fatalf("GoSliceElem(non-slice) = %v, want nil", got)
+		}
+	})
+}
+
+// TestGoPointerElem covers the pointer-element extractor used by
+// detectors that recognise *T-shaped values.
+func TestGoPointerElem(t *testing.T) {
+	t.Parallel()
+
+	t.Run("pointer returns its element type", func(t *testing.T) {
+		t.Parallel()
+		v := &node.TypeRef{Name: "Article", Package: "x"}
+		ref := &node.TypeRef{TypeKind: node.TypeRefPointer, Elem: v}
+		if got := shape.GoPointerElem(ref); got != v {
+			t.Fatalf("GoPointerElem = %v, want %v", got, v)
+		}
+	})
+
+	t.Run("non-pointer returns nil", func(t *testing.T) {
+		t.Parallel()
+		if got := shape.GoPointerElem(&node.TypeRef{Name: "string"}); got != nil {
+			t.Fatalf("GoPointerElem(non-pointer) = %v, want nil", got)
+		}
+	})
+}
+
 // TestQName covers the qualified-spelling helper detectors use to
 // stamp Match.KeyType / Match.ValueType in the canonical form.
 func TestQName(t *testing.T) {
