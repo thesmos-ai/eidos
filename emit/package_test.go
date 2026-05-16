@@ -26,6 +26,7 @@ func makePackage() *emit.Package {
 		Structs:    []*emit.Struct{{Name: "User", Target: target}},
 		Interfaces: []*emit.Interface{{Name: "Repo"}},
 		Functions:  []*emit.Function{{Name: "Open"}},
+		Methods:    []*emit.Method{{Name: "String"}},
 		Variables:  []*emit.Variable{{Name: "Default"}},
 		Constants:  []*emit.Constant{{Name: "Pi"}},
 		Enums:      []*emit.Enum{{Name: "Status"}},
@@ -180,6 +181,24 @@ func TestPackage_FunctionByName(t *testing.T) {
 		t.Parallel()
 		if makePackage().FunctionByName("missing") != nil {
 			t.Fatalf("FunctionByName(unknown) should be nil")
+		}
+	})
+}
+
+func TestPackage_MethodByName(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns the matching top-level method", func(t *testing.T) {
+		t.Parallel()
+		if got := makePackage().MethodByName("String"); got == nil || got.Name != "String" {
+			t.Fatalf("MethodByName mismatch: %+v", got)
+		}
+	})
+
+	t.Run("returns nil for an unknown name", func(t *testing.T) {
+		t.Parallel()
+		if makePackage().MethodByName("missing") != nil {
+			t.Fatalf("MethodByName(unknown) should be nil")
 		}
 	})
 }

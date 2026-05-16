@@ -185,13 +185,10 @@ func (p *Plugin) format() string {
 }
 
 // ownerName returns the simple receiver-type name of m's owner so
-// the rendered audit record reads `<Type>.<Method>`. The framework
-// guarantees emit-store methods carry either *emit.Struct or
-// *emit.Interface as their Owner, so the function does not guard
-// against other kinds.
+// the rendered audit record reads `<Type>.<Method>`. Owner kinds
+// (Struct, Interface, source-side enum / alias for free-standing
+// methods) are uniformly handled by [contract.Owner.OwnerName] —
+// the helper delegates rather than type-switching.
 func ownerName(m *emit.Method) string {
-	if s, ok := m.Owner.(*emit.Struct); ok {
-		return s.Name
-	}
-	return m.Owner.(*emit.Interface).Name
+	return m.OwnerName()
 }

@@ -174,13 +174,9 @@ func (p *Plugin) format() string {
 // ownerName returns the simple receiver-type name of m's owner so
 // the rendered log message reads `<Type>.<Method>` — the common
 // "trace this method on this struct" mental model. Methods on
-// interfaces and methods on structs are both handled; the
-// framework guarantees these two kinds for every method that
-// reaches the emit-store methods bucket, so the function does not
-// guard against other Owner kinds.
+// interfaces, methods on structs, and methods on source-side
+// types are all handled uniformly via [contract.Owner.OwnerName],
+// so the function never type-switches the underlying Owner kind.
 func ownerName(m *emit.Method) string {
-	if s, ok := m.Owner.(*emit.Struct); ok {
-		return s.Name
-	}
-	return m.Owner.(*emit.Interface).Name
+	return m.OwnerName()
 }

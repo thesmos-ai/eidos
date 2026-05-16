@@ -111,6 +111,17 @@ func routeDecls(
 		e.Target = composeOrZero(s, p, ps, suffixes, e.SetBy(), e.Origin(), e.Package, "enum", e.QName())
 		return true
 	})
+	// Top-level methods route via Package.Methods rather than the
+	// methods bucket — that bucket also holds nested methods (which
+	// inherit their owner's Target and must not be routed
+	// independently). Iterating each package's Methods slice
+	// naturally narrows the set to the top-level entries.
+	v.Packages().Range(func(pkg *emit.Package) bool {
+		for _, m := range pkg.Methods {
+			m.Target = composeOrZero(s, p, ps, suffixes, m.SetBy(), m.Origin(), pkg.Path, "method", m.QName())
+		}
+		return true
+	})
 	v.Aliases().Range(func(e *emit.Alias) bool {
 		e.File = composeOrZero(s, p, ps, suffixes, e.SetBy(), e.Origin(), e.Package, "alias", e.QName())
 		return true

@@ -4,11 +4,48 @@
 package builder
 
 import (
+	"go.thesmos.sh/eidos/core/contract"
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/node"
 )
+
+// Method appends a top-level method to the package and runs fn
+// against the resulting [MethodBuilder]. fn may be nil for an
+// empty method declaration. The constructed method's Package
+// field carries b.Node().Path so downstream routing can derive
+// the rendered file's import path.
+//
+// Top-level methods are methods whose receiver type lives outside
+// the emit graph (a source-side enum, a sentinel error declared
+// by the user) — they cannot hang off an [emit.Struct] /
+// [emit.Interface] / [emit.Alias] container's Methods slice and
+// instead land on [emit.Package.Methods]. The PackageBuilder
+// automatically stamps the method's Owner from the package
+// builder's [Anchor]-supplied default origin when that origin
+// satisfies [contract.Owner], and populates [emit.Method.OwnerRef]
+// in lock-step so the resolved identity survives the cache-replay
+// JSON round-trip.
+func (b *PackageBuilder) Method(name string, fn func(*MethodBuilder)) *PackageBuilder {
+	m := &emit.Method{
+		BaseEmit: emit.BaseEmit{SetByName: b.ctx.SetBy()},
+		Name:     name,
+		Package:  b.pkg.Path,
+		Target:   b.ctx.target,
+	}
+	applyDefaultOrigin(b, &m.BaseEmit)
+	if owner, ok := b.defaultOrigin.(contract.Owner); ok {
+		m.Owner = owner
+		m.OwnerRef = contract.RefOf(owner)
+	}
+	mb := &MethodBuilder{ctx: b.ctx, m: m}
+	if fn != nil {
+		fn(mb)
+	}
+	b.pkg.Methods = append(b.pkg.Methods, m)
+	return b
+}
 
 // MethodBuilder configures an [emit.Method] as part of a host's
 // methods. Spawned by [StructBuilder.Method],

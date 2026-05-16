@@ -162,6 +162,24 @@ func (v *EmitView) AddPackage(p *emit.Package) error {
 			host.Functions = append(host.Functions, fn)
 		}
 	}
+	for _, m := range p.Methods {
+		// Top-level methods compose their bucket qname from the
+		// owner's QName + the method's Name — same shape as
+		// addMethod uses for nested methods. The empty Target is
+		// the routing layer's responsibility; RebuildByTarget
+		// re-indexes top-level methods after composeTarget stamps
+		// the resolved Target field.
+		ownerQName := m.OwnerQName()
+		if ownerQName == "" {
+			ownerQName = p.Path
+		}
+		if err := v.addMethod(m, ownerQName, p.Path, emit.Target{}); err != nil {
+			return err
+		}
+		if merge {
+			host.Methods = append(host.Methods, m)
+		}
+	}
 	for _, vd := range p.Variables {
 		if err := v.addVariable(vd, p.Path); err != nil {
 			return err
@@ -427,6 +445,16 @@ func (v *EmitView) RebuildByTarget() {
 		return true
 	})
 	v.functions.Range(func(e *emit.Function) bool {
+		if !e.Target.IsZero() {
+			v.byTarget.Add(e.Target, e)
+		}
+		return true
+	})
+	v.methods.Range(func(e *emit.Method) bool {
+		// Nested methods carry a zero Target (they ride their
+		// owner's routing); only top-level methods on
+		// [emit.Package.Methods] receive a non-zero Target from
+		// the layout phase, so the filter naturally selects them.
 		if !e.Target.IsZero() {
 			v.byTarget.Add(e.Target, e)
 		}

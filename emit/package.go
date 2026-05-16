@@ -58,6 +58,15 @@ type Package struct {
 	// declarations.
 	Functions []*Function `json:"functions,omitempty"`
 
+	// Methods are the top-level method declarations — methods
+	// whose receiver type lives outside the emit graph (a
+	// source-side enum, a sentinel error declared by the user)
+	// so the method can't hang off an [emit.Struct] /
+	// [emit.Interface] / [emit.Alias] container's Methods slice.
+	// Nested methods (those owned by an emitted type) live on
+	// that owner's Methods field and never appear here.
+	Methods []*Method `json:"methods,omitempty"`
+
 	// Variables are the package-level var declarations.
 	Variables []*Variable `json:"variables,omitempty"`
 
@@ -151,6 +160,19 @@ func (p *Package) FunctionByName(name string) *Function {
 	for _, f := range p.Functions {
 		if f.Name == name {
 			return f
+		}
+	}
+	return nil
+}
+
+// MethodByName returns the top-level method named name, or nil
+// when absent. Top-level methods are methods on a source-side
+// receiver type the plugin did not emit; nested methods live on
+// their owning type's Methods slice and are not searched here.
+func (p *Package) MethodByName(name string) *Method {
+	for _, m := range p.Methods {
+		if m.Name == name {
+			return m
 		}
 	}
 	return nil

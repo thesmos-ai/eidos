@@ -14,6 +14,18 @@ import "go.thesmos.sh/eidos/core/directive"
 // strips the prefix before dispatch.
 const OutDirective directive.Name = "out"
 
+// ValueDirective is the name of the canonical `value` directive
+// — a per-source override on any node that pins the rendered or
+// serialised string form of the host. Generic by design: any
+// plugin that translates node identity into a string
+// representation (struct-field serialisation tags, sentinel
+// error codes, configuration-key naming, identifier renames,
+// route patterns, …) reads `+gen:value <override>` to honour the
+// user's chosen value. The framework reserves the directive
+// centrally so plugins share the schema rather than each
+// reinventing it under per-plugin names.
+const ValueDirective directive.Name = "value"
+
 // coreDirectives returns the directive schemas the pipeline registers
 // unconditionally, before any builder-supplied or plugin-supplied
 // schemas. These are framework-level directives the Layout phase
@@ -98,6 +110,19 @@ func coreDirectives() []directive.Schema {
 					"emitter as natural anchor.",
 			).
 			Positional("filename").
+			DenyNegation().
+			Build(),
+		directive.NewSchema(ValueDirective).
+			Describe(
+				"Per-source override for the rendered or serialised string " +
+					"form of the host node. Generic by design — consumed by any " +
+					"plugin that translates node identity into a string " +
+					"representation (serialisation tags, error codes, " +
+					"configuration keys, identifier renames, route patterns, …). " +
+					"Reserved centrally so plugins share the schema rather than " +
+					"re-registering per-plugin variants.",
+			).
+			Positional("override").
 			DenyNegation().
 			Build(),
 	}

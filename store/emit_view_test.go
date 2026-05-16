@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"go.thesmos.sh/eidos/core/contract"
 	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/core/meta"
 	"go.thesmos.sh/eidos/core/position"
@@ -848,6 +849,99 @@ func TestEmitView_AppendOriginSlot(t *testing.T) {
 		)
 		if !errors.Is(err, store.ErrFrozen) {
 			t.Fatalf("got %v, want ErrFrozen", err)
+		}
+	})
+}
+
+// TestStore_RewireMethodOwners pins the cache-replay-safety
+// invariant for top-level methods: a method whose Owner is nil
+// but whose OwnerRef carries a resolvable {Kind, QName} tuple
+// reconstructs the live Owner pointer by looking up the
+// referenced entity in the appropriate store bucket (Nodes or
+// Emit). After the pass, every routed top-level method satisfies
+// the framework's "Owner is always populated" invariant the
+// downstream layout, render, and plugin-query passes rely on.
+func TestStore_RewireMethodOwners(t *testing.T) {
+	t.Parallel()
+
+	t.Run("resolves a node-side enum Owner from OwnerRef", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		srcEnum := &node.Enum{Name: "Status", Package: "example.com/store"}
+		if err := s.Nodes().AddPackage(&node.Package{
+			Name: "store", Path: "example.com/store",
+			Enums: []*node.Enum{srcEnum},
+		}); err != nil {
+			t.Fatalf("Nodes.AddPackage: %v", err)
+		}
+		m := &emit.Method{
+			Name:    "String",
+			Package: "example.com/store",
+			OwnerRef: contract.OwnerRef{
+				Kind:  srcEnum.Kind(),
+				QName: srcEnum.QName(),
+			},
+		}
+		if err := s.Emit().AddPackage(&emit.Package{
+			Name: "store", Path: "example.com/store",
+			Methods: []*emit.Method{m},
+		}); err != nil {
+			t.Fatalf("Emit.AddPackage: %v", err)
+		}
+		s.RewireMethodOwners()
+		if m.Owner == nil {
+			t.Fatalf("Owner not resolved")
+		}
+		if got, want := m.Owner.OwnerQName(), "example.com/store.Status"; got != want {
+			t.Fatalf("Owner.OwnerQName = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("zero OwnerRef leaves Owner nil (no rewire)", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		m := &emit.Method{Name: "Standalone"}
+		if err := s.Emit().AddPackage(&emit.Package{
+			Name: "x", Path: "x",
+			Methods: []*emit.Method{m},
+		}); err != nil {
+			t.Fatalf("Emit.AddPackage: %v", err)
+		}
+		s.RewireMethodOwners()
+		if m.Owner != nil {
+			t.Fatalf("Owner should remain nil for empty OwnerRef; got %+v", m.Owner)
+		}
+	})
+
+	t.Run("existing Owner is preserved (no clobber)", func(t *testing.T) {
+		t.Parallel()
+		s := store.New()
+		srcEnum := &node.Enum{Name: "Status", Package: "example.com/store"}
+		preset := &node.Enum{Name: "PreOwner", Package: "example.com/store"}
+		if err := s.Nodes().AddPackage(&node.Package{
+			Name: "store", Path: "example.com/store",
+			Enums: []*node.Enum{srcEnum, preset},
+		}); err != nil {
+			t.Fatalf("Nodes.AddPackage: %v", err)
+		}
+		m := &emit.Method{
+			Name:    "String",
+			Package: "example.com/store",
+			Owner:   preset,
+			OwnerRef: contract.OwnerRef{
+				Kind:  srcEnum.Kind(),
+				QName: srcEnum.QName(),
+			},
+		}
+		if err := s.Emit().AddPackage(&emit.Package{
+			Name: "store", Path: "example.com/store",
+			Methods: []*emit.Method{m},
+		}); err != nil {
+			t.Fatalf("Emit.AddPackage: %v", err)
+		}
+		s.RewireMethodOwners()
+		if m.Owner != preset {
+			t.Fatalf("preset Owner clobbered: got %v want %v", m.Owner, preset)
 		}
 	})
 }
