@@ -21,22 +21,49 @@ func TestContract_Identity(t *testing.T) {
 		saga.Name, saga.Roles)
 }
 
-func TestContract_ValidateAcceptsDistinctCompensations(t *testing.T) {
+// TestContract_Validate exercises the saga validator hook
+// directly — accepts distinct compensations, flags shared
+// compensations, and survives non-callable hosts via the
+// stepLabel default branch.
+func TestContract_Validate(t *testing.T) {
 	t.Parallel()
 	c := saga.Contract()
-	members := map[string][]shape.ContractMember{
-		"step": {
-			{Host: &node.Function{Name: "Charge"}, Partners: map[string]string{"compensate": "x.Refund"}},
-			{Host: &node.Function{Name: "Ship"}, Partners: map[string]string{"compensate": "x.Unship"}},
-		},
-		"compensate": {
-			{Host: &node.Function{Name: "Refund"}},
-			{Host: &node.Function{Name: "Unship"}},
-		},
-	}
-	if got := c.Validate(members); len(got) != 0 {
-		t.Fatalf("Validate(distinct) = %+v; want no violations", got)
-	}
+
+	t.Run("accepts distinct compensations", func(t *testing.T) {
+		t.Parallel()
+		members := map[string][]shape.ContractMember{
+			"step": {
+				{Host: &node.Function{Name: "Charge"}, Partners: map[string]string{"compensate": "x.Refund"}},
+				{Host: &node.Function{Name: "Ship"}, Partners: map[string]string{"compensate": "x.Unship"}},
+			},
+			"compensate": {
+				{Host: &node.Function{Name: "Refund"}},
+				{Host: &node.Function{Name: "Unship"}},
+			},
+		}
+		if got := c.Validate(members); len(got) != 0 {
+			t.Fatalf("Validate(distinct) = %+v; want no violations", got)
+		}
+	})
+
+	t.Run("handles non-callable host via stepLabel fallback", func(t *testing.T) {
+		t.Parallel()
+		// First member is a [*node.Struct] — neither Function
+		// nor Method, so stepLabel returns the empty string for
+		// the seen-map entry. The second step (a Function) then
+		// tries to register the same compensate qname and gets
+		// flagged.
+		members := map[string][]shape.ContractMember{
+			"step": {
+				{Host: &node.Struct{Name: "S"}, Partners: map[string]string{"compensate": "x.A"}},
+				{Host: &node.Function{Name: "Other"}, Partners: map[string]string{"compensate": "x.A"}},
+			},
+		}
+		got := c.Validate(members)
+		if len(got) != 1 {
+			t.Fatalf("Validate(non-callable + dup) = %+v; want one violation on the second step", got)
+		}
+	})
 }
 
 // TestContract_PipelineRoundTrip exercises the happy path of one

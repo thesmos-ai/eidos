@@ -207,6 +207,113 @@ func TestValidator_ContractValidate(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("validator visits methods alongside free functions", func(t *testing.T) {
+		t.Parallel()
+		// Exercises [Validator.OnMethod] (vs the free-function
+		// path the other tests cover). Begin lives on a struct;
+		// the Required check still fires for missing rollback.
+		spec := shape.Contract{
+			Name:     "tx",
+			Roles:    []string{"begin", "commit", "rollback"},
+			Required: map[string][]string{"begin": {"commit", "rollback"}},
+		}
+		begin := &node.Method{
+			Name: "Begin",
+			BaseNode: node.BaseNode{
+				DirectiveList: []*directive.Directive{
+					{
+						Name: shape.ContractDirectiveName,
+						Args: []string{"tx"},
+						KV:   map[string]string{"role": "begin", "commit": "Commit"},
+					},
+				},
+			},
+		}
+		commit := &node.Method{Name: "Commit"}
+		s := &node.Struct{
+			Name: "Repo", Package: "x",
+			Methods: []*node.Method{begin, commit},
+		}
+		pkg := &node.Package{
+			Name: "x", Path: "x",
+			Structs: []*node.Struct{s},
+		}
+		diags := runFullPipeline(t, spec, pkg)
+		assertContainsDiag(t, diags, diag.Error, "rollback")
+	})
+}
+
+// TestValidator_MixinValidate covers the validator's
+// [Mixin.Validate] path — accumulated [MixinAttachment] values
+// carry the param snapshot the directive supplied, and emitted
+// violations land on ctx.Diag with the validator's plugin
+// attribution.
+func TestValidator_MixinValidate(t *testing.T) {
+	t.Parallel()
+
+	t.Run("attachment captures declared params from the directive", func(t *testing.T) {
+		t.Parallel()
+		var captured []shape.MixinAttachment
+		spec := shape.Mixin{
+			Name:   "tagged",
+			Params: []string{"tag"},
+			Validate: func(attachments []shape.MixinAttachment) []shape.MixinViolation {
+				captured = attachments
+				return nil
+			},
+		}
+		fn := contractFn("X",
+			&directive.Directive{
+				Name: shape.MixinDirectiveName,
+				Args: []string{"tagged"},
+				KV:   map[string]string{"tag": "important"},
+			},
+		)
+		pkg := &node.Package{
+			Name: "x", Path: "x",
+			Functions: []*node.Function{fn},
+		}
+		runMixinPipeline(t, spec, pkg)
+
+		if len(captured) != 1 {
+			t.Fatalf("attachments = %d, want 1", len(captured))
+		}
+		if got := captured[0].Params["tag"]; got != "important" {
+			t.Fatalf("attachments[0].Params[tag] = %q, want %q", got, "important")
+		}
+	})
+}
+
+// runMixinPipeline runs the umbrella → resolver → validator
+// sequence with m as the sole registered mixin. Mirrors
+// [runFullPipeline] but takes a [shape.Mixin] instead of a
+// [shape.Contract].
+func runMixinPipeline(t *testing.T, m shape.Mixin, pkg *node.Package) []diag.Diag {
+	t.Helper()
+	s := store.New()
+	if err := s.Nodes().AddPackage(pkg); err != nil {
+		t.Fatalf("AddPackage: %v", err)
+	}
+	frontendMarker.Set(pkg.Meta(), "golang", "test")
+
+	umbrella := shape.New().Mixins(m)
+	sink := diag.New()
+	ctx := &sdk.AnnotatorContext{
+		Store:  s,
+		Reader: store.NewReader(s),
+		Diag:   sink,
+	}
+	if err := umbrella.Annotate(ctx); err != nil {
+		t.Fatalf("umbrella.Annotate: %v", err)
+	}
+	if err := umbrella.Resolver().Annotate(ctx); err != nil {
+		t.Fatalf("resolver.Annotate: %v", err)
+	}
+	if err := umbrella.Validator().Annotate(ctx); err != nil {
+		t.Fatalf("validator.Annotate: %v", err)
+	}
+	return sink.Diagnostics()
 }
 
 // runFullPipeline wires pkg into a fresh store and runs the

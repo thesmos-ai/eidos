@@ -239,6 +239,33 @@ func TestContract_DirectiveStamping(t *testing.T) {
 			t.Fatalf("Contracts(empty) = %v, want nil", got)
 		}
 	})
+
+	t.Run("declared params land in the param namespace, not the partner namespace", func(t *testing.T) {
+		t.Parallel()
+		// Tx with one opaque param exercises the param-vs-partner
+		// split in applyContracts; verifies [ContractParamKey] is
+		// what the stamper writes through.
+		spec := shape.Contract{
+			Name:   "tx",
+			Roles:  []string{"begin"},
+			Params: []string{"isolation"},
+		}
+		fn := contractFn("Begin",
+			&directive.Directive{
+				Name: shape.ContractDirectiveName,
+				Args: []string{"tx"},
+				KV:   map[string]string{"role": "begin", "isolation": "serializable"},
+			},
+		)
+		runAnnotate(t, shape.New().Contracts(spec), pkgWithFunction(fn))
+
+		assertMeta(t, fn.Meta(),
+			shape.ContractParamKey("tx", "isolation"),
+			"serializable")
+		if _, ok := shape.ContractPartnerKey("tx", "isolation").Get(fn.Meta()); ok {
+			t.Fatalf("opaque param leaked into partner namespace")
+		}
+	})
 }
 
 // contractFn returns a free-function node carrying the supplied
