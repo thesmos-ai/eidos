@@ -35,7 +35,7 @@ func (b *PackageBuilder) Constant(
 		Value:    value,
 		Target:   b.ctx.target,
 	}
-	applyDefaultOrigin(b, &c.BaseEmit)
+	applyBuilderDefaults(b, &c.BaseEmit)
 	cb := &ConstantBuilder{ctx: b.ctx, c: c}
 	if fn != nil {
 		fn(cb)

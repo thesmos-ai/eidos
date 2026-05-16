@@ -68,7 +68,7 @@ func (b *PackageBuilder) appendAlias(
 		IsAlias:  isAlias,
 		File:     b.ctx.target,
 	}
-	applyDefaultOrigin(b, &a.BaseEmit)
+	applyBuilderDefaults(b, &a.BaseEmit)
 	ab := &AliasBuilder{ctx: b.ctx, parent: b, a: a}
 	if fn != nil {
 		fn(ab)

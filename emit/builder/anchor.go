@@ -84,16 +84,19 @@ func packagePath(n node.Node) string {
 	return ""
 }
 
-// applyDefaultOrigin sets b's default origin on dst when dst's
-// own OriginNode is still nil. Decl constructors call this on the
-// freshly-built emit value so an Anchor-supplied default flows
-// through unless the per-decl callback already overrode it via a
-// builder's Origin setter.
-func applyDefaultOrigin(b *PackageBuilder, dst *emit.BaseEmit) {
-	if b == nil || b.defaultOrigin == nil {
+// applyBuilderDefaults stamps b's defaults onto dst — the Anchor's
+// default Origin (when the per-decl callback didn't supply one) and
+// the sub-context's OutputTag. Decl constructors call this on the
+// freshly-built emit value so both defaults flow through uniformly
+// without each constructor restating them.
+func applyBuilderDefaults(b *PackageBuilder, dst *emit.BaseEmit) {
+	if b == nil {
 		return
 	}
-	if dst.OriginNode == nil {
+	if dst.OriginNode == nil && b.defaultOrigin != nil {
 		dst.OriginNode = b.defaultOrigin
+	}
+	if dst.OutputTag == "" {
+		dst.OutputTag = b.outputTag
 	}
 }

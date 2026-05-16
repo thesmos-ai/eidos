@@ -23,7 +23,7 @@ func TestImportBuilder_Accessors(t *testing.T) {
 		pos := fixturePos()
 		var node *emit.Import
 		c.Package("p", "p").
-			File(emit.Target{}, func(fb *builder.FileBuilder) {
+			AddFile(emit.Target{}, func(fb *builder.FileBuilder) {
 				fb.Import("fmt", func(b *builder.ImportBuilder) {
 					node = b.Node()
 					b.Pos(pos).Docs("docs").Directive(d).Alias("fmtalias")

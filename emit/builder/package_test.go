@@ -123,6 +123,150 @@ func TestPackageBuilder_DocsAndNode(t *testing.T) {
 	})
 }
 
+// TestPackageBuilder_File covers the sub-context that
+// [builder.PackageBuilder.File] returns: decls built through
+// `pkg.File(tag)` stamp BaseEmit.OutputTag = tag while sharing
+// the same underlying [emit.Package], context, and Anchor
+// default-origin. The sub-context is memoised per tag; identity
+// for the empty tag; nested calls overwrite rather than compose.
+func TestPackageBuilder_File(t *testing.T) {
+	t.Parallel()
+
+	t.Run("decls built through File(tag) stamp OutputTag = tag", func(t *testing.T) {
+		t.Parallel()
+		c := builder.For("test", defaultTarget)
+		pkg, err := c.Package("p", "example.com/p").
+			Struct("Production", nil).
+			File("test").Struct("Helper", nil).
+			Build()
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		if pkg.Structs[0].OutputTag != "" {
+			t.Errorf("Production struct OutputTag = %q, want empty", pkg.Structs[0].OutputTag)
+		}
+		if pkg.Structs[1].OutputTag != "test" {
+			t.Errorf("Helper struct OutputTag = %q, want %q", pkg.Structs[1].OutputTag, "test")
+		}
+	})
+
+	t.Run("File(tag) shares the underlying emit.Package with the parent", func(t *testing.T) {
+		t.Parallel()
+		c := builder.For("test", defaultTarget)
+		root := c.Package("p", "example.com/p")
+		sub := root.File("test")
+		if root.Node() != sub.Node() {
+			t.Fatalf("sub-context should share the parent's *emit.Package; got distinct pointers")
+		}
+	})
+
+	t.Run("File(\"\") is the identity form (returns the parent unchanged)", func(t *testing.T) {
+		t.Parallel()
+		c := builder.For("test", defaultTarget)
+		root := c.Package("p", "example.com/p")
+		if root.File("") != root {
+			t.Fatalf("File(\"\") should return the same *PackageBuilder; got a distinct pointer")
+		}
+	})
+
+	t.Run("File(tag) is memoised — same tag returns the same sub-context", func(t *testing.T) {
+		t.Parallel()
+		c := builder.For("test", defaultTarget)
+		root := c.Package("p", "example.com/p")
+		first := root.File("test")
+		second := root.File("test")
+		if first != second {
+			t.Fatalf("two File(\"test\") calls returned distinct sub-contexts")
+		}
+	})
+
+	t.Run("nested File call overwrites the tag (not composed)", func(t *testing.T) {
+		t.Parallel()
+		c := builder.For("test", defaultTarget)
+		root := c.Package("p", "example.com/p")
+		nested := root.File("a").File("b")
+		// The sub-context for "b" should equal the sub-context
+		// reachable directly off the root — File("a").File("b")
+		// resolves to root's "b" sub-context, not a synthesised
+		// "a.b" composite.
+		if nested != root.File("b") {
+			t.Fatalf("File(\"a\").File(\"b\") returned a non-root \"b\" sub-context")
+		}
+	})
+
+	t.Run("decls built through nested File chain stamp the outer tag", func(t *testing.T) {
+		t.Parallel()
+		c := builder.For("test", defaultTarget)
+		pkg, err := c.Package("p", "example.com/p").
+			File("a").File("b").Struct("B", nil).
+			Build()
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		if pkg.Structs[0].OutputTag != "b" {
+			t.Errorf("nested-chain Struct OutputTag = %q, want %q", pkg.Structs[0].OutputTag, "b")
+		}
+	})
+
+	t.Run("every decl kind on the sub-context stamps OutputTag", func(t *testing.T) {
+		t.Parallel()
+		anchor := &node.Enum{Name: "Status", Package: "example.com/p"}
+		pkg, err := builder.For("test").Anchor(anchor).
+			File("test").Struct("S", nil).
+			File("test").Interface("I", nil).
+			File("test").Function("F", nil).
+			File("test").Enum("E", emit.Builtin("int"), nil).
+			File("test").Alias("A", emit.Builtin("string"), nil).
+			File("test").NamedType("N", emit.Builtin("int"), nil).
+			File("test").Variable("V", emit.Builtin("int"), nil, nil).
+			File("test").Constant("C", emit.Builtin("int"),
+			&emit.Expr{ExprKind: emit.ExprLiteral, LitKind: emit.LitInt, RawText: "1"}, nil).
+			File("test").Method("M", nil).
+			Build()
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		checks := []struct {
+			name string
+			tag  string
+		}{
+			{"Struct", pkg.Structs[0].OutputTag},
+			{"Interface", pkg.Interfaces[0].OutputTag},
+			{"Function", pkg.Functions[0].OutputTag},
+			{"Enum", pkg.Enums[0].OutputTag},
+			{"Alias (true)", pkg.Aliases[0].OutputTag},
+			{"Alias (NamedType)", pkg.Aliases[1].OutputTag},
+			{"Variable", pkg.Variables[0].OutputTag},
+			{"Constant", pkg.Constants[0].OutputTag},
+			{"Method", pkg.Methods[0].OutputTag},
+		}
+		for _, c := range checks {
+			if c.tag != "test" {
+				t.Errorf("%s OutputTag = %q, want %q", c.name, c.tag, "test")
+			}
+		}
+	})
+
+	t.Run("errors recorded by a sub-context surface through the root's Build", func(t *testing.T) {
+		t.Parallel()
+		// True alias accepting a method body is the recorded
+		// structural violation we test against. Building a true
+		// alias and attempting a Method on it records the error
+		// via the package builder's recordErr; that record must
+		// be visible from the root's Build() even when the
+		// violation originated from a sub-context call.
+		c := builder.For("test", defaultTarget)
+		_, err := c.Package("p", "example.com/p").
+			File("test").Alias("A", emit.Builtin("int"), func(ab *builder.AliasBuilder) {
+			ab.Method("Bad", nil)
+		}).
+			Build()
+		if err == nil {
+			t.Fatalf("Build should report the true-alias method violation recorded from a File sub-context")
+		}
+	})
+}
+
 // TestPackageBuilder_Method covers the top-level Method
 // constructor. The decl lands on [emit.Package.Methods] (not
 // nested under a Struct/Interface/Alias); the Anchor's default

@@ -10,7 +10,7 @@ import (
 
 // FileBuilder configures an [emit.File] as part of a
 // [PackageBuilder]'s accumulating package. Spawned by
-// [PackageBuilder.File].
+// [PackageBuilder.AddFile].
 //
 // In typical plugin code an [emit.File] is obtained from the live
 // store via `store.EmitView.FileFor(target)` rather than constructed
@@ -19,15 +19,22 @@ import (
 // (e.g. in tests, or in a plugin that wholly owns its outputs);
 // reach for the slot-append API on [Context] when contributing into
 // an existing file.
+//
+// Distinct from [PackageBuilder.File], which selects a tagged
+// sub-context for subsequent decl placement and does not append
+// an emit.File entity.
 type FileBuilder struct {
 	ctx *Context
 	f   *emit.File
 }
 
-// File appends an [emit.File] to the package. The target arg controls
-// the file's Dir / Name / Package fields; pass `emit.Target{}` to
-// inherit the spawning [Context]'s default target.
-func (b *PackageBuilder) File(target emit.Target, fn func(*FileBuilder)) *PackageBuilder {
+// AddFile appends an [emit.File] entity to the package. The target
+// arg controls the file's Dir / Name / Package fields; pass
+// `emit.Target{}` to inherit the spawning [Context]'s default
+// target. The method is for tests and plugins that wholly own
+// their files; routine slot contributions go through the
+// slot-append API on [Context].
+func (b *PackageBuilder) AddFile(target emit.Target, fn func(*FileBuilder)) *PackageBuilder {
 	if target.IsZero() {
 		target = b.ctx.target
 	}

@@ -65,10 +65,10 @@ import (
 func (p *Pipeline) runLayout(s *store.Store) {
 	ps := p.diag.For("pipeline.layout")
 	v := s.Emit()
-	suffixes := p.collectFilenameSuffixes()
+	outputs := p.collectPluginOutputs()
 
-	routeDecls(s, v, ps, suffixes, p)
-	materialiseOriginSlots(s, v, ps, suffixes, p)
+	routeDecls(s, v, ps, outputs, p)
+	materialiseOriginSlots(s, v, ps, outputs, p)
 	enforceOneFileOnePackage(v, ps)
 	v.RebuildByTarget()
 }
@@ -80,35 +80,107 @@ func (p *Pipeline) runLayout(s *store.Store) {
 // special-cased because it stores its file routing in `.File`
 // rather than `.Target` (the alias's `.Target` field holds the
 // aliased type Ref).
+//
+// Each decl carries an [emit.BaseEmit.OutputTag] identifying which
+// of its owning plugin's declared [plugin.Output] entries it
+// belongs to. [composeOrZero] reads the tag to pick the matching
+// suffix; the tag flows through the precedence pipeline so
+// per-output routing overrides apply per resolved Target.
 func routeDecls(
 	s *store.Store,
 	v *store.EmitView,
 	ps *diag.PluginSink,
-	suffixes map[string]string,
+	outputs map[string][]plugin.Output,
 	p *Pipeline,
 ) {
 	v.Structs().Range(func(e *emit.Struct) bool {
-		e.Target = composeOrZero(s, p, ps, suffixes, e.SetBy(), e.Origin(), e.Package, "struct", e.QName())
+		e.Target = composeOrZero(
+			s,
+			p,
+			ps,
+			outputs,
+			e.SetBy(),
+			e.OutputTag,
+			e.Origin(),
+			e.Package,
+			"struct",
+			e.QName(),
+		)
 		return true
 	})
 	v.Interfaces().Range(func(e *emit.Interface) bool {
-		e.Target = composeOrZero(s, p, ps, suffixes, e.SetBy(), e.Origin(), e.Package, "interface", e.QName())
+		e.Target = composeOrZero(
+			s,
+			p,
+			ps,
+			outputs,
+			e.SetBy(),
+			e.OutputTag,
+			e.Origin(),
+			e.Package,
+			"interface",
+			e.QName(),
+		)
 		return true
 	})
 	v.Functions().Range(func(e *emit.Function) bool {
-		e.Target = composeOrZero(s, p, ps, suffixes, e.SetBy(), e.Origin(), e.Package, "function", e.QName())
+		e.Target = composeOrZero(
+			s,
+			p,
+			ps,
+			outputs,
+			e.SetBy(),
+			e.OutputTag,
+			e.Origin(),
+			e.Package,
+			"function",
+			e.QName(),
+		)
 		return true
 	})
 	v.Variables().Range(func(e *emit.Variable) bool {
-		e.Target = composeOrZero(s, p, ps, suffixes, e.SetBy(), e.Origin(), e.Package, "variable", e.QName())
+		e.Target = composeOrZero(
+			s,
+			p,
+			ps,
+			outputs,
+			e.SetBy(),
+			e.OutputTag,
+			e.Origin(),
+			e.Package,
+			"variable",
+			e.QName(),
+		)
 		return true
 	})
 	v.Constants().Range(func(e *emit.Constant) bool {
-		e.Target = composeOrZero(s, p, ps, suffixes, e.SetBy(), e.Origin(), e.Package, "constant", e.QName())
+		e.Target = composeOrZero(
+			s,
+			p,
+			ps,
+			outputs,
+			e.SetBy(),
+			e.OutputTag,
+			e.Origin(),
+			e.Package,
+			"constant",
+			e.QName(),
+		)
 		return true
 	})
 	v.Enums().Range(func(e *emit.Enum) bool {
-		e.Target = composeOrZero(s, p, ps, suffixes, e.SetBy(), e.Origin(), e.Package, "enum", e.QName())
+		e.Target = composeOrZero(
+			s,
+			p,
+			ps,
+			outputs,
+			e.SetBy(),
+			e.OutputTag,
+			e.Origin(),
+			e.Package,
+			"enum",
+			e.QName(),
+		)
 		return true
 	})
 	// Top-level methods route via Package.Methods rather than the
@@ -118,12 +190,34 @@ func routeDecls(
 	// naturally narrows the set to the top-level entries.
 	v.Packages().Range(func(pkg *emit.Package) bool {
 		for _, m := range pkg.Methods {
-			m.Target = composeOrZero(s, p, ps, suffixes, m.SetBy(), m.Origin(), pkg.Path, "method", m.QName())
+			m.Target = composeOrZero(
+				s,
+				p,
+				ps,
+				outputs,
+				m.SetBy(),
+				m.OutputTag,
+				m.Origin(),
+				pkg.Path,
+				"method",
+				m.QName(),
+			)
 		}
 		return true
 	})
 	v.Aliases().Range(func(e *emit.Alias) bool {
-		e.File = composeOrZero(s, p, ps, suffixes, e.SetBy(), e.Origin(), e.Package, "alias", e.QName())
+		e.File = composeOrZero(
+			s,
+			p,
+			ps,
+			outputs,
+			e.SetBy(),
+			e.OutputTag,
+			e.Origin(),
+			e.Package,
+			"alias",
+			e.QName(),
+		)
 		return true
 	})
 }
@@ -134,17 +228,18 @@ func routeDecls(
 // composition, and returns the composed Target — or the zero
 // Target when the decl cannot be routed. Routing failures
 // (synthetic Origin, missing [plugin.FilenameProvider], unknown
-// SetBy attribution) surface an Error diagnostic via ps before the
-// helper returns the zero Target. The zero return value drops the
-// decl from the byTarget rebuild and from the manifest; the
-// per-kind bucket still retains it so debugging tools can still
-// resolve it.
+// SetBy attribution, unknown [emit.BaseEmit.OutputTag], or empty
+// OutputTag against a plugin that declares no default output)
+// surface an Error diagnostic via ps before the helper returns
+// the zero Target. The zero return value drops the decl from the
+// byTarget rebuild and from the manifest; the per-kind bucket
+// still retains it so debugging tools can still resolve it.
 func composeOrZero(
 	s *store.Store,
 	p *Pipeline,
 	ps *diag.PluginSink,
-	suffixes map[string]string,
-	setBy string,
+	outputs map[string][]plugin.Output,
+	setBy, outputTag string,
 	origin node.Node,
 	emitPkgPath string,
 	kind, qname string,
@@ -154,19 +249,89 @@ func composeOrZero(
 			"synthetic %s %q has no Origin; cannot route", kind, qname)
 		return emit.Target{}
 	}
-	suffix, ok := suffixes[setBy]
+	suffix, ok := resolveSuffix(ps, outputs, setBy, outputTag, kind, qname)
 	if !ok {
-		ps.Errorf(position.Pos{},
-			"%s: %s %q emitted by %q",
-			ErrMissingFilenameProvider.Error(), kind, qname, setBy)
 		return emit.Target{}
 	}
-	t, rl, ok := composeTarget(s, p, setBy, suffix, origin, emitPkgPath)
+	multiOutput := len(outputs[setBy]) > 1
+	t, rl, ok := composeTarget(
+		s,
+		p,
+		ps,
+		setBy,
+		outputTag,
+		suffix,
+		multiOutput,
+		origin,
+		emitPkgPath,
+		kind,
+		qname,
+	)
 	if !ok {
 		return emit.Target{}
 	}
 	p.recordResolvedLayout(t, rl)
 	return t
+}
+
+// resolveSuffix looks up the suffix from the plugin's declared
+// outputs by matching outputTag against [plugin.Output.Tag]. The
+// rules:
+//
+//   - The plugin's outputs slice is absent / nil / empty →
+//     [ErrMissingFilenameProvider] (the plugin declared no
+//     routable output for the active backend).
+//   - outputTag is empty and the slice contains an empty-tag
+//     entry → that entry's Suffix.
+//   - outputTag is empty and the slice contains no empty-tag
+//     entry → [ErrNoDefaultOutput] (the plugin's "every decl
+//     must carry an explicit tag" intent).
+//   - outputTag is non-empty and matches an entry's Tag → that
+//     entry's Suffix.
+//   - outputTag is non-empty with no matching entry →
+//     [ErrUnknownOutputTag].
+//
+// Each failure surfaces an Error diagnostic via ps; the caller
+// drops the decl on a false return.
+func resolveSuffix(
+	ps *diag.PluginSink,
+	outputs map[string][]plugin.Output,
+	setBy, outputTag, kind, qname string,
+) (string, bool) {
+	slice, ok := outputs[setBy]
+	if !ok || len(slice) == 0 {
+		ps.Errorf(position.Pos{},
+			"%s: %s %q emitted by %q",
+			ErrMissingFilenameProvider.Error(), kind, qname, setBy)
+		return "", false
+	}
+	for _, o := range slice {
+		if o.Tag == outputTag {
+			return o.Suffix, true
+		}
+	}
+	if outputTag == "" {
+		ps.Errorf(position.Pos{},
+			"%s: %s %q emitted by %q; declared tags: %v",
+			ErrNoDefaultOutput.Error(), kind, qname, setBy, declaredTags(slice))
+		return "", false
+	}
+	ps.Errorf(position.Pos{},
+		"%s: %s %q emitted by %q has OutputTag %q; declared tags: %v",
+		ErrUnknownOutputTag.Error(), kind, qname, setBy, outputTag, declaredTags(slice))
+	return "", false
+}
+
+// declaredTags returns the [plugin.Output.Tag] values from slice
+// in declaration order. Used by routing-error diagnostics to show
+// the plugin's actual contract so authors can locate the typo or
+// stray `pkg.File(tag)` call quickly.
+func declaredTags(slice []plugin.Output) []string {
+	tags := make([]string, len(slice))
+	for i, o := range slice {
+		tags[i] = o.Tag
+	}
+	return tags
 }
 
 // composeTarget runs the precedence pipeline for one (plugin,
@@ -200,9 +365,12 @@ func composeOrZero(
 func composeTarget(
 	s *store.Store,
 	p *Pipeline,
-	pluginName, suffix string,
+	ps *diag.PluginSink,
+	pluginName, outputTag, suffix string,
+	multiOutput bool,
 	origin node.Node,
 	emitPkgPath string,
+	kind, qname string,
 ) (emit.Target, manifest.ResolvedLayout, bool) {
 	policy := p.LayoutPolicyFor(pluginName)
 	srcPkg := originSourcePackage(s, origin)
@@ -308,8 +476,19 @@ func composeTarget(
 	// Target.Package + Target.ImportPath through the directive
 	// precedence layer; the value-with-directory form stacks a
 	// relative path onto Target.Dir.
-	if spec, ok := selectOutDirective(outDirectivesFor(p, origin), pluginName); ok {
+	if spec, ok := selectOutDirective(outDirectivesFor(p, origin), pluginName, outputTag); ok {
 		dir, filename := splitOutDirectivePath(spec.Path)
+		// Unscoped filename-pinning overrides against a multi-output
+		// plugin would force every output to share one filename —
+		// silently collapsing the per-output distinction. The check
+		// fires once per offending decl; authors scope the override
+		// with `tag=<tag>` or relax to a directory-only path.
+		if multiOutput && filename != "" && spec.Tag == "" {
+			ps.Errorf(position.Pos{},
+				"%s: %s %q emitted by %q with directive path %q",
+				ErrUnscopedMultiOutputOverride.Error(), kind, qname, pluginName, spec.Path)
+			return emit.Target{}, manifest.ResolvedLayout{}, false
+		}
 		if filename != "" {
 			t.Filename = filename
 			rl.ResolvedFrom["filename"] = manifest.LayerDirective
@@ -397,25 +576,37 @@ func materialiseOriginSlots(
 	s *store.Store,
 	v *store.EmitView,
 	ps *diag.PluginSink,
-	suffixes map[string]string,
+	outputs map[string][]plugin.Output,
 	p *Pipeline,
 ) {
 	pending := v.PendingOriginSlots()
 	for _, tup := range pending {
 		setBy := tup.Prov.SetBy
-		suffix, ok := suffixes[setBy]
+		// Origin-anchored slot contributions resolve through the
+		// contributor's primary (empty-tag) output. Per-output
+		// slot scoping (the future `pkg.File(tag).AppendOriginSlot`
+		// path) will plumb a per-tuple OutputTag through here.
+		suffix, ok := resolveSuffix(ps, outputs, setBy, "", "slot "+tup.SlotName, "")
 		if !ok {
-			ps.Errorf(position.Pos{},
-				"%s: slot %q contribution from %q",
-				ErrMissingFilenameProvider.Error(),
-				tup.SlotName, setBy)
 			continue
 		}
 		// Slot tuples have no upstream emit.Package — the
 		// contribution becomes part of a file Layout creates
 		// during materialisation. Pass empty emitPkgPath so
 		// composeTarget falls back to source-package routing.
-		target, rl, ok := composeTarget(s, p, setBy, suffix, tup.Origin, "")
+		target, rl, ok := composeTarget(
+			s,
+			p,
+			ps,
+			setBy,
+			"",
+			suffix,
+			false,
+			tup.Origin,
+			"",
+			"slot "+tup.SlotName,
+			"",
+		)
 		if !ok {
 			continue
 		}
@@ -548,30 +739,27 @@ func clearConflictedTargets(v *store.EmitView, key string) {
 	})
 }
 
-// collectFilenameSuffixes builds the plugin-name → filename-suffix
-// lookup the Layout phase consults to compose Target.Filename. The
-// map contains one entry per registered generator that implements
-// [plugin.FilenameProvider] AND returns at least one Output for
-// the active backend's language — generators that don't implement
-// the capability OR that return an empty slice are both absent
-// from the map. The two cases are equivalent at the routing
-// layer: both signal "I don't declare routable output", and
-// either kind of attribution failure surfaces
-// [ErrMissingFilenameProvider] when a decl emitted by such a
-// plugin reaches the Layout phase.
+// collectPluginOutputs builds the plugin-name → declared-Outputs
+// lookup the Layout phase consults to dispatch each decl to its
+// matching [plugin.Output.Suffix]. The map contains one entry per
+// registered generator that implements [plugin.FilenameProvider]
+// AND returns at least one Output for the active backend's
+// language — generators that don't implement the capability OR
+// that return an empty slice are both absent from the map. The
+// two cases are equivalent at the routing layer: both signal "I
+// don't declare routable output for this language", and either
+// kind of attribution failure surfaces [ErrMissingFilenameProvider]
+// when a decl emitted by such a plugin reaches the Layout phase.
 //
-// Closing the empty-Outputs case at the collection boundary
-// (rather than tolerating it downstream) prevents the
-// source-overwrite footgun the spec calls out: a routable decl
-// composed with an empty suffix would produce Target.Filename =
-// <source-basename>, which on a fresh write would clobber the
-// originating source file on disk.
-//
-// The map records the primary Output's Suffix per plugin. Decls
-// emitted by a plugin route to its primary output's filename
-// regardless of per-decl tag values stamped on the decl.
-func (p *Pipeline) collectFilenameSuffixes() map[string]string {
-	out := map[string]string{}
+// The map stores the entire Outputs slice (rather than just the
+// primary Suffix) so [resolveSuffix] can dispatch on each decl's
+// [emit.BaseEmit.OutputTag]: empty tag → empty-Tag Output;
+// non-empty tag → matching Output.Tag. The framework's Build-time
+// validation enforces the slice's well-formedness before Layout
+// runs, so resolveSuffix can assume non-empty Suffix values and
+// at-most-one empty-Tag entry.
+func (p *Pipeline) collectPluginOutputs() map[string][]plugin.Output {
+	out := map[string][]plugin.Output{}
 	lang := p.backendLanguage()
 	for _, gen := range p.generators {
 		fp, ok := any(gen).(plugin.FilenameProvider)
@@ -582,10 +770,7 @@ func (p *Pipeline) collectFilenameSuffixes() map[string]string {
 		if len(outputs) == 0 {
 			continue
 		}
-		if outputs[0].Suffix == "" {
-			continue
-		}
-		out[gen.Name()] = outputs[0].Suffix
+		out[gen.Name()] = outputs
 	}
 	return out
 }
@@ -727,14 +912,26 @@ func emitPackageByPath(s *store.Store, path string) *emit.Package {
 
 // outDirectiveSpec captures the parsed shape of a single `+gen:out`
 // directive: the positional path (filename or relative-to-origin
-// dir + filename), the optional `plugin=<name>` scope filter, and
-// the optional `pkg=<name>` package override. The Layout phase
-// resolves the directive's positional value into Target.Dir and
+// dir + filename), the optional `plugin=<name>` scope filter, the
+// optional `tag=<output-tag>` per-output filter, and the optional
+// `pkg=<name>` package override. The Layout phase resolves the
+// directive's positional value into Target.Dir and
 // Target.Filename via [splitOutDirectivePath] and applies the
 // package override against Target.Package + Target.ImportPath.
+//
+// Filter composition rules ([selectOutDirective] applies them):
+//
+//   - `PluginName` empty + `Tag` empty: applies to every plugin's
+//     every output (the original unscoped form).
+//   - `PluginName` set: applies only to that plugin.
+//   - `Tag` set: applies only to outputs whose
+//     [emit.BaseEmit.OutputTag] matches.
+//   - Both set: intersection — that plugin's output with the
+//     matching tag.
 type outDirectiveSpec struct {
 	Path       string
 	PluginName string
+	Tag        string
 	Package    string
 }
 
@@ -762,60 +959,84 @@ func outDirectivesFor(p *Pipeline, n node.Node) []outDirectiveSpec {
 			specs = append(specs, outDirectiveSpec{
 				Path:       d.Args[0],
 				PluginName: d.Value("plugin"),
+				Tag:        d.Value("tag"),
 				Package:    d.Value("pkg"),
 			})
 			continue
 		}
 		// Per-directive routing keys: honoured when the directive
 		// is owned by a registered plugin and carries at least one
-		// routing key. The spec is recorded UNSCOPED — applying to
-		// every plugin emitting against this origin — so a
-		// companion plugin (e.g. mocktest discovering mock structs
-		// via meta) inherits the same routing without restating it.
-		// Users who need strict per-plugin scope use the standalone
+		// routing key. `out=` and `pkg=` are recorded UNSCOPED —
+		// applying to every plugin emitting against this origin —
+		// so a companion plugin (e.g. mocktest discovering mock
+		// structs via meta) inherits the same routing without
+		// restating it. `tag=` is implicitly plugin-scoped to the
+		// directive's owner: tag values are plugin-scoped, so
+		// propagating one would route a sibling plugin to a tag
+		// it doesn't declare. Users who need strict per-plugin
+		// scope on `out=` / `pkg=` use the standalone
 		// `+gen:out plugin=<name>` form.
-		if _, owned := p.directiveOwners[d.Name]; !owned {
+		owner, owned := p.directiveOwners[d.Name]
+		if !owned {
 			continue
 		}
 		out := d.Value("out")
 		pkg := d.Value("pkg")
-		if out == "" && pkg == "" {
+		tag := d.Value("tag")
+		if out == "" && pkg == "" && tag == "" {
 			continue
 		}
-		specs = append(specs, outDirectiveSpec{
+		spec := outDirectiveSpec{
 			Path:    out,
+			Tag:     tag,
 			Package: pkg,
-		})
+		}
+		if tag != "" {
+			spec.PluginName = owner
+		}
+		specs = append(specs, spec)
 	}
 	return specs
 }
 
 // selectOutDirective picks the most specific [outDirectiveSpec] in
-// specs that applies to pluginName. Specificity rule: a directive
-// carrying `plugin=<name>` matching pluginName wins over any
-// unscoped directive (which itself applies to every plugin).
-// Returns (zero, false) when no directive applies.
-func selectOutDirective(specs []outDirectiveSpec, pluginName string) (outDirectiveSpec, bool) {
+// specs that applies to (pluginName, outputTag). Filter rules: a
+// spec's `PluginName` must be empty or equal pluginName, AND its
+// `Tag` must be empty or equal outputTag. Specificity rule among
+// matching specs: more filters set wins (both PluginName + Tag >
+// PluginName only > Tag only > unscoped). Returns (zero, false)
+// when no directive applies.
+func selectOutDirective(
+	specs []outDirectiveSpec,
+	pluginName, outputTag string,
+) (outDirectiveSpec, bool) {
 	var (
-		scoped, unscoped outDirectiveSpec
-		haveScoped       bool
-		haveUnscoped     bool
+		best      outDirectiveSpec
+		bestScore int
+		haveBest  bool
 	)
 	for _, s := range specs {
-		switch s.PluginName {
-		case pluginName:
-			scoped = s
-			haveScoped = true
-		case "":
-			unscoped = s
-			haveUnscoped = true
+		if s.PluginName != "" && s.PluginName != pluginName {
+			continue
+		}
+		if s.Tag != "" && s.Tag != outputTag {
+			continue
+		}
+		score := 0
+		if s.PluginName != "" {
+			score++
+		}
+		if s.Tag != "" {
+			score++
+		}
+		if !haveBest || score > bestScore {
+			best = s
+			bestScore = score
+			haveBest = true
 		}
 	}
-	if haveScoped {
-		return scoped, true
-	}
-	if haveUnscoped {
-		return unscoped, true
+	if haveBest {
+		return best, true
 	}
 	return outDirectiveSpec{}, false
 }

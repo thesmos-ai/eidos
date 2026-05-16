@@ -31,7 +31,7 @@ func (b *PackageBuilder) Interface(name string, fn func(*InterfaceBuilder)) *Pac
 		Package:  b.pkg.Path,
 		Target:   b.ctx.target,
 	}
-	applyDefaultOrigin(b, &i.BaseEmit)
+	applyBuilderDefaults(b, &i.BaseEmit)
 	ib := &InterfaceBuilder{ctx: b.ctx, i: i}
 	if fn != nil {
 		fn(ib)

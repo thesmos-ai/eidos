@@ -117,3 +117,38 @@ var ErrInvalidOutputs = errors.New("pipeline: invalid plugin Outputs")
 var ErrMissingFilenameProvider = errors.New(
 	"pipeline: plugin emitted routable output without declaring a filename suffix",
 )
+
+// ErrUnknownOutputTag is surfaced by the Layout phase when a decl
+// carries a non-empty [emit.BaseEmit.OutputTag] that does not
+// match any of the [plugin.Output.Tag] values its owning plugin
+// declares for the active backend's language. The wrapping
+// message names the plugin, the offending tag, and the set of
+// declared tags so authors can locate the typo or stray
+// `pkg.File(tag)` call quickly.
+var ErrUnknownOutputTag = errors.New(
+	"pipeline: decl carries unknown OutputTag for its plugin's declared outputs",
+)
+
+// ErrNoDefaultOutput is surfaced by the Layout phase when a decl
+// arrives with empty [emit.BaseEmit.OutputTag] but its owning
+// plugin declares no empty-Tag output for the active backend's
+// language. The plugin's intent — "every decl must carry an
+// explicit tag" — is honoured by refusing to silently route the
+// decl to the slice's first entry.
+var ErrNoDefaultOutput = errors.New(
+	"pipeline: decl carries empty OutputTag but plugin declares no default output",
+)
+
+// ErrUnscopedMultiOutputOverride is surfaced by the Layout phase
+// when an unscoped routing directive (`+gen:out <path>` without
+// `tag=`, or a form-3 emitter directive carrying `out=<path>`
+// without `tag=`) pins a filename component against a plugin
+// that declares multiple [plugin.Output] entries. Applying the
+// override uniformly would force every output to share one
+// filename — silently collapsing the plugin's per-output
+// distinction. Authors scope to one output with `tag=<tag>`,
+// or relax the override to a directory-only path so the
+// per-output suffixes keep filenames distinct.
+var ErrUnscopedMultiOutputOverride = errors.New(
+	"pipeline: unscoped routing override pins a filename against a multi-output plugin",
+)

@@ -20,7 +20,7 @@ func TestFileBuilder_ImportsAndBlanks(t *testing.T) {
 		c := builder.For("repogen", defaultTarget)
 		var file *emit.File
 		c.Package("users", "example.com/users").
-			File(emit.Target{}, func(fb *builder.FileBuilder) {
+			AddFile(emit.Target{}, func(fb *builder.FileBuilder) {
 				file = fb.Node()
 				fb.Import("fmt", nil)
 				fb.BlankImport("embed")
@@ -41,12 +41,12 @@ func TestFileBuilder_ImportsAndBlanks(t *testing.T) {
 		}
 	})
 
-	t.Run("zero target on File() inherits the Context target", func(t *testing.T) {
+	t.Run("zero target on AddFile() inherits the Context target", func(t *testing.T) {
 		t.Parallel()
 		c := builder.For("repogen", defaultTarget)
 		var file *emit.File
 		c.Package("users", "example.com/users").
-			File(emit.Target{}, func(fb *builder.FileBuilder) {
+			AddFile(emit.Target{}, func(fb *builder.FileBuilder) {
 				file = fb.Node()
 			})
 		if file.Dir != defaultTarget.Dir || file.Name != defaultTarget.Filename {
@@ -68,7 +68,7 @@ func TestFileBuilder_Accessors(t *testing.T) {
 		pos := fixturePos()
 		var node *emit.File
 		c.Package("p", "p").
-			File(other, func(b *builder.FileBuilder) {
+			AddFile(other, func(b *builder.FileBuilder) {
 				node = b.Node()
 				b.Pos(pos).Docs("docs").Import("fmt", func(ib *builder.ImportBuilder) {
 					ib.Pos(pos).Docs("imp").Directive(d).Alias("fmtalias")

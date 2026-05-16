@@ -476,14 +476,18 @@ var errFailingSink = errors.New("pipeline: failing sink (test)")
 // algorithm can be exercised independently of plugin builder
 // machinery.
 type layoutGen struct {
-	name   string
-	suffix string
-	pkg    *emit.Package
+	name    string
+	suffix  string
+	outputs []plugin.Output // takes precedence over suffix when non-empty
+	pkg     *emit.Package
 }
 
 func (g *layoutGen) Name() string { return g.name }
 
 func (g *layoutGen) Outputs(_ string) []plugin.Output {
+	if len(g.outputs) > 0 {
+		return g.outputs
+	}
 	if g.suffix == "" {
 		return nil
 	}

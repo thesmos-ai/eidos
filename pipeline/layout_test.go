@@ -1516,6 +1516,522 @@ func TestLayout_OutDirective_NoArgs(t *testing.T) {
 	})
 }
 
+// TestLayout_MultiOutputDispatch pins per-output Target
+// composition: a plugin returning multiple [plugin.Output]
+// entries from [plugin.FilenameProvider.Outputs] dispatches each
+// emit decl to its declared output's suffix according to the
+// decl's [emit.BaseEmit.OutputTag]. Empty OutputTag resolves to
+// the plugin's primary (empty-tag) output; non-empty values
+// resolve to the matching Output.Tag.
+func TestLayout_MultiOutputDispatch(t *testing.T) {
+	t.Parallel()
+
+	t.Run("primary decl uses primary Output.Suffix; tagged decl uses tagged Output.Suffix", func(t *testing.T) {
+		t.Parallel()
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{
+				SourcePos: position.Pos{File: "internal/users/user.go"},
+			},
+			Name: "User", Package: "example.com/users",
+		}
+		primary := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin},
+			Name:     "UserEnum", Package: "users",
+		}
+		tagged := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			Name:     "UserEnumTest", Package: "users",
+		}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(&layoutGen{
+				name: "enum",
+				outputs: []plugin.Output{
+					{Suffix: "_enum.go"},
+					{Tag: "test", Suffix: "_enum_test.go"},
+				},
+				pkg: &emit.Package{
+					Name: "users", Path: "example.com/users",
+					Structs: []*emit.Struct{primary, tagged},
+				},
+			}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "x"))
+		if got, want := primary.Target.Filename, "user_enum.go"; got != want {
+			t.Errorf("primary Target.Filename = %q, want %q", got, want)
+		}
+		if got, want := tagged.Target.Filename, "user_enum_test.go"; got != want {
+			t.Errorf("tagged Target.Filename = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("unknown tag surfaces a Layout-time error", func(t *testing.T) {
+		t.Parallel()
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "x/x.go"}},
+			Name:     "X", Package: "example.com/x",
+		}
+		decl := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "nonexistent"},
+			Name:     "X", Package: "x",
+		}
+		d := diag.New()
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(&layoutGen{
+				name:    "gen",
+				outputs: []plugin.Output{{Suffix: "_x.go"}},
+				pkg: &emit.Package{
+					Name: "x", Path: "example.com/x",
+					Structs: []*emit.Struct{decl},
+				},
+			}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			WithDiag(d).
+			Build()
+		assertNoError(t, err)
+		runErr := p.Run(t.Context(), "x")
+		if !errors.Is(runErr, pipeline.ErrRunHadErrors) {
+			t.Fatalf("Run = %v, want ErrRunHadErrors", runErr)
+		}
+		if !hasDiagContaining(d, pipeline.ErrUnknownOutputTag.Error()) {
+			t.Fatalf("expected ErrUnknownOutputTag diagnostic; got %+v", d.Diagnostics())
+		}
+	})
+
+	t.Run("empty OutputTag on plugin without empty-Tag output surfaces a Layout-time error", func(t *testing.T) {
+		t.Parallel()
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "x/x.go"}},
+			Name:     "X", Package: "example.com/x",
+		}
+		decl := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin}, // empty OutputTag
+			Name:     "X", Package: "x",
+		}
+		d := diag.New()
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(&layoutGen{
+				name: "gen",
+				outputs: []plugin.Output{
+					{Tag: "test", Suffix: "_x_test.go"},
+				},
+				pkg: &emit.Package{
+					Name: "x", Path: "example.com/x",
+					Structs: []*emit.Struct{decl},
+				},
+			}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			WithDiag(d).
+			Build()
+		assertNoError(t, err)
+		runErr := p.Run(t.Context(), "x")
+		if !errors.Is(runErr, pipeline.ErrRunHadErrors) {
+			t.Fatalf("Run = %v, want ErrRunHadErrors", runErr)
+		}
+		if !hasDiagContaining(d, pipeline.ErrNoDefaultOutput.Error()) {
+			t.Fatalf("expected ErrNoDefaultOutput diagnostic; got %+v", d.Diagnostics())
+		}
+	})
+}
+
+// TestLayout_OutDirective_TagScope pins the `tag=` keyword on the
+// +gen:out directive: scoping the override to one of the
+// plugin's tagged outputs leaves every other output on the
+// framework default.
+func TestLayout_OutDirective_TagScope(t *testing.T) {
+	t.Parallel()
+
+	t.Run("tag= scopes the override to the matching output only", func(t *testing.T) {
+		t.Parallel()
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{
+				SourcePos: position.Pos{File: "internal/users/user.go"},
+				DirectiveList: []*directive.Directive{
+					{
+						Name: pipeline.OutDirective,
+						Args: []string{"testkit/"},
+						KV:   map[string]string{"tag": "test"},
+					},
+				},
+			},
+			Name: "User", Package: "example.com/users",
+		}
+		primary := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin},
+			Name:     "UserEnum", Package: "users",
+		}
+		tagged := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			Name:     "UserEnumTest", Package: "users",
+		}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(&layoutGen{
+				name: "enum",
+				outputs: []plugin.Output{
+					{Suffix: "_enum.go"},
+					{Tag: "test", Suffix: "_enum_test.go"},
+				},
+				pkg: &emit.Package{
+					Name: "users", Path: "example.com/users",
+					Structs: []*emit.Struct{primary, tagged},
+				},
+			}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "x"))
+		if got, want := primary.Target.Dir, "internal/users"; got != want {
+			t.Errorf("primary Target.Dir = %q, want %q (override should not apply)", got, want)
+		}
+		if got, want := tagged.Target.Dir, filepath.Join("internal", "users", "testkit"); got != want {
+			t.Errorf("tagged Target.Dir = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("tag= composes with pkg= for per-output package override", func(t *testing.T) {
+		t.Parallel()
+		nodePkg := &node.Package{Name: "users", Path: "example.com/users"}
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{
+				SourcePos: position.Pos{File: "internal/users/user.go"},
+				DirectiveList: []*directive.Directive{
+					{
+						Name: pipeline.OutDirective,
+						Args: []string{"testkit/"},
+						KV:   map[string]string{"tag": "test", "pkg": "storetest"},
+					},
+				},
+			},
+			Name: "User", Package: "example.com/users",
+		}
+		primary := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin},
+			Name:     "UserEnum", Package: "users",
+		}
+		tagged := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			Name:     "UserEnumTest", Package: "users",
+		}
+		p, err := pipeline.New().
+			WithFrontend(&nodePackageFE{name: "fe", pkg: nodePkg}).
+			WithGenerator(&layoutGen{
+				name: "enum",
+				outputs: []plugin.Output{
+					{Suffix: "_enum.go"},
+					{Tag: "test", Suffix: "_enum_test.go"},
+				},
+				pkg: &emit.Package{
+					Name: "users", Path: "example.com/users",
+					Structs: []*emit.Struct{primary, tagged},
+				},
+			}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "x"))
+		if got, want := primary.Target.Package, "users"; got != want {
+			t.Errorf("primary Target.Package = %q, want %q (override should not apply)", got, want)
+		}
+		if got, want := tagged.Target.Package, "storetest"; got != want {
+			t.Errorf("tagged Target.Package = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("plugin= + tag= compose as intersection", func(t *testing.T) {
+		t.Parallel()
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{
+				SourcePos: position.Pos{File: "internal/users/user.go"},
+				DirectiveList: []*directive.Directive{
+					{
+						Name: pipeline.OutDirective,
+						Args: []string{"testkit/"},
+						KV:   map[string]string{"plugin": "enum", "tag": "test"},
+					},
+				},
+			},
+			Name: "User", Package: "example.com/users",
+		}
+		// enum:test should match; other:test should NOT.
+		enumTest := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			Name:     "EnumTest", Package: "users",
+		}
+		otherTest := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			Name:     "OtherTest", Package: "users",
+		}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(&layoutGen{
+				name: "enum",
+				outputs: []plugin.Output{
+					{Suffix: "_enum.go"},
+					{Tag: "test", Suffix: "_enum_test.go"},
+				},
+				pkg: &emit.Package{
+					Name: "users", Path: "example.com/users",
+					Structs: []*emit.Struct{enumTest},
+				},
+			}).
+			WithGenerator(&layoutGen{
+				name: "other",
+				outputs: []plugin.Output{
+					{Suffix: "_other.go"},
+					{Tag: "test", Suffix: "_other_test.go"},
+				},
+				pkg: &emit.Package{
+					Name: "users", Path: "example.com/users",
+					Structs: []*emit.Struct{otherTest},
+				},
+			}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "x"))
+		if got, want := enumTest.Target.Dir, filepath.Join("internal", "users", "testkit"); got != want {
+			t.Errorf("enum:test Target.Dir = %q, want %q (intersection applies)", got, want)
+		}
+		if got, want := otherTest.Target.Dir, "internal/users"; got != want {
+			t.Errorf("other:test Target.Dir = %q, want %q (intersection excludes)", got, want)
+		}
+	})
+
+	t.Run("unscoped tag= propagates across plugins declaring the same tag", func(t *testing.T) {
+		t.Parallel()
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{
+				SourcePos: position.Pos{File: "internal/users/user.go"},
+				DirectiveList: []*directive.Directive{
+					{
+						Name: pipeline.OutDirective,
+						Args: []string{"testkit/"},
+						KV:   map[string]string{"tag": "test"},
+					},
+				},
+			},
+			Name: "User", Package: "example.com/users",
+		}
+		enumTest := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			Name:     "EnumTest", Package: "users",
+		}
+		otherTest := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			Name:     "OtherTest", Package: "users",
+		}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(&layoutGen{
+				name: "enum",
+				outputs: []plugin.Output{
+					{Suffix: "_enum.go"},
+					{Tag: "test", Suffix: "_enum_test.go"},
+				},
+				pkg: &emit.Package{
+					Name: "users", Path: "example.com/users",
+					Structs: []*emit.Struct{enumTest},
+				},
+			}).
+			WithGenerator(&layoutGen{
+				name: "other",
+				outputs: []plugin.Output{
+					{Suffix: "_other.go"},
+					{Tag: "test", Suffix: "_other_test.go"},
+				},
+				pkg: &emit.Package{
+					Name: "users", Path: "example.com/users",
+					Structs: []*emit.Struct{otherTest},
+				},
+			}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "x"))
+		want := filepath.Join("internal", "users", "testkit")
+		if got := enumTest.Target.Dir; got != want {
+			t.Errorf("enum:test Target.Dir = %q, want %q (cross-plugin propagation)", got, want)
+		}
+		if got := otherTest.Target.Dir; got != want {
+			t.Errorf("other:test Target.Dir = %q, want %q (cross-plugin propagation)", got, want)
+		}
+	})
+}
+
+// TestLayout_UnscopedMultiOutputOverride pins the routing-override
+// rejection that prevents a filename-pinning override from
+// silently collapsing two outputs into one file. An override
+// without `tag=` scoping against a plugin with multiple declared
+// outputs surfaces [pipeline.ErrUnscopedMultiOutputOverride] when
+// the override pins a filename; directory-only overrides remain
+// permitted because per-output suffixes keep the resulting
+// filenames distinct.
+func TestLayout_UnscopedMultiOutputOverride(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unscoped filename-pinning override on multi-output plugin is rejected", func(t *testing.T) {
+		t.Parallel()
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{
+				SourcePos: position.Pos{File: "internal/users/user.go"},
+				DirectiveList: []*directive.Directive{
+					{Name: pipeline.OutDirective, Args: []string{"forced.go"}},
+				},
+			},
+			Name: "User", Package: "example.com/users",
+		}
+		primary := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin},
+			Name:     "Primary", Package: "users",
+		}
+		tagged := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			Name:     "Tagged", Package: "users",
+		}
+		d := diag.New()
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(&layoutGen{
+				name: "enum",
+				outputs: []plugin.Output{
+					{Suffix: "_enum.go"},
+					{Tag: "test", Suffix: "_enum_test.go"},
+				},
+				pkg: &emit.Package{
+					Name: "users", Path: "example.com/users",
+					Structs: []*emit.Struct{primary, tagged},
+				},
+			}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			WithDiag(d).
+			Build()
+		assertNoError(t, err)
+		runErr := p.Run(t.Context(), "x")
+		if !errors.Is(runErr, pipeline.ErrRunHadErrors) {
+			t.Fatalf("Run = %v, want ErrRunHadErrors", runErr)
+		}
+		if !hasDiagContaining(d, pipeline.ErrUnscopedMultiOutputOverride.Error()) {
+			t.Fatalf("expected ErrUnscopedMultiOutputOverride diagnostic; got %+v", d.Diagnostics())
+		}
+	})
+
+	t.Run("unscoped directory-only override on multi-output plugin is permitted", func(t *testing.T) {
+		t.Parallel()
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{
+				SourcePos: position.Pos{File: "internal/users/user.go"},
+				DirectiveList: []*directive.Directive{
+					{Name: pipeline.OutDirective, Args: []string{"testkit/"}},
+				},
+			},
+			Name: "User", Package: "example.com/users",
+		}
+		primary := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin},
+			Name:     "Primary", Package: "users",
+		}
+		tagged := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			Name:     "Tagged", Package: "users",
+		}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(&layoutGen{
+				name: "enum",
+				outputs: []plugin.Output{
+					{Suffix: "_enum.go"},
+					{Tag: "test", Suffix: "_enum_test.go"},
+				},
+				pkg: &emit.Package{
+					Name: "users", Path: "example.com/users",
+					Structs: []*emit.Struct{primary, tagged},
+				},
+			}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "x"))
+		want := filepath.Join("internal", "users", "testkit")
+		if got := primary.Target.Dir; got != want {
+			t.Errorf("primary Target.Dir = %q, want %q (directory override applies)", got, want)
+		}
+		if got := tagged.Target.Dir; got != want {
+			t.Errorf("tagged Target.Dir = %q, want %q (directory override applies)", got, want)
+		}
+		// Filenames still differ via per-output suffix.
+		if primary.Target.Filename == tagged.Target.Filename {
+			t.Errorf("filenames collapsed onto %q", primary.Target.Filename)
+		}
+	})
+}
+
+// TestLayout_TestShift_FiresPerOutput pins per-Target
+// independence of the `_test.go → <pkg>_test` package shift.
+// Each tagged output composes its own Target; the shift fires
+// only on outputs whose resolved filename ends in `_test.go`,
+// independently of every other output the same plugin emits.
+func TestLayout_TestShift_FiresPerOutput(t *testing.T) {
+	t.Parallel()
+
+	t.Run("tagged _test.go output gets the shift; primary stays", func(t *testing.T) {
+		t.Parallel()
+		nodePkg := &node.Package{Name: "users", Path: "example.com/users"}
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "internal/users/user.go"}},
+			Name:     "User", Package: "example.com/users",
+		}
+		primary := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin},
+			Name:     "Production", Package: "users",
+		}
+		tagged := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			Name:     "Tested", Package: "users",
+		}
+		p, err := pipeline.New().
+			WithFrontend(&nodePackageFE{name: "fe", pkg: nodePkg}).
+			WithGenerator(&layoutGen{
+				name: "enum",
+				outputs: []plugin.Output{
+					{Suffix: "_enum.go"},
+					{Tag: "test", Suffix: "_enum_test.go"},
+				},
+				pkg: &emit.Package{
+					Name: "users", Path: "example.com/users",
+					Structs: []*emit.Struct{primary, tagged},
+				},
+			}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "x"))
+		if got, want := primary.Target.Package, "users"; got != want {
+			t.Errorf("primary Target.Package = %q, want %q (no shift)", got, want)
+		}
+		if got, want := tagged.Target.Package, "users_test"; got != want {
+			t.Errorf("tagged Target.Package = %q, want %q (shifted)", got, want)
+		}
+		if got, want := tagged.Target.ImportPath, "example.com/users_test"; got != want {
+			t.Errorf("tagged Target.ImportPath = %q, want %q (shifted)", got, want)
+		}
+	})
+}
+
 // TestLayout_EmptyOutputsIsFiltered pins the collection-boundary
 // contract: a plugin that implements [plugin.FilenameProvider]
 // but returns an empty Outputs slice for the active language is
@@ -2422,6 +2938,132 @@ func TestLayout_PerDirectiveRoutingKeys(t *testing.T) {
 		}
 		if got := companion.Target.Dir; got != want {
 			t.Fatalf("companion Target.Dir = %q, want %q (propagates)", got, want)
+		}
+	})
+}
+
+// TestLayout_PerDirective_TagScope pins the form-3 `tag=` key on
+// an emitter-owned directive: when the directive carries `tag=`,
+// the override applies only to the directive's owning plugin's
+// matching output and does not propagate to companion plugins
+// (tag values are plugin-scoped). Companion-aware propagation of
+// `out=` / `pkg=` continues to apply to companion plugins for
+// the unscoped path.
+func TestLayout_PerDirective_TagScope(t *testing.T) {
+	t.Parallel()
+
+	t.Run("tag= scopes the form-3 override to the emitter's matching output only", func(t *testing.T) {
+		t.Parallel()
+		nodePkg := &node.Package{Name: "users", Path: "example.com/users"}
+		origin := &node.Interface{
+			BaseNode: node.BaseNode{
+				SourcePos: position.Pos{File: "internal/users/user.go"},
+				DirectiveList: []*directive.Directive{
+					{
+						Name: "mg",
+						KV:   map[string]string{"out": "tests/", "tag": "test"},
+					},
+				},
+			},
+			Name: "User", Package: "example.com/users",
+		}
+		primary := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin},
+			Name:     "UserPrimary", Package: "example.com/users",
+		}
+		tagged := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			Name:     "UserTagged", Package: "example.com/users",
+		}
+		p, err := pipeline.New().
+			WithFrontend(&nodePackageFE{name: "fe", pkg: nodePkg}).
+			WithGenerator(&layoutGenWithDirective{
+				layoutGen: layoutGen{
+					name: "mg",
+					outputs: []plugin.Output{
+						{Suffix: "_mock.go"},
+						{Tag: "test", Suffix: "_mock_test.go"},
+					},
+					pkg: &emit.Package{
+						Name: "", Path: "example.com/users",
+						Structs: []*emit.Struct{primary, tagged},
+					},
+				},
+				schema: directive.NewSchema("mg").Build(),
+			}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "x"))
+		if got, want := primary.Target.Dir, "internal/users"; got != want {
+			t.Errorf("primary Target.Dir = %q, want %q (override should not apply to primary)", got, want)
+		}
+		if got, want := tagged.Target.Dir, filepath.Join("internal", "users", "tests"); got != want {
+			t.Errorf("tagged Target.Dir = %q, want %q (override applies to matching tag)", got, want)
+		}
+	})
+
+	t.Run("tag= on form-3 directive does not propagate to companion plugins", func(t *testing.T) {
+		t.Parallel()
+		nodePkg := &node.Package{Name: "users", Path: "example.com/users"}
+		origin := &node.Interface{
+			BaseNode: node.BaseNode{
+				SourcePos: position.Pos{File: "internal/users/user.go"},
+				DirectiveList: []*directive.Directive{
+					{
+						Name: "mg",
+						KV:   map[string]string{"out": "tests/", "tag": "test"},
+					},
+				},
+			},
+			Name: "User", Package: "example.com/users",
+		}
+		mgTagged := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			Name:     "MgTagged", Package: "example.com/users",
+		}
+		companionTagged := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			Name:     "CompanionTagged", Package: "example.com/users",
+		}
+		p, err := pipeline.New().
+			WithFrontend(&nodePackageFE{name: "fe", pkg: nodePkg}).
+			WithGenerator(&layoutGenWithDirective{
+				layoutGen: layoutGen{
+					name: "mg",
+					outputs: []plugin.Output{
+						{Suffix: "_mock.go"},
+						{Tag: "test", Suffix: "_mock_test.go"},
+					},
+					pkg: &emit.Package{
+						Name: "", Path: "example.com/users",
+						Structs: []*emit.Struct{mgTagged},
+					},
+				},
+				schema: directive.NewSchema("mg").Build(),
+			}).
+			WithGenerator(&layoutGen{
+				name: "companion",
+				outputs: []plugin.Output{
+					{Suffix: "_comp.go"},
+					{Tag: "test", Suffix: "_comp_test.go"},
+				},
+				pkg: &emit.Package{
+					Name: "", Path: "example.com/users",
+					Structs: []*emit.Struct{companionTagged},
+				},
+			}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "x"))
+		if got, want := mgTagged.Target.Dir, filepath.Join("internal", "users", "tests"); got != want {
+			t.Errorf("mg tagged Target.Dir = %q, want %q (form-3 tag override applies)", got, want)
+		}
+		if got, want := companionTagged.Target.Dir, "internal/users"; got != want {
+			t.Errorf("companion tagged Target.Dir = %q, want %q (tag= does not propagate)", got, want)
 		}
 	})
 }

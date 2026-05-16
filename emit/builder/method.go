@@ -34,7 +34,7 @@ func (b *PackageBuilder) Method(name string, fn func(*MethodBuilder)) *PackageBu
 		Package:  b.pkg.Path,
 		Target:   b.ctx.target,
 	}
-	applyDefaultOrigin(b, &m.BaseEmit)
+	applyBuilderDefaults(b, &m.BaseEmit)
 	if owner, ok := b.defaultOrigin.(contract.Owner); ok {
 		m.Owner = owner
 		m.OwnerRef = contract.RefOf(owner)

@@ -31,7 +31,7 @@ func (b *PackageBuilder) Function(name string, fn func(*FunctionBuilder)) *Packa
 		Package:  b.pkg.Path,
 		Target:   b.ctx.target,
 	}
-	applyDefaultOrigin(b, &f.BaseEmit)
+	applyBuilderDefaults(b, &f.BaseEmit)
 	fb := &FunctionBuilder{ctx: b.ctx, f: f}
 	if fn != nil {
 		fn(fb)
