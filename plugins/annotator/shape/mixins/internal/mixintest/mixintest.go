@@ -89,6 +89,33 @@ func RunPipeline(t *testing.T, m shape.Mixin, fn *node.Function) *meta.Bag {
 	return fn.Meta()
 }
 
+// RunWithResolver wires pkg into a fresh store, stamps the
+// "golang" frontend marker, and runs the umbrella → resolver
+// sequence with m as the sole registered mixin. Use for testing
+// [shape.Mixin.SiblingParams] resolution where the test fixture
+// needs more than one callable in scope.
+func RunWithResolver(t *testing.T, m shape.Mixin, pkg *node.Package) {
+	t.Helper()
+	s := store.New()
+	if err := s.Nodes().AddPackage(pkg); err != nil {
+		t.Fatalf("AddPackage: %v", err)
+	}
+	frontendMarker.Set(pkg.Meta(), "golang", "test")
+
+	p := shape.New().Mixins(m)
+	ctx := &sdk.AnnotatorContext{
+		Store:  s,
+		Reader: store.NewReader(s),
+		Diag:   diag.New(),
+	}
+	if err := p.Annotate(ctx); err != nil {
+		t.Fatalf("umbrella.Annotate: %v", err)
+	}
+	if err := p.Resolver().Annotate(ctx); err != nil {
+		t.Fatalf("resolver.Annotate: %v", err)
+	}
+}
+
 // AssertAttached fails when mixinName is not in the [shape.Mixins]
 // list on bag.
 func AssertAttached(t *testing.T, bag *meta.Bag, mixinName string) {
