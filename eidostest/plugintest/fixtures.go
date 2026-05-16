@@ -96,6 +96,30 @@ func NewFixturePlugin() *FixturePlugin {
 	}
 }
 
+// NewMultiOutputFixturePlugin returns a [FixturePlugin] declaring
+// the canonical multi-output shape — a primary (empty-tag) output
+// plus one tagged "test" output for the "go" language. The
+// fixture satisfies every framework-conformance check the same
+// way [NewFixturePlugin] does; the extra Output entry exercises
+// the multi-output validation path in the conformance suite
+// (well-formed slice, deterministic per-language return, primary
+// at index 0) without surfacing a different shape elsewhere.
+//
+// Plugin authors building a real multi-output plugin use this
+// fixture as a contract reference for the [plugin.Output] slice
+// the [plugin.FilenameProvider.Outputs] method should return.
+func NewMultiOutputFixturePlugin() *FixturePlugin {
+	p := NewFixturePlugin()
+	p.PluginName = "multi-output-fixture"
+	p.OutputsByLang = map[string][]plugin.Output{
+		"go": {
+			{Suffix: "_fixture.go"},
+			{Tag: "test", Suffix: "_fixture_test.go"},
+		},
+	}
+	return p
+}
+
 // Name returns the configured identifier.
 func (p *FixturePlugin) Name() string { return p.PluginName }
 

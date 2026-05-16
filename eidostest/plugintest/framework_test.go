@@ -35,6 +35,32 @@ func TestRunSuite_PassesForWellFormedPlugin(t *testing.T) {
 		p.VersionString = ""
 		plugintest.RunSuite(t, p)
 	})
+
+	t.Run("multi-output FixturePlugin clears the suite", func(t *testing.T) {
+		t.Parallel()
+		// The conformance suite must accept a plugin declaring an
+		// ordered set of outputs (primary + tagged secondary) so
+		// long as the slice is well-formed: every Suffix
+		// non-empty, tags unique, the empty-tag entry at index 0
+		// when present.
+		plugintest.RunSuite(t, plugintest.NewMultiOutputFixturePlugin())
+	})
+
+	t.Run("plugin with every-output-tagged Outputs clears the suite", func(t *testing.T) {
+		t.Parallel()
+		// A plugin can also declare every output with a non-empty
+		// tag (the "no default output" mode). The shape rules
+		// permit this — at most one empty-tag output, not
+		// exactly one.
+		p := plugintest.NewMultiOutputFixturePlugin()
+		p.OutputsByLang = map[string][]plugin.Output{
+			"go": {
+				{Tag: "production", Suffix: "_fixture.go"},
+				{Tag: "test", Suffix: "_fixture_test.go"},
+			},
+		}
+		plugintest.RunSuite(t, p)
+	})
 }
 
 // TestAssertStableName_RejectionPaths covers the two failure
