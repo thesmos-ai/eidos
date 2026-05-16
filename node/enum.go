@@ -4,8 +4,13 @@
 package node
 
 import (
+	"go.thesmos.sh/eidos/core/contract"
 	"go.thesmos.sh/eidos/core/kind"
 )
+
+// Compile-time assertion that [*Enum] satisfies
+// [contract.Owner] — fails to build if either accessor drifts.
+var _ contract.Owner = (*Enum)(nil)
 
 // Enum is the language-agnostic enum model — a named type plus a set
 // of typed variants of that underlying type.
@@ -50,6 +55,13 @@ func (e *Enum) QName() string {
 	}
 	return e.Package + "." + e.Name
 }
+
+// OwnerName satisfies [contract.Owner]; returns the enum's bare
+// identifier.
+func (e *Enum) OwnerName() string { return e.Name }
+
+// OwnerQName satisfies [contract.Owner]; synonym for [Enum.QName].
+func (e *Enum) OwnerQName() string { return e.QName() }
 
 // VariantByName returns the variant with the given name, or nil
 // when no such variant exists.

@@ -4,8 +4,13 @@
 package emit
 
 import (
+	"go.thesmos.sh/eidos/core/contract"
 	"go.thesmos.sh/eidos/core/kind"
 )
+
+// Compile-time assertion that [*Interface] satisfies
+// [contract.Owner] — fails to build if either accessor drifts.
+var _ contract.Owner = (*Interface)(nil)
 
 // Interface is a method-set type emit. Methods declared inside an
 // interface have a nil [Method.Receiver] — the receiver is implicit
@@ -49,6 +54,14 @@ func (i *Interface) QName() string {
 	}
 	return i.Package + "." + i.Name
 }
+
+// OwnerName satisfies [contract.Owner]; returns the interface's
+// bare identifier.
+func (i *Interface) OwnerName() string { return i.Name }
+
+// OwnerQName satisfies [contract.Owner]; synonym for
+// [Interface.QName].
+func (i *Interface) OwnerQName() string { return i.QName() }
 
 // MethodsSlot returns the "methods" slot for cross-cutting method
 // injection.

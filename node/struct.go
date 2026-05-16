@@ -4,8 +4,13 @@
 package node
 
 import (
+	"go.thesmos.sh/eidos/core/contract"
 	"go.thesmos.sh/eidos/core/kind"
 )
+
+// Compile-time assertion that [*Struct] satisfies
+// [contract.Owner] — fails to build if either accessor drifts.
+var _ contract.Owner = (*Struct)(nil)
 
 // Struct is a structured product type — Go's struct, Rust's struct,
 // TypeScript's class, and so on at the model level. Embedded types
@@ -46,6 +51,14 @@ func (s *Struct) QName() string {
 	}
 	return s.Package + "." + s.Name
 }
+
+// OwnerName satisfies [contract.Owner]; returns the struct's
+// bare identifier.
+func (s *Struct) OwnerName() string { return s.Name }
+
+// OwnerQName satisfies [contract.Owner]; synonym for
+// [Struct.QName].
+func (s *Struct) OwnerQName() string { return s.QName() }
 
 // FieldByName returns the named field, or nil when no field with
 // that name exists. Does not search [Embed] entries.

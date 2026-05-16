@@ -4,8 +4,14 @@
 package emit
 
 import (
+	"go.thesmos.sh/eidos/core/contract"
 	"go.thesmos.sh/eidos/core/kind"
 )
+
+// Compile-time assertion that [*Struct] satisfies the cross-graph
+// [contract.Owner] surface — fails to build if either accessor
+// drifts from the interface signature.
+var _ contract.Owner = (*Struct)(nil)
 
 // Struct is a structured product type emit. Fields and methods live
 // in typed slices for direct owner-generator use; the "fields",
@@ -59,6 +65,16 @@ func (s *Struct) QName() string {
 	}
 	return s.Package + "." + s.Name
 }
+
+// OwnerName satisfies [contract.Owner]; returns the struct's
+// bare identifier. The accessor lets [Method.Owner] (typed as
+// [contract.Owner]) hand back the owner identifier without the
+// caller type-switching on the concrete kind.
+func (s *Struct) OwnerName() string { return s.Name }
+
+// OwnerQName satisfies [contract.Owner]; synonym for
+// [Struct.QName] under the [contract.Owner] interface.
+func (s *Struct) OwnerQName() string { return s.QName() }
 
 // FieldsSlot returns the "fields" slot for cross-cutting field
 // injection.

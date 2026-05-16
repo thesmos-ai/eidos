@@ -4,8 +4,13 @@
 package node
 
 import (
+	"go.thesmos.sh/eidos/core/contract"
 	"go.thesmos.sh/eidos/core/kind"
 )
+
+// Compile-time assertion that [*Interface] satisfies
+// [contract.Owner] — fails to build if either accessor drifts.
+var _ contract.Owner = (*Interface)(nil)
 
 // Interface is a method-set type — Go's interface, Rust's trait, and
 // similar abstractions at the model level. Embedded interfaces surface
@@ -45,6 +50,14 @@ func (i *Interface) QName() string {
 	}
 	return i.Package + "." + i.Name
 }
+
+// OwnerName satisfies [contract.Owner]; returns the interface's
+// bare identifier.
+func (i *Interface) OwnerName() string { return i.Name }
+
+// OwnerQName satisfies [contract.Owner]; synonym for
+// [Interface.QName].
+func (i *Interface) OwnerQName() string { return i.QName() }
 
 // MethodByName returns the method with the given name, or nil when
 // no such method exists.

@@ -4,8 +4,13 @@
 package emit
 
 import (
+	"go.thesmos.sh/eidos/core/contract"
 	"go.thesmos.sh/eidos/core/kind"
 )
+
+// Compile-time assertion that [*Alias] satisfies
+// [contract.Owner] — fails to build if either accessor drifts.
+var _ contract.Owner = (*Alias)(nil)
 
 // Alias is a type alias or type definition emit — `type X = Y` and
 // `type X Y` forms. [Alias.IsAlias] distinguishes the two: true for
@@ -58,6 +63,14 @@ func (a *Alias) QName() string {
 	}
 	return a.Package + "." + a.Name
 }
+
+// OwnerName satisfies [contract.Owner]; returns the alias's bare
+// identifier.
+func (a *Alias) OwnerName() string { return a.Name }
+
+// OwnerQName satisfies [contract.Owner]; synonym for
+// [Alias.QName].
+func (a *Alias) OwnerQName() string { return a.QName() }
 
 // IsGeneric reports whether the alias declares generic type
 // parameters.
