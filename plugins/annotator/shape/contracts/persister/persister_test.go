@@ -33,12 +33,12 @@ func TestContract_Identity(t *testing.T) {
 	}
 }
 
-// TestContract_DirectiveStamping pins the end-to-end Phase 1
+// TestContract_DirectiveStamping pins the end-to-end stamping
 // flow — the writer-side directive lands the role and the raw
-// partner reader name on the host callable. The refinement
-// resolver's back-stamping on the partner is a future phase, so
-// the test only asserts the writer-side stamps that Phase 1
-// guarantees.
+// partner reader name on the host callable. The test asserts
+// only the writer-side stamps the umbrella plugin produces;
+// resolver back-stamping on the partner is covered by the
+// resolver's own tests.
 func TestContract_DirectiveStamping(t *testing.T) {
 	t.Parallel()
 

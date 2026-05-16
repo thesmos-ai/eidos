@@ -15,7 +15,8 @@ import (
 
 // txContract is the canonical multi-role test contract used by
 // most stamping tests below — three roles, no per-role partner
-// requirements (validation is the resolver's job, not Phase 1).
+// requirements (validation is the resolver's job, not the
+// umbrella plugin's).
 func txContract() shape.Contract {
 	return shape.Contract{
 		Name:  "tx",
@@ -33,10 +34,10 @@ func outboxContract() shape.Contract {
 	}
 }
 
-// TestContract_DirectiveStamping covers Phase 1 of the contract
-// pipeline: each non-negated `+gen:contract` directive on a
-// callable stamps the role, partner refs, and contract list
-// without interfering with structural shape stamps.
+// TestContract_DirectiveStamping covers the umbrella plugin's
+// contract stamping: each non-negated `+gen:contract` directive
+// on a callable stamps the role, partner refs, and contract
+// list without interfering with structural shape stamps.
 func TestContract_DirectiveStamping(t *testing.T) {
 	t.Parallel()
 
@@ -133,7 +134,7 @@ func TestContract_DirectiveStamping(t *testing.T) {
 		}
 	})
 
-	t.Run("missing role= is silently skipped at Phase 1", func(t *testing.T) {
+	t.Run("missing role= is silently skipped by the umbrella plugin", func(t *testing.T) {
 		t.Parallel()
 		fn := contractFn(
 			"Begin",

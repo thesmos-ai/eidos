@@ -1,0 +1,75 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
+package pool
+
+import (
+	"go.thesmos.sh/eidos/node"
+	"go.thesmos.sh/eidos/plugins/annotator/shape"
+)
+
+// Name is the canonical contract name this package stamps.
+const Name = "pool"
+
+// Roles enumerates the contract's role vocabulary.
+//
+//nolint:gochecknoglobals // intentionally exported as a per-contract constant set
+var Roles = []string{"get", "put"}
+
+// Contract returns the [shape.Contract] this package contributes.
+// The contract requires both `get` and `put` partners on the
+// host (Get side) declaration, and ships a [shape.ContractValidator]
+// that flags pool instances where either side is missing after
+// resolver back-stamping.
+func Contract() shape.Contract {
+	return shape.Contract{
+		Name:     Name,
+		Roles:    Roles,
+		Required: map[string][]string{"get": {"put"}},
+		Validate: validate,
+	}
+}
+
+// validate enforces the pool's structural invariant: exactly one
+// callable per role. Two Gets would mean two distinct pools
+// folded into one contract membership, which the downstream
+// codegen cannot reconcile.
+func validate(members map[string][]node.Node) []shape.ContractViolation {
+	var out []shape.ContractViolation
+	for _, role := range Roles {
+		got := len(members[role])
+		if got <= 1 {
+			continue
+		}
+		for _, host := range members[role][1:] {
+			out = append(out, shape.ContractViolation{
+				Host:    host,
+				Message: "pool requires exactly one " + role + "; got " + plural(got),
+			})
+		}
+	}
+	return out
+}
+
+// plural renders n as a short "<n> callables" / "1 callable"
+// string for the diagnostic body.
+func plural(n int) string {
+	if n == 1 {
+		return "1 callable"
+	}
+	return itoa(n) + " callables"
+}
+
+// itoa is the stdlib-allergic-free conversion used by [plural].
+// Inlined to keep this contract self-contained.
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	digits := []byte{}
+	for n > 0 {
+		digits = append([]byte{byte('0' + n%10)}, digits...)
+		n /= 10
+	}
+	return string(digits)
+}

@@ -14,7 +14,7 @@ import (
 const Name = "persister"
 
 // Roles enumerates the contract's role vocabulary. Exported so
-// refinement-phase resolvers and validators can read the
+// refinement-bucket resolvers and validators can read the
 // canonical role list without importing the [shape.Contract]
 // value.
 //

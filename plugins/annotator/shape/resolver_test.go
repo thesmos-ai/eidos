@@ -57,7 +57,7 @@ func TestResolver_Contract(t *testing.T) {
 	})
 }
 
-// TestResolver_NameRewrite covers Phase 2's primary job —
+// TestResolver_NameRewrite covers the resolver's primary job —
 // rewriting raw partner names into qualified names sourced from
 // the same scope as the host callable.
 func TestResolver_NameRewrite(t *testing.T) {
@@ -149,9 +149,9 @@ func TestResolver_NameRewrite(t *testing.T) {
 	})
 }
 
-// TestResolver_BackStamp covers Phase 2's second job — stamping
-// the contract membership and the back-pointer onto the resolved
-// partner callable.
+// TestResolver_BackStamp covers the resolver's second job —
+// stamping the contract membership and the back-pointer onto the
+// resolved partner callable.
 func TestResolver_BackStamp(t *testing.T) {
 	t.Parallel()
 
@@ -241,13 +241,14 @@ func TestResolver_Diagnostics(t *testing.T) {
 
 	t.Run("unregistered contract surfaces a diagnostic", func(t *testing.T) {
 		t.Parallel()
-		// The umbrella plugin's Phase 1 silently skips unregistered
-		// contracts (no stamp lands). To exercise the resolver's
-		// own diag path we register the contract for Phase 1 but
-		// register a different one with the resolver — the
-		// resolver sees a stamped contract name it cannot resolve.
-		// In practice this happens when Phase 1 and Phase 2 are
-		// configured asymmetrically (configuration error).
+		// The umbrella plugin silently skips unregistered contracts
+		// (no stamp lands). To exercise the resolver's own diag
+		// path we register the contract with the umbrella but a
+		// different empty plugin with the resolver — the resolver
+		// then sees a stamped contract name it cannot resolve.
+		// In practice this happens when the umbrella plugin and
+		// the resolver are configured asymmetrically (a
+		// configuration error).
 		fn := contractFn(
 			"Begin",
 			contractDirective("tx", "begin", nil),
@@ -314,8 +315,8 @@ func contractDirective(name, role string, kv map[string]string) *directive.Direc
 
 // runWithResolver wires the supplied package into a fresh store,
 // then runs the umbrella plugin followed by its resolver — the
-// canonical Phase 1 + Phase 2 sequence — failing the test on any
-// returned error.
+// canonical umbrella → resolver sequence — failing the test on
+// any returned error.
 func runWithResolver(t *testing.T, c shape.Contract, pkg *node.Package) {
 	t.Helper()
 	_ = runWithResolverDiags(t, c, pkg)
@@ -362,7 +363,7 @@ func setupResolverPipeline(t *testing.T, c shape.Contract, pkg *node.Package) (*
 
 // runPlugins drives umbrella → resolver against s using p's diag
 // sink. Both passes share the sink so diagnostics accumulate
-// across phases for collective inspection.
+// across both passes for collective inspection.
 func runPlugins(t *testing.T, s *store.Store, p *resolverPipeline) {
 	t.Helper()
 	ctx := &sdk.AnnotatorContext{

@@ -35,8 +35,8 @@ type Mixin struct {
 
 	// Params enumerates the KV parameter names the mixin accepts.
 	// Exported for documentation and future validation; the
-	// Phase 1 stamping is permissive and accepts any KV (unknown
-	// keys still stamp).
+	// umbrella plugin's stamping is permissive and accepts any
+	// KV (unknown keys still stamp).
 	Params []string
 }
 
@@ -92,11 +92,11 @@ const mixinStampedBy = PluginName + ".mixin"
 // parameter keys are still stamped verbatim so a resolver has
 // the raw data needed to diagnose them.
 //
-// The function is permissive in Phase 1: the framework's
-// directive validator handles schema-level enforcement
-// (positional missing, malformed KV) at Build time; this pass
-// concerns itself only with meta stamping for directives that
-// already passed parse-time validation.
+// The function is permissive: the framework's directive
+// validator handles schema-level enforcement (positional
+// missing, malformed KV) at Build time; this pass concerns
+// itself only with meta stamping for directives that already
+// passed parse-time validation.
 func (p *Plugin) applyMixins(bag *meta.Bag, dirs []*directive.Directive) {
 	for _, d := range dirs {
 		if d == nil || d.Name != MixinDirectiveName || d.Negated {

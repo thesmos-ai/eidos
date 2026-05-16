@@ -16,7 +16,7 @@
 // applied to the writer-side callable. The `reader=` partner
 // names a sibling callable (in the same struct, interface, or
 // package) that returns the just-persisted entity. The
-// refinement resolver (future phase) rewrites the raw name into
+// refinement resolver rewrites the raw name into
 // a qualified name and back-stamps the persister contract on
 // the resolved reader.
 //

@@ -51,28 +51,19 @@ type Contract struct {
 	// returns any invariants the implementation violated. Use for
 	// structural checks like "Pool has exactly one Get and one
 	// Put" or "every Saga step has a compensation".
-	//
-	// Future phase — the slot is reserved on the type; the
-	// validator pass isn't wired yet.
 	Validate ContractValidator
 }
 
 // ContractValidator is the signature of the optional per-contract
-// invariant check that runs after sibling resolution. Returns the
-// list of violations found (empty / nil on success); the umbrella
-// plugin's validator-priority pass attaches each violation to its
-// host node's diagnostic sink.
-//
-// Future phase — the type exists today so per-contract sub-packages
-// can carry their validator alongside the [Contract] value, but
-// the validator pass itself is not yet wired into the plugin.
+// invariant check the [Validator] annotator runs after sibling
+// resolution completes. Returns the list of violations found
+// (empty / nil on success); the validator annotator attaches each
+// violation to its host node's diagnostic sink.
 type ContractValidator func(members map[string][]node.Node) []ContractViolation
 
 // ContractViolation is one invariant breach reported by a
-// [ContractValidator]. The umbrella plugin's validator pass
-// surfaces it as a positioned diagnostic against the host node.
-//
-// Future phase — see [ContractValidator].
+// [ContractValidator]. The [Validator] annotator surfaces it as
+// a positioned diagnostic against the host node.
 type ContractViolation struct {
 	// Host is the node the diagnostic attaches to. Pick the
 	// member that most directly demonstrates the failure (e.g.
@@ -104,9 +95,9 @@ func ContractRoleKey(name string) meta.Key[string] {
 // ContractPartnerKey returns the typed meta key carrying the
 // partner callable filling the named role within the contract —
 // stamped at `shape.contract.<contract>.partner.<role>`. The
-// stamped value is a raw sibling name during Phase 1 (this
-// plugin) and a qualified name after the refinement resolver
-// runs.
+// stamped value is a raw sibling name as the umbrella plugin
+// records it and a qualified name after the refinement resolver
+// rewrites it.
 func ContractPartnerKey(contract, role string) meta.Key[string] {
 	return meta.EnsureKey(
 		"shape.contract."+contract+".partner."+role,
@@ -122,16 +113,16 @@ const contractStampedBy = PluginName + ".contract"
 
 // applyContracts stamps every non-negated `+gen:contract` directive
 // on bag. Unknown contract names are silently skipped — the
-// refinement resolver (future phase) surfaces them as positioned
+// refinement resolver surfaces them as positioned
 // diagnostics. Unknown KV keys besides reserved ones are stamped
 // verbatim as partner refs so the resolver has the raw data
 // needed to diagnose them.
 //
-// The function is permissive in Phase 1 because the framework's
-// directive validator handles schema-level enforcement (missing
-// `role=`, malformed positional, etc.) at Build time; this pass
-// concerns itself only with meta stamping for callables whose
-// directives already passed parse-time validation.
+// The function is permissive because the framework's directive
+// validator handles schema-level enforcement (missing `role=`,
+// malformed positional, etc.) at Build time; this pass concerns
+// itself only with meta stamping for callables whose directives
+// already passed parse-time validation.
 func (p *Plugin) applyContracts(bag *meta.Bag, dirs []*directive.Directive) {
 	for _, d := range dirs {
 		if d == nil || d.Name != ContractDirectiveName || d.Negated {

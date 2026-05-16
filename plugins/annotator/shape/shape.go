@@ -193,8 +193,8 @@ func (*Plugin) Name() string { return PluginName }
 
 // Priority places the plugin in the annotator-shape-detection
 // bucket. The merged plugin runs every directive override and
-// every detector in one pass, so there is no priority split
-// between the two phases.
+// every detector in one pass, so override and detection share a
+// single priority band.
 func (*Plugin) Priority() sdk.Priority { return sdk.AnnotatorShape }
 
 // Directives declares the `+gen:shape` and `+gen:contract`

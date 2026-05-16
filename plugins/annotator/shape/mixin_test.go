@@ -28,8 +28,8 @@ func rateLimitedMixin() shape.Mixin {
 	}
 }
 
-// TestMixin_DirectiveStamping covers Phase 1 of the mixin
-// pipeline: each non-negated `+gen:mixin` directive on a
+// TestMixin_DirectiveStamping covers the umbrella plugin's
+// mixin stamping: each non-negated `+gen:mixin` directive on a
 // callable appends to the mixins list and stamps its per-param
 // keys without interfering with structural shape stamps.
 func TestMixin_DirectiveStamping(t *testing.T) {

@@ -17,10 +17,10 @@ import (
 // the contract-resolution refinement plugin.
 const ResolverName = "shape.contract.resolver"
 
-// Resolver is the refinement-phase companion to the umbrella
+// Resolver is the refinement-bucket companion to the umbrella
 // shape plugin. It runs in the [sdk.AnnotatorRefinement] bucket
 // (one priority band above [sdk.AnnotatorShape]) and consumes
-// the raw partner-name stamps Phase 1 left behind:
+// the raw partner-name stamps the umbrella plugin left behind:
 //
 //   - Validates each callable's contract membership (role,
 //     partner roles) against the registered [Contract.Roles] and
@@ -56,7 +56,7 @@ type methodOwner struct {
 
 // Resolver returns a fresh [Resolver] sharing p's contract
 // registrations. Register the resolver alongside the umbrella so
-// it runs in the refinement bucket after Phase 1:
+// it runs in the refinement bucket after the umbrella plugin:
 //
 //	s := shape.New().Detectors(...).Contracts(...)
 //	pipe.Use(s)
@@ -69,8 +69,7 @@ func (p *Plugin) Resolver() *Resolver {
 func (*Resolver) Name() string { return ResolverName }
 
 // Priority places the resolver in the annotator-refinement bucket
-// so it runs strictly after the umbrella plugin's Phase 1
-// stamping pass.
+// so it runs strictly after the umbrella plugin's stamping pass.
 func (*Resolver) Priority() sdk.Priority { return sdk.AnnotatorRefinement }
 
 // Annotate delegates to the framework's annotator walk via
@@ -180,11 +179,11 @@ func methodQName(owner, method string) string {
 	return owner + "." + method
 }
 
-// resolve runs the per-callable Phase 2 cascade. For every
-// contract membership stamped on bag during Phase 1: validate
-// roles, rewrite partner names to qnames, back-stamp partners.
-// Diagnostics attach to ctx.Diag under the resolver's plugin
-// attribution.
+// resolve runs the per-callable refinement cascade. For every
+// contract membership stamped on bag by the umbrella plugin:
+// validate roles, rewrite partner names to qnames, back-stamp
+// partners. Diagnostics attach to ctx.Diag under the resolver's
+// plugin attribution.
 func (r *Resolver) resolve(
 	ctx *sdk.AnnotatorContext,
 	host node.Node,
@@ -266,10 +265,10 @@ func (r *Resolver) resolvePartner(
 }
 
 // flagUnknownPartnerRoles emits a diagnostic for any partner KV
-// stamped in Phase 1 whose role name is not in the contract's
-// declared vocabulary. Partner stamps reach the resolver via the
-// underlying meta bag, so we iterate every recorded name to
-// discover them.
+// stamped by the umbrella plugin whose role name is not in the
+// contract's declared vocabulary. Partner stamps reach the
+// resolver via the underlying meta bag, so we iterate every
+// recorded name to discover them.
 func (*Resolver) flagUnknownPartnerRoles(
 	host node.Node,
 	bag *meta.Bag,
