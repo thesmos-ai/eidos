@@ -6,16 +6,31 @@ package monotonic_test
 import (
 	"testing"
 
+	"go.thesmos.sh/eidos/core/directive"
+	"go.thesmos.sh/eidos/node"
+	"go.thesmos.sh/eidos/plugins/annotator/shape/mixins/internal/mixintest"
 	"go.thesmos.sh/eidos/plugins/annotator/shape/mixins/monotonic"
 )
 
 func TestMixin_Identity(t *testing.T) {
 	t.Parallel()
-	m := monotonic.Mixin()
-	if m.Name != monotonic.Name {
-		t.Fatalf("Mixin().Name = %q, want %q", m.Name, monotonic.Name)
+	mixintest.AssertIdentity(t, monotonic.Mixin(), monotonic.Name, nil)
+}
+
+// TestMixin_PipelineStamping exercises the umbrella plugin
+// stamping a real `+gen:mixin monotonic` directive — proving
+// the package's [Mixin] value plugs into the framework
+// correctly.
+func TestMixin_PipelineStamping(t *testing.T) {
+	t.Parallel()
+	fn := &node.Function{
+		Name: "Tick", Package: "x",
+		BaseNode: node.BaseNode{
+			DirectiveList: []*directive.Directive{
+				mixintest.HostDirective(monotonic.Name, nil),
+			},
+		},
 	}
-	if len(m.Params) != 0 {
-		t.Fatalf("Mixin().Params = %v, want empty", m.Params)
-	}
+	bag := mixintest.RunPipeline(t, monotonic.Mixin(), fn)
+	mixintest.AssertAttached(t, bag, monotonic.Name)
 }

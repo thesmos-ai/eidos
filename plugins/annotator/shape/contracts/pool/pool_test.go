@@ -7,8 +7,9 @@ import (
 	"reflect"
 	"testing"
 
+	"go.thesmos.sh/eidos/core/diag"
+	"go.thesmos.sh/eidos/core/directive"
 	"go.thesmos.sh/eidos/node"
-	"go.thesmos.sh/eidos/plugins/annotator/shape"
 	"go.thesmos.sh/eidos/plugins/annotator/shape/contracts/internal/contracttest"
 	"go.thesmos.sh/eidos/plugins/annotator/shape/contracts/pool"
 )
@@ -32,22 +33,6 @@ func TestContract_DeclaresRequiredAndValidate(t *testing.T) {
 	}
 }
 
-func TestContract_ValidateFlagsDuplicateGet(t *testing.T) {
-	t.Parallel()
-	c := pool.Contract()
-	getA := &node.Function{Name: "GetA", Package: "x"}
-	getB := &node.Function{Name: "GetB", Package: "x"}
-	put := &node.Function{Name: "Put", Package: "x"}
-	members := map[string][]node.Node{
-		"get": {getA, getB},
-		"put": {put},
-	}
-	violations := c.Validate(members)
-	if len(violations) != 1 || violations[0].Host != getB {
-		t.Fatalf("Validate(duplicate-get) = %+v; want one violation on getB", violations)
-	}
-}
-
 func TestContract_ValidateAcceptsExactlyOneEach(t *testing.T) {
 	t.Parallel()
 	c := pool.Contract()
@@ -60,6 +45,65 @@ func TestContract_ValidateAcceptsExactlyOneEach(t *testing.T) {
 	}
 }
 
-// _ ensures the package-level Contract value satisfies
-// [shape.Contract]'s expected shape at compile time.
-var _ shape.Contract = pool.Contract()
+// TestContract_PipelineRoundTrip exercises the happy path of one
+// Get + one Put through umbrella → resolver → validator.
+func TestContract_PipelineRoundTrip(t *testing.T) {
+	t.Parallel()
+	get := &node.Function{
+		Name: "Get", Package: "x",
+		BaseNode: node.BaseNode{
+			DirectiveList: []*directive.Directive{
+				contracttest.HostDirective(pool.Name, "get", map[string]string{
+					"put": "Put",
+				}),
+			},
+		},
+	}
+	put := &node.Function{Name: "Put", Package: "x"}
+	pkg := &node.Package{
+		Name: "x", Path: "x",
+		Functions: []*node.Function{get, put},
+	}
+	diags := contracttest.RunPipeline(t, pool.Contract(), pkg)
+	contracttest.AssertNoErrorDiag(t, diags)
+
+	contracttest.AssertRole(t, get.Meta(), pool.Name, "get")
+	contracttest.AssertPartner(t, get.Meta(), pool.Name, "put", "x.Put")
+	contracttest.AssertRole(t, put.Meta(), pool.Name, "put")
+	contracttest.AssertPartner(t, put.Meta(), pool.Name, "get", "x.Get")
+}
+
+// TestContract_ValidatorFlagsDuplicateGet exercises the Validate
+// hook through the actual [shape.Validator] annotator — two Get
+// callables share one Put, and the validator must emit a
+// diagnostic naming the duplicate.
+func TestContract_ValidatorFlagsDuplicateGet(t *testing.T) {
+	t.Parallel()
+	getA := &node.Function{
+		Name: "GetA", Package: "x",
+		BaseNode: node.BaseNode{
+			DirectiveList: []*directive.Directive{
+				contracttest.HostDirective(pool.Name, "get", map[string]string{
+					"put": "Put",
+				}),
+			},
+		},
+	}
+	getB := &node.Function{
+		Name: "GetB", Package: "x",
+		BaseNode: node.BaseNode{
+			DirectiveList: []*directive.Directive{
+				contracttest.HostDirective(pool.Name, "get", map[string]string{
+					"put": "Put",
+				}),
+			},
+		},
+	}
+	put := &node.Function{Name: "Put", Package: "x"}
+	pkg := &node.Package{
+		Name: "x", Path: "x",
+		Functions: []*node.Function{getA, getB, put},
+	}
+	diags := contracttest.RunPipeline(t, pool.Contract(), pkg)
+	contracttest.AssertContainsDiag(t, diags, diag.Error, "exactly one get")
+}
