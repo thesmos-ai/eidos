@@ -129,6 +129,15 @@ checks:
       # Interface-marker methods on emit.Ref variants. They exist
       # to satisfy the Ref interface and never have a callable
       # path — 0% coverage is by design.
+    - label: defensive-unreachable
+      func_glob: applyDefaults
+      file_glob: "**/core/opt/options.go"
+      # Defensive struct-deref guard in applyDefaults. Bind is
+      # generic-constrained to a struct target at compile time,
+      # so the runtime guard's early-return branch is unreachable
+      # from any caller in the workspace. The guard stays as a
+      # safety net for handwritten callers but isn't worth a
+      # contorted export_test to cover.
 
   # coverage — `ergon check coverage`
   #

@@ -29,6 +29,14 @@ func (w *walkProbe) OnInterface(_ *plugin.AnnotatorContext, i *node.Interface) {
 	w.called = append(w.called, "interface:"+i.Name)
 }
 
+func (w *walkProbe) OnMethod(_ *plugin.AnnotatorContext, m *node.Method) {
+	w.called = append(w.called, "method:"+m.Name)
+}
+
+func (w *walkProbe) OnFunction(_ *plugin.AnnotatorContext, f *node.Function) {
+	w.called = append(w.called, "function:"+f.Name)
+}
+
 // emptyProbe implements none of the hooks. Used to verify Walk's
 // "no implementation, no dispatch" behaviour: every interface
 // assertion misses and no node iteration runs.
@@ -36,8 +44,9 @@ type emptyProbe struct{}
 
 // TestWalk covers the [plugin.Walk] dispatcher: hooks fire in the
 // documented order (BeforeNodes, OnStruct per struct, OnInterface
-// per interface, AfterNodes); only hooks the target implements
-// fire; targets without any hook reach Walk without iterating.
+// per interface, OnMethod per method, OnFunction per free
+// function, AfterNodes); only hooks the target implements fire;
+// targets without any hook reach Walk without iterating.
 func TestWalk(t *testing.T) {
 	t.Parallel()
 
@@ -51,6 +60,9 @@ func TestWalk(t *testing.T) {
 			"struct:Alpha",
 			"struct:Beta",
 			"interface:Reader",
+			"method:Save",
+			"method:Read",
+			"function:Helper",
 			"after",
 		}
 		assertCalledOrder(t, probe.called, want)
@@ -69,19 +81,29 @@ func TestWalk(t *testing.T) {
 }
 
 // newWalkContext builds a populated AnnotatorContext: two structs
-// and one interface in stable insertion order so the per-kind
-// iteration order is deterministic.
+// (Alpha owns method Save), one interface (Reader owns method
+// Read), and one free function (Helper). Per-kind insertion order
+// is stable so the iteration order is deterministic across runs.
 func newWalkContext(t *testing.T) *plugin.AnnotatorContext {
 	t.Helper()
 	s := store.New()
 	if err := s.Nodes().AddPackage(&node.Package{
 		Name: "x", Path: "x",
 		Structs: []*node.Struct{
-			{Name: "Alpha", Package: "x"},
+			{
+				Name: "Alpha", Package: "x",
+				Methods: []*node.Method{{Name: "Save"}},
+			},
 			{Name: "Beta", Package: "x"},
 		},
 		Interfaces: []*node.Interface{
-			{Name: "Reader", Package: "x"},
+			{
+				Name: "Reader", Package: "x",
+				Methods: []*node.Method{{Name: "Read"}},
+			},
+		},
+		Functions: []*node.Function{
+			{Name: "Helper", Package: "x"},
 		},
 	}); err != nil {
 		t.Fatalf("AddPackage: %v", err)

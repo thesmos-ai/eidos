@@ -113,6 +113,18 @@ type StructHook = plugin.StructHook
 // insertion order.
 type InterfaceHook = plugin.InterfaceHook
 
+// MethodHook is the optional per-method hook. [Walk] invokes
+// OnMethod once per [node.Method] across the entire methods
+// bucket (struct- and interface-declared methods alike) in stable
+// insertion order.
+type MethodHook = plugin.MethodHook
+
+// FunctionHook is the optional per-free-function hook. [Walk]
+// invokes OnFunction once per [node.Function] in stable insertion
+// order. Methods reach [MethodHook] instead — this hook fires
+// only for standalone functions.
+type FunctionHook = plugin.FunctionHook
+
 // Walk drives target's hook methods over every node in the
 // annotator context's store. See [plugin.Walk] for the
 // iteration contract.

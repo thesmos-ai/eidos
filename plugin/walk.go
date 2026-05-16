@@ -38,6 +38,25 @@ type InterfaceHook interface {
 	OnInterface(ctx *AnnotatorContext, i *node.Interface)
 }
 
+// MethodHook is the optional per-method hook. [Walk] invokes
+// OnMethod once per [node.Method] in the store's Methods bucket
+// (which spans every struct- and interface-declared method), in
+// stable insertion order. Methods on interfaces carry a nil
+// [node.Method.Receiver]; hook implementations that care about
+// the receiver shape must handle the absence explicitly.
+type MethodHook interface {
+	OnMethod(ctx *AnnotatorContext, m *node.Method)
+}
+
+// FunctionHook is the optional per-free-function hook. [Walk]
+// invokes OnFunction once per [node.Function] in the store's
+// Functions bucket, in stable insertion order. The hook fires
+// only for standalone functions; methods reach their own
+// [MethodHook] entry point.
+type FunctionHook interface {
+	OnFunction(ctx *AnnotatorContext, f *node.Function)
+}
+
 // Walk drives target's hook methods over every node in the
 // annotator context's store. It is the canonical annotation-walk
 // helper the spec's "Visitor helper" pattern refers to —
@@ -52,7 +71,14 @@ type InterfaceHook interface {
 //     [StructHook.OnStruct] (if implemented).
 //  3. Every [node.Interface] in stable insertion order via
 //     [InterfaceHook.OnInterface] (if implemented).
-//  4. [AfterNodesHook.AfterNodes] (if implemented).
+//  4. Every [node.Method] in stable insertion order via
+//     [MethodHook.OnMethod] (if implemented). The Methods bucket
+//     spans both struct- and interface-declared methods; method
+//     hooks see every callable bound to a receiver.
+//  5. Every [node.Function] in stable insertion order via
+//     [FunctionHook.OnFunction] (if implemented). Free functions
+//     only; methods reach their hook through step 4.
+//  6. [AfterNodesHook.AfterNodes] (if implemented).
 //
 // Walk returns nil. Per-node failures attach to ctx.Diag rather
 // than aborting the iteration — the spec's "completion regardless
@@ -71,6 +97,16 @@ func Walk(ctx *AnnotatorContext, target any) error {
 	if h, ok := target.(InterfaceHook); ok {
 		for _, i := range ctx.Store.Nodes().Interfaces().Items() {
 			h.OnInterface(ctx, i)
+		}
+	}
+	if h, ok := target.(MethodHook); ok {
+		for _, m := range ctx.Store.Nodes().Methods().Items() {
+			h.OnMethod(ctx, m)
+		}
+	}
+	if h, ok := target.(FunctionHook); ok {
+		for _, f := range ctx.Store.Nodes().Functions().Items() {
+			h.OnFunction(ctx, f)
 		}
 	}
 	if h, ok := target.(AfterNodesHook); ok {

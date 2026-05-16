@@ -58,7 +58,7 @@ func (*Plugin) OnStruct(_ *sdk.AnnotatorContext, s *node.Struct) {
 
 **Key idioms:**
 
-- `sdk.Walk(ctx, p)` dispatches to whichever hook interfaces (`OnStruct`, `OnInterface`, `BeforeNodes`, `AfterNodes`) the plugin implements
+- `sdk.Walk(ctx, p)` dispatches to whichever hook interfaces (`OnStruct`, `OnInterface`, `OnMethod`, `OnFunction`, `BeforeNodes`, `AfterNodes`) the plugin implements
 - `sdk.AnnotatorShape` is the earliest annotator priority; refinement / validation annotators see the inferred shapes
 - `meta.NewKey` registers a typed key; consumers read it via `Key.Get(bag)`
 
