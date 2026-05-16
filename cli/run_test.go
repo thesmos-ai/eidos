@@ -180,7 +180,7 @@ func TestRunCommand_RoutingValidation_Rejected(t *testing.T) {
 		env, _, _ := freshEnv(t, "eidos")
 		cmd := &cli.RunCommand{Config: cli.RunConfig{
 			Plugins: []plugin.Plugin{stubFrontend{name: "fe"}, stubBackend{name: "be", lang: "stub"}},
-			Routing: cli.RoutingFlags{Output: "x.go"},
+			Routing: cli.RoutingFlags{Output: []string{"x.go"}},
 		}}
 		if code := cmd.Execute(t.Context(), env); code != cli.ExitUserError {
 			t.Fatalf("Execute = %d, want ExitUserError", code)

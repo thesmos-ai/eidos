@@ -5,6 +5,7 @@ package cli_test
 
 import (
 	"flag"
+	"reflect"
 	"testing"
 
 	"go.thesmos.sh/eidos/cli"
@@ -30,12 +31,12 @@ func assertRoutingFlagsParse(t *testing.T, fs *flag.FlagSet, target *cli.Routing
 	}
 	want := cli.RoutingFlags{
 		Target:    "Article",
-		Output:    "article_gen.go",
+		Output:    []string{"article_gen.go"},
 		Package:   "generated",
 		Layout:    pipeline.LayoutCentralised,
 		OutputDir: "internal/gen",
 	}
-	if *target != want {
+	if !reflect.DeepEqual(*target, want) {
 		t.Fatalf("RoutingFlags = %+v, want %+v", *target, want)
 	}
 }

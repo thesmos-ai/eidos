@@ -279,6 +279,12 @@ func applyOutputConfig(b *pipeline.Builder, cfg *Config) {
 			continue
 		}
 		b.WithPluginOutput(p.Name, p.Output.Layout, p.Output.Package, p.Output.Dir)
+		for tag, tagOut := range p.Output.Tags {
+			if tagOut.IsEmpty() {
+				continue
+			}
+			b.WithPluginTagOutput(p.Name, tag, tagOut.Layout, tagOut.Package, tagOut.Dir)
+		}
 	}
 }
 

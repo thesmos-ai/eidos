@@ -38,9 +38,34 @@ type RoutingFlags struct {
 	// Foo in package pkg.
 	Target string
 
-	// Output pins [emit.Target.Filename] for every emitted decl
-	// in scope. Maps to [pipeline.Builder.WithOutputFilename].
-	Output string
+	// Output captures every `-o` flag value passed on the CLI.
+	// Each entry takes one of three shapes:
+	//
+	//   - `<path>` — unscoped legacy form. Pins
+	//     [emit.Target.Filename] for every emitted decl in scope.
+	//     Requires `-target` so the scope is non-ambiguous. Maps
+	//     to [pipeline.Builder.WithOutputFilename]. At most one
+	//     unscoped entry is permitted across the slice.
+	//
+	//   - `<plugin>=<path>` — per-plugin pin. Pins Filename for
+	//     decls emitted by the named plugin (across every output
+	//     the plugin declares). Maps to
+	//     [pipeline.Builder.WithPluginOutputFilename] with empty
+	//     tag. No `-target` requirement: the plugin filter is
+	//     itself the scope.
+	//
+	//   - `<plugin>:<tag>=<path>` — per-(plugin, tag) pin. Pins
+	//     Filename for the named plugin's named output only;
+	//     other outputs from the same plugin route per their
+	//     declared suffix. Maps to
+	//     [pipeline.Builder.WithPluginOutputFilename] with the
+	//     supplied tag. No `-target` requirement.
+	//
+	// The `:` separator lives inside the key portion of the
+	// `<key>=<path>` shape, so the path may contain `:` without
+	// ambiguity. Multiple `-o` flags accumulate; specificity at
+	// routing time is (plugin, tag) > (plugin, "") > unscoped.
+	Output []string
 
 	// Package pins [emit.Target.Package] for every emitted decl
 	// in scope. Maps to [pipeline.Builder.WithOutputPackage].
@@ -61,25 +86,107 @@ type RoutingFlags struct {
 // Register binds every routing-layer flag onto fs using the
 // canonical [FlagTarget] / [FlagOutput] / [FlagPackage] /
 // [FlagLayout] / [FlagOutputDir] names and the documented usage
-// strings.
+// strings. The `-o` flag accepts multiple values via repetition;
+// every other flag is single-valued.
 func (rf *RoutingFlags) Register(fs *flag.FlagSet) {
 	fs.StringVar(&rf.Target, FlagTarget, "", UsageTarget)
-	fs.StringVar(&rf.Output, FlagOutput, "", UsageOutput)
+	fs.Var((*outputFlag)(&rf.Output), FlagOutput, UsageOutput)
 	fs.StringVar(&rf.Package, FlagPackage, "", UsagePackage)
 	fs.StringVar(&rf.Layout, FlagLayout, "", UsageLayout)
 	fs.StringVar(&rf.OutputDir, FlagOutputDir, "", UsageOutputDir)
 }
 
+// outputFlag is the [flag.Value] adapter that accumulates every
+// `-o <value>` invocation into the receiver slice. Set is invoked
+// once per `-o` flag the user passes; the slice preserves order
+// so the Apply / Validate stages see entries in CLI declaration
+// order.
+type outputFlag []string
+
+// Set appends value to the receiver slice. The flag package
+// guarantees one Set per invocation.
+func (f *outputFlag) Set(value string) error {
+	*f = append(*f, value)
+	return nil
+}
+
+// String returns the comma-joined slice contents for `flag` package
+// introspection; CLI users never see this — repeated `-o` flags
+// stay distinct on the command line.
+func (f *outputFlag) String() string {
+	if f == nil {
+		return ""
+	}
+	return strings.Join(*f, ",")
+}
+
+// outputSpec captures one parsed `-o` flag value. Plugin and Tag
+// are both empty for the legacy unscoped form; Plugin alone is
+// set for the `<plugin>=<path>` form; both are set for the
+// `<plugin>:<tag>=<path>` form.
+type outputSpec struct {
+	Plugin string
+	Tag    string
+	Path   string
+}
+
+// parseOutputSpec classifies one `-o` flag value into the legacy
+// unscoped form (no `=`) or one of the scoped forms. The first
+// `=` separates the optional `<plugin>` or `<plugin>:<tag>` key
+// from the path; the first `:` within the key separates plugin
+// from tag. Values may carry `:` in the path verbatim — once the
+// `=` separator fires, every subsequent character is the path.
+//
+// Returns a populated [outputSpec] and ok=true on success. An
+// empty value, a value with empty plugin name (`=path`), or a
+// value with empty tag (`plugin:=path`) returns ok=false; the
+// caller surfaces a config error citing the offending input.
+func parseOutputSpec(value string) (outputSpec, bool) {
+	if value == "" {
+		return outputSpec{}, false
+	}
+	key, path, hasEq := strings.Cut(value, "=")
+	if !hasEq {
+		// Unscoped legacy form.
+		return outputSpec{Path: value}, true
+	}
+	if path == "" {
+		return outputSpec{}, false
+	}
+	if key == "" {
+		// `=path` with no key — reject; ambiguous between the
+		// unscoped form and a typo of the scoped form.
+		return outputSpec{}, false
+	}
+	if plugin, tag, hasColon := strings.Cut(key, ":"); hasColon {
+		if plugin == "" || tag == "" {
+			return outputSpec{}, false
+		}
+		return outputSpec{Plugin: plugin, Tag: tag, Path: path}, true
+	}
+	return outputSpec{Plugin: key, Path: path}, true
+}
+
 // Apply threads the configured flag values onto b. Each non-empty
 // field invokes the matching [pipeline.Builder.With*] setter;
 // empty fields short-circuit so the framework default / lower-
-// priority precedence layer remains in place.
+// priority precedence layer remains in place. Output entries are
+// routed by their parsed shape: unscoped → WithOutputFilename;
+// scoped → WithPluginOutputFilename.
 func (rf RoutingFlags) Apply(b *pipeline.Builder) {
 	if rf.Target != "" {
 		b.WithTargetSymbol(rf.Target)
 	}
-	if rf.Output != "" {
-		b.WithOutputFilename(rf.Output)
+	for _, value := range rf.Output {
+		spec, ok := parseOutputSpec(value)
+		if !ok {
+			continue
+		}
+		if spec.Plugin == "" {
+			b.WithOutputFilename(spec.Path)
+			continue
+		}
+		b.WithPluginOutputFilename(spec.Plugin, spec.Tag, spec.Path)
 	}
 	if rf.Package != "" {
 		b.WithOutputPackage(rf.Package)
@@ -125,10 +232,17 @@ func (rf *RoutingFlags) Infer(getenv func(string) string) bool {
 //
 // Rules:
 //   - Layout must be one of the documented enum values.
-//   - Output (-o) without Target (-target, including post-Infer
-//     value) is rejected — `-o` pins one filename for every
-//     emitted decl in scope; pairing it with multi-symbol scope
-//     produces undefined per-decl behaviour either way.
+//   - Every `-o` value parses as one of the documented shapes
+//     (unscoped `<path>`, `<plugin>=<path>`, or
+//     `<plugin>:<tag>=<path>`); malformed values are rejected.
+//   - At most one unscoped `-o` value is permitted across the
+//     slice — the legacy global pinning is single-valued.
+//   - An unscoped `-o` without `-target` (post-Infer) is rejected:
+//     the unscoped form pins one filename for every emitted decl
+//     in scope, and pairing it with multi-symbol scope produces
+//     undefined per-decl behaviour. Scoped `-o` values carry the
+//     scope on themselves (the plugin filter, optionally narrowed
+//     by tag) and don't require `-target`.
 //   - Layout = centralised requires a resolvable Package (-p OR
 //     project-level output.package).
 //   - OutputDir without Layout = centralised is a warning —
@@ -138,10 +252,33 @@ func (rf RoutingFlags) Validate(cfg *Config) ([]string, error) {
 	if err := validateLayoutEnum("-"+FlagLayout, rf.Layout, ""); err != nil {
 		return nil, err
 	}
-	if rf.Output != "" && rf.Target == "" {
+	unscopedCount := 0
+	for _, value := range rf.Output {
+		spec, ok := parseOutputSpec(value)
+		if !ok {
+			return nil, &ConfigError{
+				Reason: fmt.Sprintf(
+					"-%s value %q: expected <path>, <plugin>=<path>, or <plugin>:<tag>=<path>",
+					FlagOutput, value,
+				),
+			}
+		}
+		if spec.Plugin == "" {
+			unscopedCount++
+		}
+	}
+	if unscopedCount > 1 {
 		return nil, &ConfigError{
 			Reason: fmt.Sprintf(
-				"-%s requires -%s (or GOFILE inference); pinning a single filename without a scope filter produces undefined per-decl behaviour",
+				"-%s: at most one unscoped value is permitted; scoped forms (<plugin>=<path>, <plugin>:<tag>=<path>) may repeat",
+				FlagOutput,
+			),
+		}
+	}
+	if unscopedCount == 1 && rf.Target == "" {
+		return nil, &ConfigError{
+			Reason: fmt.Sprintf(
+				"-%s without a scope (-%s or <plugin>=<path>): pinning a single filename without a scope filter produces undefined per-decl behaviour",
 				FlagOutput,
 				FlagTarget,
 			),

@@ -6,6 +6,7 @@ package cli_test
 import (
 	"errors"
 	"flag"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -40,6 +41,109 @@ import (
 // 13. Validate surfaces a warning for -output-dir without
 //     -layout centralised.
 
+// TestRoutingFlags_Apply_OutputScopes pins the scoped `-o` shapes
+// introduced for multi-output plugins: `-o <plugin>=<path>` pins
+// the named plugin's primary output; `-o <plugin>:<tag>=<path>`
+// pins one specific tagged output. Unscoped `-o <path>` continues
+// to map to the legacy global pinning. Multiple `-o` flags
+// accumulate; each entry routes to the matching builder setter
+// based on its scope shape.
+func TestRoutingFlags_Apply_OutputScopes(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unscoped -o threads to WithOutputFilename", func(t *testing.T) {
+		t.Parallel()
+		flags := cli.RoutingFlags{Output: []string{"gen.go"}}
+		b := pipeline.New().
+			WithFrontend(stubFrontend{name: "fe"}).
+			WithBackend(stubBackend{name: "be", lang: "stub"})
+		flags.Apply(b)
+		p, err := b.Build()
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		if got, want := p.OutputFilename(), "gen.go"; got != want {
+			t.Fatalf("OutputFilename = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("`<plugin>=<path>` threads to per-plugin override", func(t *testing.T) {
+		t.Parallel()
+		flags := cli.RoutingFlags{Output: []string{"mock=mocks/handler.go"}}
+		b := pipeline.New().
+			WithFrontend(stubFrontend{name: "fe"}).
+			WithBackend(stubBackend{name: "be", lang: "stub"})
+		flags.Apply(b)
+		p, err := b.Build()
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		got, ok := p.PluginOutputFilename("mock", "")
+		if !ok || got != "mocks/handler.go" {
+			t.Fatalf("PluginOutputFilename(mock, \"\") = %q, %v; want mocks/handler.go, true", got, ok)
+		}
+	})
+
+	t.Run("`<plugin>:<tag>=<path>` threads to per-(plugin, tag) override", func(t *testing.T) {
+		t.Parallel()
+		flags := cli.RoutingFlags{Output: []string{"mock:test=tests/handler.go"}}
+		b := pipeline.New().
+			WithFrontend(stubFrontend{name: "fe"}).
+			WithBackend(stubBackend{name: "be", lang: "stub"})
+		flags.Apply(b)
+		p, err := b.Build()
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		got, ok := p.PluginOutputFilename("mock", "test")
+		if !ok || got != "tests/handler.go" {
+			t.Fatalf("PluginOutputFilename(mock, test) = %q, %v; want tests/handler.go, true", got, ok)
+		}
+	})
+
+	t.Run("multiple -o flags accumulate by shape", func(t *testing.T) {
+		t.Parallel()
+		flags := cli.RoutingFlags{Output: []string{
+			"mock=mocks/handler.go",
+			"mock:test=tests/handler.go",
+		}}
+		b := pipeline.New().
+			WithFrontend(stubFrontend{name: "fe"}).
+			WithBackend(stubBackend{name: "be", lang: "stub"})
+		flags.Apply(b)
+		p, err := b.Build()
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		if got, ok := p.PluginOutputFilename("mock", ""); !ok || got != "mocks/handler.go" {
+			t.Fatalf("PluginOutputFilename(mock, \"\") = %q, %v", got, ok)
+		}
+		if got, ok := p.PluginOutputFilename("mock", "test"); !ok || got != "tests/handler.go" {
+			t.Fatalf("PluginOutputFilename(mock, test) = %q, %v", got, ok)
+		}
+	})
+
+	t.Run("`<plugin>=<path>` with `:` in the path parses unambiguously", func(t *testing.T) {
+		t.Parallel()
+		// The `:` separator lives inside the key portion; once we
+		// see `=`, the remainder is the path verbatim and may
+		// contain colons (e.g. on Windows-style or remote paths).
+		flags := cli.RoutingFlags{Output: []string{"mock:test=tests/handler.go:1"}}
+		b := pipeline.New().
+			WithFrontend(stubFrontend{name: "fe"}).
+			WithBackend(stubBackend{name: "be", lang: "stub"})
+		flags.Apply(b)
+		p, err := b.Build()
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		got, ok := p.PluginOutputFilename("mock", "test")
+		if !ok || got != "tests/handler.go:1" {
+			t.Fatalf("PluginOutputFilename(mock, test) = %q, %v; want tests/handler.go:1, true", got, ok)
+		}
+	})
+}
+
 // TestRoutingFlags_Apply_ThreadsToBuilder pins the contract: each
 // flag value, when non-empty, lands on the corresponding
 // Builder.With* setter so the constructed Pipeline carries the
@@ -65,7 +169,7 @@ func TestRoutingFlags_Apply_ThreadsToBuilder(t *testing.T) {
 
 	t.Run("Output threads to Pipeline.OutputFilename", func(t *testing.T) {
 		t.Parallel()
-		flags := cli.RoutingFlags{Output: "gen.go"}
+		flags := cli.RoutingFlags{Output: []string{"gen.go"}}
 		b := pipeline.New().
 			WithFrontend(stubFrontend{name: "fe"}).
 			WithBackend(stubBackend{name: "be", lang: "stub"})
@@ -186,13 +290,31 @@ func TestRoutingFlags_Register(t *testing.T) {
 		}
 		want := cli.RoutingFlags{
 			Target:    "Article",
-			Output:    "article_gen.go",
+			Output:    []string{"article_gen.go"},
 			Package:   "generated",
 			Layout:    pipeline.LayoutCentralised,
 			OutputDir: "internal/gen",
 		}
-		if flags != want {
+		if !reflect.DeepEqual(flags, want) {
 			t.Fatalf("RoutingFlags after Parse = %+v, want %+v", flags, want)
+		}
+	})
+
+	t.Run("repeated -o flags accumulate into the slice", func(t *testing.T) {
+		t.Parallel()
+		fs := flag.NewFlagSet("test", flag.ContinueOnError)
+		var flags cli.RoutingFlags
+		flags.Register(fs)
+		args := []string{
+			"-" + cli.FlagOutput, "mock=mocks/handler.go",
+			"-" + cli.FlagOutput, "mock:test=tests/handler.go",
+		}
+		if err := fs.Parse(args); err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		want := []string{"mock=mocks/handler.go", "mock:test=tests/handler.go"}
+		if !reflect.DeepEqual(flags.Output, want) {
+			t.Fatalf("Output after Parse = %+v, want %+v", flags.Output, want)
 		}
 	})
 }
@@ -271,9 +393,9 @@ func TestRoutingFlags_Infer_GOFILE(t *testing.T) {
 func TestRoutingFlags_Validate(t *testing.T) {
 	t.Parallel()
 
-	t.Run("-o without -target is rejected", func(t *testing.T) {
+	t.Run("unscoped -o without -target is rejected", func(t *testing.T) {
 		t.Parallel()
-		flags := cli.RoutingFlags{Output: "x.go"}
+		flags := cli.RoutingFlags{Output: []string{"x.go"}}
 		_, err := flags.Validate(cli.DefaultConfig())
 		var ce *cli.ConfigError
 		if !errsAs(err, &ce) {
@@ -342,6 +464,67 @@ func TestRoutingFlags_Validate(t *testing.T) {
 		var ce *cli.ConfigError
 		if !errsAs(err, &ce) {
 			t.Fatalf("expected *cli.ConfigError; got %v", err)
+		}
+	})
+
+	t.Run("scoped -o `<plugin>=<path>` does not require -target", func(t *testing.T) {
+		t.Parallel()
+		flags := cli.RoutingFlags{Output: []string{"mock=mocks/handler.go"}}
+		warnings, err := flags.Validate(cli.DefaultConfig())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(warnings) != 0 {
+			t.Fatalf("unexpected warnings: %v", warnings)
+		}
+	})
+
+	t.Run("scoped -o `<plugin>:<tag>=<path>` does not require -target", func(t *testing.T) {
+		t.Parallel()
+		flags := cli.RoutingFlags{Output: []string{"mock:test=tests/handler.go"}}
+		warnings, err := flags.Validate(cli.DefaultConfig())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(warnings) != 0 {
+			t.Fatalf("unexpected warnings: %v", warnings)
+		}
+	})
+
+	t.Run("malformed -o value is rejected", func(t *testing.T) {
+		t.Parallel()
+		for _, value := range []string{
+			"=path.go",     // empty key
+			"plugin=",      // empty path
+			"plugin:=p.go", // empty tag
+			":tag=p.go",    // empty plugin
+		} {
+			flags := cli.RoutingFlags{Output: []string{value}}
+			_, err := flags.Validate(cli.DefaultConfig())
+			var ce *cli.ConfigError
+			if !errsAs(err, &ce) {
+				t.Errorf("%q: expected *cli.ConfigError; got %v", value, err)
+				continue
+			}
+			if !strings.Contains(ce.Reason, "-"+cli.FlagOutput) {
+				t.Errorf("%q: error should name -o; got %q", value, ce.Reason)
+			}
+		}
+	})
+
+	t.Run("multiple unscoped -o values are rejected", func(t *testing.T) {
+		t.Parallel()
+		flags := cli.RoutingFlags{
+			Target: "X",
+			Output: []string{"a.go", "b.go"},
+		}
+		_, err := flags.Validate(cli.DefaultConfig())
+		var ce *cli.ConfigError
+		if !errsAs(err, &ce) {
+			t.Fatalf("expected *cli.ConfigError; got %v", err)
+		}
+		if !strings.Contains(ce.Reason, "unscoped") {
+			t.Fatalf("error should mention `unscoped`; got %q", ce.Reason)
 		}
 	})
 }

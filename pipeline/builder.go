@@ -45,10 +45,16 @@ type Builder struct {
 	command         string
 	sourceRoot      string
 	outputFilename  string
-	outputPackage   string
-	outputLayout    string
-	outputDir       string
-	targetSymbol    string
+	// pluginOutputFilenames captures the CLI
+	// `-o <plugin>[:<tag>]=<path>` form keyed by (plugin, tag).
+	// Populated by repeated [Builder.WithPluginOutputFilename]
+	// calls; threaded onto the constructed [Pipeline] for
+	// [Layout]-time precedence resolution.
+	pluginOutputFilenames map[pluginTagKey]string
+	outputPackage         string
+	outputLayout          string
+	outputDir             string
+	targetSymbol          string
 
 	// Project-level routing layer — the `output.*` block on
 	// [cli.Config.Output]. Populated by [Builder.WithProjectOutput];
@@ -61,6 +67,12 @@ type Builder struct {
 	// block keyed by plugin name. Populated by repeated
 	// [Builder.WithPluginOutput] calls.
 	pluginOutputs map[string]layoutOverride
+
+	// Per-(plugin, tag) routing overrides — the per-tag refinement
+	// in the `plugins[*].output.tags.<tag>.*` block, keyed by
+	// (plugin, tag). Populated by repeated
+	// [Builder.WithPluginTagOutput] calls.
+	pluginTagOutputs map[pluginTagKey]layoutOverride
 }
 
 // layoutOverride captures one layer's contribution to the routing
@@ -136,15 +148,45 @@ func (b *Builder) WithSourceRoot(root string) *Builder {
 // WithOutputFilename pins [emit.Target.Filename] for every emitted
 // decl in scope. Empty leaves the per-decl default in place — the
 // origin source basename combined with the contributing plugin's
-// declared filename suffix. Maps to the CLI's `-o` override.
+// declared filename suffix. Maps to the legacy unscoped CLI `-o`
+// override.
 //
-// `-o` without a scope filter routes every emitted decl from every
-// plugin into one rendered file; the CLI rejects that combination
-// at flag-parse time, but library callers using this method
-// directly should pair it with [Builder.WithTargetSymbol] or risk
-// one-file-one-package violations from the Layout phase.
+// Unscoped routes every emitted decl from every plugin into one
+// rendered file; the CLI rejects that combination at flag-parse
+// time without a scope filter, but library callers using this
+// method directly should pair it with [Builder.WithTargetSymbol]
+// or risk one-file-one-package violations from the Layout phase.
+//
+// Per-plugin and per-(plugin, tag) overrides — the
+// `-o <plugin>=<path>` and `-o <plugin>:<tag>=<path>` forms — are
+// supplied through [Builder.WithPluginOutputFilename] and win
+// over this unscoped override at routing time.
 func (b *Builder) WithOutputFilename(name string) *Builder {
 	b.outputFilename = name
+	return b
+}
+
+// WithPluginOutputFilename pins [emit.Target.Filename] for decls
+// emitted by plugin into the output identified by tag. Tag is
+// empty for the plugin's primary output; non-empty for a tagged
+// secondary output. Maps to the CLI's `-o <plugin>=<path>` and
+// `-o <plugin>:<tag>=<path>` forms. Repeated calls for the same
+// (plugin, tag) replace the prior entry verbatim.
+//
+// Path may be a bare filename or a relative path with a directory
+// component — the path-aware semantics mirror the legacy
+// [Builder.WithOutputFilename] / `+gen:out` shapes: a directory
+// component stacks under the origin's source directory, the
+// filename component pins Target.Filename.
+//
+// Specificity at routing time: a (plugin, tag) override wins
+// over a (plugin, "") override; both win over the legacy
+// unscoped [Builder.WithOutputFilename].
+func (b *Builder) WithPluginOutputFilename(plugin, tag, path string) *Builder {
+	if b.pluginOutputFilenames == nil {
+		b.pluginOutputFilenames = map[pluginTagKey]string{}
+	}
+	b.pluginOutputFilenames[pluginTagKey{plugin: plugin, tag: tag}] = path
 	return b
 }
 
@@ -200,6 +242,29 @@ func (b *Builder) WithProjectOutput(layout, pkg, dir string) *Builder {
 // calls for the same name replace the prior entry verbatim.
 func (b *Builder) WithPluginOutput(name, layout, pkg, dir string) *Builder {
 	b.pluginOutputs[name] = layoutOverride{
+		Layout:  layout,
+		Package: pkg,
+		Dir:     dir,
+	}
+	return b
+}
+
+// WithPluginTagOutput supplies a per-(plugin, tag) routing
+// override — the `plugins[*].output.tags.<tag>.*` block on
+// `.eidos.yaml`. Each non-empty argument refines the per-plugin
+// merge for the named plugin's tagged output; empty arguments
+// inherit from the surrounding per-plugin block. Repeated calls
+// for the same (plugin, tag) replace the prior entry verbatim.
+//
+// At routing time, [Pipeline.LayoutPolicyForTag] returns the
+// per-(plugin, tag) policy when the decl's
+// [emit.BaseEmit.OutputTag] matches; otherwise it falls back to
+// the per-plugin policy and finally to the default.
+func (b *Builder) WithPluginTagOutput(name, tag, layout, pkg, dir string) *Builder {
+	if b.pluginTagOutputs == nil {
+		b.pluginTagOutputs = map[pluginTagKey]layoutOverride{}
+	}
+	b.pluginTagOutputs[pluginTagKey{plugin: name, tag: tag}] = layoutOverride{
 		Layout:  layout,
 		Package: pkg,
 		Dir:     dir,
@@ -382,29 +447,31 @@ func (b *Builder) Build() (*Pipeline, error) {
 		return nil, errors.Join(postStructural...)
 	}
 
-	defaultPolicy, pluginPolicies := b.resolveLayoutPolicies()
+	defaultPolicy, pluginPolicies, pluginTagPolicies := b.resolveLayoutPolicies()
 	return &Pipeline{
-		frontends:       b.frontends,
-		annotators:      b.annotators,
-		generators:      b.generators,
-		backend:         b.backends[0],
-		sink:            b.sink,
-		cache:           b.cache,
-		diag:            b.diag,
-		verbose:         b.verbose,
-		parallel:        b.parallel,
-		manifestPath:    b.manifestPath,
-		command:         b.command,
-		sourceRoot:      b.resolveSourceRoot(),
-		defaultPolicy:   defaultPolicy,
-		pluginPolicies:  pluginPolicies,
-		outFilename:     b.outputFilename,
-		scope:           b.resolveScope(),
-		targetSym:       b.targetSymbol,
-		plan:            plan,
-		registry:        registry,
-		parser:          parser,
-		directiveOwners: directiveOwners,
+		frontends:          b.frontends,
+		annotators:         b.annotators,
+		generators:         b.generators,
+		backend:            b.backends[0],
+		sink:               b.sink,
+		cache:              b.cache,
+		diag:               b.diag,
+		verbose:            b.verbose,
+		parallel:           b.parallel,
+		manifestPath:       b.manifestPath,
+		command:            b.command,
+		sourceRoot:         b.resolveSourceRoot(),
+		defaultPolicy:      defaultPolicy,
+		pluginPolicies:     pluginPolicies,
+		pluginTagPolicies:  pluginTagPolicies,
+		outFilename:        b.outputFilename,
+		pluginOutFilenames: b.pluginOutputFilenames,
+		scope:              b.resolveScope(),
+		targetSym:          b.targetSymbol,
+		plan:               plan,
+		registry:           registry,
+		parser:             parser,
+		directiveOwners:    directiveOwners,
 	}, nil
 }
 
@@ -445,7 +512,7 @@ func (b *Builder) resolveSourceRoot() string {
 // the plugin set is finalised), and the initial composition for
 // emit decls attributed to a plugin not yet in the per-plugin
 // map.
-func (b *Builder) resolveLayoutPolicies() (LayoutPolicy, map[string]LayoutPolicy) {
+func (b *Builder) resolveLayoutPolicies() (LayoutPolicy, map[string]LayoutPolicy, map[pluginTagKey]LayoutPolicy) {
 	base := b.mergedBasePolicy()
 	out := make(map[string]LayoutPolicy, len(b.pluginOutputs))
 	for _, p := range b.frontends {
@@ -460,7 +527,56 @@ func (b *Builder) resolveLayoutPolicies() (LayoutPolicy, map[string]LayoutPolicy
 	for _, p := range b.backends {
 		out[p.Name()] = b.applyPerPluginAndCLI(base, p.Name())
 	}
-	return b.applyPerPluginAndCLI(base, ""), out
+	tagOut := make(map[pluginTagKey]LayoutPolicy, len(b.pluginTagOutputs))
+	for key := range b.pluginTagOutputs {
+		// Start from the per-plugin policy (already includes
+		// project + per-plugin + CLI layers) and apply the
+		// per-tag override on top.
+		pluginBase, known := out[key.plugin]
+		if !known {
+			pluginBase = b.applyPerPluginAndCLI(base, key.plugin)
+		}
+		tagOut[key] = b.applyPerTagOverride(pluginBase, key)
+	}
+	return b.applyPerPluginAndCLI(base, ""), out, tagOut
+}
+
+// applyPerTagOverride applies the per-(plugin, tag) layout
+// override on top of base, stamping every overridden field with
+// [manifest.LayerPerPlugin] attribution (per-tag is a refinement
+// of per-plugin and shares its precedence layer name).
+func (b *Builder) applyPerTagOverride(base LayoutPolicy, key pluginTagKey) LayoutPolicy {
+	policy := base
+	over, ok := b.pluginTagOutputs[key]
+	if !ok {
+		return policy
+	}
+	if over.Layout != "" {
+		policy.Layout = over.Layout
+		policy.LayoutFrom = manifest.LayerPerPlugin
+	}
+	if over.Package != "" {
+		policy.Package = over.Package
+		policy.PackageFrom = manifest.LayerPerPlugin
+	}
+	if over.Dir != "" {
+		policy.Dir = over.Dir
+		policy.DirFrom = manifest.LayerPerPlugin
+	}
+	// CLI overrides win over per-tag in the precedence pipeline.
+	if b.outputLayout != "" {
+		policy.Layout = b.outputLayout
+		policy.LayoutFrom = manifest.LayerCLI
+	}
+	if b.outputPackage != "" {
+		policy.Package = b.outputPackage
+		policy.PackageFrom = manifest.LayerCLI
+	}
+	if b.outputDir != "" {
+		policy.Dir = b.outputDir
+		policy.DirFrom = manifest.LayerCLI
+	}
+	return policy
 }
 
 // mergedBasePolicy returns the framework-default policy with the

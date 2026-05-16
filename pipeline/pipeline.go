@@ -106,14 +106,24 @@ type Pipeline struct {
 	// per-plugin policies keyed by plugin name. Both are pinned
 	// at Build time so the Layout phase reads a stable policy
 	// across the run.
-	defaultPolicy  LayoutPolicy
-	pluginPolicies map[string]LayoutPolicy
-	outFilename    string
-	scope          store.ScopePredicate
-	targetSym      string
-	plan           *Plan
-	registry       *directive.Registry
-	parser         *directive.Parser
+	defaultPolicy     LayoutPolicy
+	pluginPolicies    map[string]LayoutPolicy
+	pluginTagPolicies map[pluginTagKey]LayoutPolicy
+	outFilename       string
+
+	// pluginOutFilenames holds CLI `-o <plugin>[:<tag>]=<path>`
+	// overrides keyed by (plugin, tag). The Layout phase looks up
+	// `(plugin, tag)` first, falls back to `(plugin, "")` for an
+	// unscoped per-plugin override, then to [outFilename] for the
+	// legacy unscoped form. Empty map means no per-plugin
+	// overrides are active.
+	pluginOutFilenames map[pluginTagKey]string
+
+	scope     store.ScopePredicate
+	targetSym string
+	plan      *Plan
+	registry  *directive.Registry
+	parser    *directive.Parser
 
 	// directiveOwners maps each directive name to the plugin that
 	// registered it via [plugin.DirectiveProvider.Directives]. The
@@ -219,12 +229,58 @@ func (p *Pipeline) LayoutPolicyFor(pluginName string) LayoutPolicy {
 	return p.defaultPolicy
 }
 
+// LayoutPolicyForTag returns the resolved [LayoutPolicy] for the
+// (pluginName, outputTag) pair, preferring a per-(plugin, tag)
+// policy when one is registered (the `plugins[*].output.tags.<tag>`
+// block in `.eidos.yaml`) and falling back to
+// [Pipeline.LayoutPolicyFor] otherwise. An empty outputTag, or a
+// non-empty tag absent from the per-tag map, both resolve through
+// the per-plugin fallback.
+func (p *Pipeline) LayoutPolicyForTag(pluginName, outputTag string) LayoutPolicy {
+	if outputTag != "" {
+		if pol, ok := p.pluginTagPolicies[pluginTagKey{plugin: pluginName, tag: outputTag}]; ok {
+			return pol
+		}
+	}
+	return p.LayoutPolicyFor(pluginName)
+}
+
 // OutputFilename returns the literal filename pinned by
-// [Builder.WithOutputFilename] (or the CLI `-o` flag). Empty
-// means no override is in effect and each decl resolves Filename
-// from its origin basename + the contributing plugin's filename
-// suffix.
+// [Builder.WithOutputFilename] (or the legacy unscoped CLI `-o`
+// flag). Empty means no global override is in effect and each
+// decl resolves Filename from its origin basename + the
+// contributing plugin's filename suffix, then through any
+// per-plugin override exposed by [Pipeline.PluginOutputFilename].
 func (p *Pipeline) OutputFilename() string { return p.outFilename }
+
+// pluginTagKey is the (plugin, tag) composite key for the
+// per-plugin CLI override map. Tag is empty for plugin-only
+// overrides; non-empty for per-(plugin, tag) overrides.
+type pluginTagKey struct {
+	plugin string
+	tag    string
+}
+
+// PluginOutputFilename returns the CLI `-o <plugin>[:<tag>]=<path>`
+// override registered for (pluginName, outputTag), preferring the
+// more specific (plugin, tag) override over the plugin-only
+// (plugin, "") form. Returns ("", false) when no per-plugin
+// override applies — callers should fall back to
+// [Pipeline.OutputFilename] for the legacy unscoped form.
+func (p *Pipeline) PluginOutputFilename(pluginName, outputTag string) (string, bool) {
+	if len(p.pluginOutFilenames) == 0 {
+		return "", false
+	}
+	if path, ok := p.pluginOutFilenames[pluginTagKey{plugin: pluginName, tag: outputTag}]; ok {
+		return path, true
+	}
+	if outputTag != "" {
+		if path, ok := p.pluginOutFilenames[pluginTagKey{plugin: pluginName}]; ok {
+			return path, true
+		}
+	}
+	return "", false
+}
 
 // TargetSymbol returns the symbol name pinned by
 // [Builder.WithTargetSymbol] (or the CLI `-target` flag). Empty

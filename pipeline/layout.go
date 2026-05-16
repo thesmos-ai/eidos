@@ -372,7 +372,7 @@ func composeTarget(
 	emitPkgPath string,
 	kind, qname string,
 ) (emit.Target, manifest.ResolvedLayout, bool) {
-	policy := p.LayoutPolicyFor(pluginName)
+	policy := p.LayoutPolicyForTag(pluginName, outputTag)
 	srcPkg := originSourcePackage(s, origin)
 	emitPkg := emitPackageByPath(s, emitPkgPath)
 	srcDir, basename := originSourceDirBasename(origin, p.sourceRoot)
@@ -522,7 +522,15 @@ func composeTarget(
 	// Target.Dir — symmetrical to the directive's path-aware form
 	// — so `go:generate eidos run -target Foo -o test/foo.go`
 	// produces `<origin-dir>/test/foo.go` per scope.
-	if cli := p.OutputFilename(); cli != "" {
+	//
+	// Per-plugin and per-(plugin, tag) overrides win over the
+	// legacy unscoped form; specificity prefers (plugin, tag) over
+	// (plugin, "") via [Pipeline.PluginOutputFilename].
+	cli, hasCLI := p.PluginOutputFilename(pluginName, outputTag)
+	if !hasCLI {
+		cli = p.OutputFilename()
+	}
+	if cli != "" {
 		dir, filename := splitOutDirectivePath(cli)
 		if filename != "" {
 			t.Filename = filename

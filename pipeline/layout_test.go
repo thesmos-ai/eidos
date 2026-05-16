@@ -439,6 +439,139 @@ func TestLayout_OutputFilenameOverride(t *testing.T) {
 	})
 }
 
+// TestLayout_PluginOutputFilename pins the per-plugin and
+// per-(plugin, tag) CLI overrides — the `-o <plugin>=<path>` and
+// `-o <plugin>:<tag>=<path>` forms documented by the M2 spec.
+// Specificity: a (plugin, tag) override wins over a plugin-only
+// override; both win over the legacy global unscoped override.
+func TestLayout_PluginOutputFilename(t *testing.T) {
+	t.Parallel()
+
+	t.Run("per-plugin override pins the matching plugin's outputs only", func(t *testing.T) {
+		t.Parallel()
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "internal/users/user.go"}},
+			Name:     "User", Package: "example.com/users",
+		}
+		target := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin},
+			Name:     "Target", Package: "users",
+		}
+		other := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin},
+			Name:     "Other", Package: "users",
+		}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(&layoutGen{name: "target", suffix: "_t.go", pkg: &emit.Package{
+				Name: "users", Path: "example.com/users",
+				Structs: []*emit.Struct{target},
+			}}).
+			WithGenerator(&layoutGen{name: "other", suffix: "_o.go", pkg: &emit.Package{
+				Name: "users", Path: "example.com/users",
+				Structs: []*emit.Struct{other},
+			}}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			WithPluginOutputFilename("target", "", "pinned.go").
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "x"))
+		if got, want := target.Target.Filename, "pinned.go"; got != want {
+			t.Errorf("target.Filename = %q, want %q (per-plugin override applies)", got, want)
+		}
+		if got, want := other.Target.Filename, "user_o.go"; got != want {
+			t.Errorf("other.Filename = %q, want %q (per-plugin override should not propagate)", got, want)
+		}
+	})
+
+	t.Run("per-(plugin, tag) override pins only the matching output", func(t *testing.T) {
+		t.Parallel()
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "internal/users/user.go"}},
+			Name:     "User", Package: "example.com/users",
+		}
+		primary := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin},
+			Name:     "Primary", Package: "users",
+		}
+		tagged := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			Name:     "Tagged", Package: "users",
+		}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(&layoutGen{
+				name: "enum",
+				outputs: []plugin.Output{
+					{Suffix: "_enum.go"},
+					{Tag: "test", Suffix: "_enum_test.go"},
+				},
+				pkg: &emit.Package{
+					Name: "users", Path: "example.com/users",
+					Structs: []*emit.Struct{primary, tagged},
+				},
+			}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			WithPluginOutputFilename("enum", "test", "tests/pinned_test.go").
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "x"))
+		if got, want := primary.Target.Filename, "user_enum.go"; got != want {
+			t.Errorf("primary.Filename = %q, want %q (untagged should keep default)", got, want)
+		}
+		if got, want := tagged.Target.Filename, "pinned_test.go"; got != want {
+			t.Errorf("tagged.Filename = %q, want %q", got, want)
+		}
+		if got, want := tagged.Target.Dir, filepath.Join("internal", "users", "tests"); got != want {
+			t.Errorf("tagged.Dir = %q, want %q (path-aware override)", got, want)
+		}
+	})
+
+	t.Run("per-(plugin, tag) wins over per-plugin override", func(t *testing.T) {
+		t.Parallel()
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "internal/users/user.go"}},
+			Name:     "User", Package: "example.com/users",
+		}
+		primary := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin},
+			Name:     "Primary", Package: "users",
+		}
+		tagged := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			Name:     "Tagged", Package: "users",
+		}
+		p, err := pipeline.New().
+			WithFrontend(&stubFE{name: "fe"}).
+			WithGenerator(&layoutGen{
+				name: "enum",
+				outputs: []plugin.Output{
+					{Suffix: "_enum.go"},
+					{Tag: "test", Suffix: "_enum_test.go"},
+				},
+				pkg: &emit.Package{
+					Name: "users", Path: "example.com/users",
+					Structs: []*emit.Struct{primary, tagged},
+				},
+			}).
+			WithBackend(&stubBE{name: "be"}).
+			WithSink(sink.NewMemory()).
+			WithPluginOutputFilename("enum", "", "broad.go").
+			WithPluginOutputFilename("enum", "test", "narrow_test.go").
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "x"))
+		if got, want := primary.Target.Filename, "broad.go"; got != want {
+			t.Errorf("primary.Filename = %q, want %q (per-plugin override applies)", got, want)
+		}
+		if got, want := tagged.Target.Filename, "narrow_test.go"; got != want {
+			t.Errorf("tagged.Filename = %q, want %q (per-tag wins over per-plugin)", got, want)
+		}
+	})
+}
+
 // TestLayout_OutputFilename_PathAware pins the path-aware form of
 // CLI -o: a value carrying a directory component splits into
 // Target.Dir (stacked under the origin's source directory) +

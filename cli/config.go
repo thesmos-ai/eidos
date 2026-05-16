@@ -98,13 +98,25 @@ type ConfigOutput struct {
 	// in the precedence merge or, under centralised layout, to
 	// Package as the directory name.
 	Dir string `yaml:"dir,omitempty"`
+
+	// Tags refines the per-plugin block with per-(plugin, output)
+	// overrides keyed by [plugin.Output.Tag]. Meaningful only at
+	// the per-plugin level ([ConfigPlugin.Output]); the project-
+	// wide [Config.Output] block ignores entries here because tag
+	// values are plugin-scoped.
+	//
+	// Resolution at routing time: a decl carrying a non-empty
+	// [emit.BaseEmit.OutputTag] looks up Tags[tag] first; an
+	// empty tag or a tag absent from the map falls back to the
+	// surrounding per-plugin block.
+	Tags map[string]ConfigOutput `yaml:"tags,omitempty"`
 }
 
 // IsEmpty reports whether o carries no overrides — every field
 // is empty. The pipeline uses this to short-circuit no-op layers
 // in the precedence merge.
 func (o ConfigOutput) IsEmpty() bool {
-	return o.Layout == "" && o.Package == "" && o.Dir == ""
+	return o.Layout == "" && o.Package == "" && o.Dir == "" && len(o.Tags) == 0
 }
 
 // ConfigSource is one frontend + input-pattern pair.

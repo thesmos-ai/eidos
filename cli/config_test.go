@@ -625,6 +625,52 @@ func TestBuildPipeline_OutputConfigThreaded(t *testing.T) {
 		}
 	})
 
+	t.Run("per-tag output config flows to LayoutPolicyForTag", func(t *testing.T) {
+		t.Parallel()
+		env, _, _ := freshEnv(t, "eidos")
+		cfg := cli.DefaultConfig()
+		cfg.Plugins = []cli.ConfigPlugin{
+			{Name: "fe"},
+			{Name: "mockgen", Output: &cli.ConfigOutput{
+				Layout:  pipeline.LayoutCentralised,
+				Package: "mocks",
+				Dir:     "internal/mocks",
+				Tags: map[string]cli.ConfigOutput{
+					"test": {
+						Layout:  pipeline.LayoutCentralised,
+						Package: "mockstest",
+						Dir:     "internal/mockstest",
+					},
+				},
+			}},
+			{Name: "be"},
+		}
+		p, err := cli.BuildPipeline(env, cfg, []plugin.Plugin{
+			stubFrontend{name: "fe"},
+			stubGenerator{name: "mockgen"},
+			stubBackend{name: "be", lang: "stub"},
+		})
+		if err != nil {
+			t.Fatalf("BuildPipeline: %v", err)
+		}
+		// Primary output keeps the per-plugin block.
+		primary := p.LayoutPolicyForTag("mockgen", "")
+		if primary.Package != "mocks" || primary.Dir != "internal/mocks" {
+			t.Errorf("primary policy = %+v, want Package=mocks Dir=internal/mocks", primary)
+		}
+		// Tagged output picks up the per-tag block.
+		tagged := p.LayoutPolicyForTag("mockgen", "test")
+		if tagged.Package != "mockstest" || tagged.Dir != "internal/mockstest" {
+			t.Errorf("tagged policy = %+v, want Package=mockstest Dir=internal/mockstest", tagged)
+		}
+		// A tag not declared in the config falls back to the
+		// per-plugin block.
+		other := p.LayoutPolicyForTag("mockgen", "other")
+		if other.Package != "mocks" || other.Dir != "internal/mocks" {
+			t.Errorf("undeclared-tag policy = %+v, want fallback to per-plugin", other)
+		}
+	})
+
 	t.Run("empty output config leaves the framework default in place", func(t *testing.T) {
 		t.Parallel()
 		env, _, _ := freshEnv(t, "eidos")
