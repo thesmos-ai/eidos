@@ -192,16 +192,16 @@ func TestBaseEmit_OutputTag(t *testing.T) {
 	t.Run("zero value carries an empty OutputTag", func(t *testing.T) {
 		t.Parallel()
 		var b emit.BaseEmit
-		if b.OutputTag != "" {
-			t.Fatalf("zero-value OutputTag = %q, want empty", b.OutputTag)
+		if b.OutputTag() != "" {
+			t.Fatalf("zero-value OutputTag = %q, want empty", b.OutputTag())
 		}
 	})
 
 	t.Run("a non-empty OutputTag round-trips through struct literal", func(t *testing.T) {
 		t.Parallel()
-		b := emit.BaseEmit{OutputTag: "test"}
-		if b.OutputTag != "test" {
-			t.Fatalf("OutputTag = %q, want %q", b.OutputTag, "test")
+		b := emit.BaseEmit{OutputTagName: "test"}
+		if b.OutputTag() != "test" {
+			t.Fatalf("OutputTag = %q, want %q", b.OutputTag(), "test")
 		}
 	})
 
@@ -226,7 +226,7 @@ func TestBaseEmit_OutputTag(t *testing.T) {
 
 	t.Run("non-empty OutputTag round-trips through JSON", func(t *testing.T) {
 		t.Parallel()
-		b := emit.BaseEmit{OutputTag: "test"}
+		b := emit.BaseEmit{OutputTagName: "test"}
 		//nolint:musttag
 		raw, err := json.Marshal(b)
 		if err != nil {
@@ -240,8 +240,8 @@ func TestBaseEmit_OutputTag(t *testing.T) {
 		if err := json.Unmarshal(raw, &out); err != nil {
 			t.Fatalf("Unmarshal: %v", err)
 		}
-		if out.OutputTag != "test" {
-			t.Fatalf("round-trip OutputTag = %q, want %q", out.OutputTag, "test")
+		if out.OutputTag() != "test" {
+			t.Fatalf("round-trip OutputTag = %q, want %q", out.OutputTag(), "test")
 		}
 	})
 }

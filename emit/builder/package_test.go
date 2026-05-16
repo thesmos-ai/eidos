@@ -142,11 +142,11 @@ func TestPackageBuilder_File(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Build: %v", err)
 		}
-		if pkg.Structs[0].OutputTag != "" {
-			t.Errorf("Production struct OutputTag = %q, want empty", pkg.Structs[0].OutputTag)
+		if pkg.Structs[0].OutputTag() != "" {
+			t.Errorf("Production struct OutputTag = %q, want empty", pkg.Structs[0].OutputTag())
 		}
-		if pkg.Structs[1].OutputTag != "test" {
-			t.Errorf("Helper struct OutputTag = %q, want %q", pkg.Structs[1].OutputTag, "test")
+		if pkg.Structs[1].OutputTag() != "test" {
+			t.Errorf("Helper struct OutputTag = %q, want %q", pkg.Structs[1].OutputTag(), "test")
 		}
 	})
 
@@ -203,8 +203,8 @@ func TestPackageBuilder_File(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Build: %v", err)
 		}
-		if pkg.Structs[0].OutputTag != "b" {
-			t.Errorf("nested-chain Struct OutputTag = %q, want %q", pkg.Structs[0].OutputTag, "b")
+		if pkg.Structs[0].OutputTag() != "b" {
+			t.Errorf("nested-chain Struct OutputTag = %q, want %q", pkg.Structs[0].OutputTag(), "b")
 		}
 	})
 
@@ -230,15 +230,15 @@ func TestPackageBuilder_File(t *testing.T) {
 			name string
 			tag  string
 		}{
-			{"Struct", pkg.Structs[0].OutputTag},
-			{"Interface", pkg.Interfaces[0].OutputTag},
-			{"Function", pkg.Functions[0].OutputTag},
-			{"Enum", pkg.Enums[0].OutputTag},
-			{"Alias (true)", pkg.Aliases[0].OutputTag},
-			{"Alias (NamedType)", pkg.Aliases[1].OutputTag},
-			{"Variable", pkg.Variables[0].OutputTag},
-			{"Constant", pkg.Constants[0].OutputTag},
-			{"Method", pkg.Methods[0].OutputTag},
+			{"Struct", pkg.Structs[0].OutputTag()},
+			{"Interface", pkg.Interfaces[0].OutputTag()},
+			{"Function", pkg.Functions[0].OutputTag()},
+			{"Enum", pkg.Enums[0].OutputTag()},
+			{"Alias (true)", pkg.Aliases[0].OutputTag()},
+			{"Alias (NamedType)", pkg.Aliases[1].OutputTag()},
+			{"Variable", pkg.Variables[0].OutputTag()},
+			{"Constant", pkg.Constants[0].OutputTag()},
+			{"Method", pkg.Methods[0].OutputTag()},
 		}
 		for _, c := range checks {
 			if c.tag != "test" {

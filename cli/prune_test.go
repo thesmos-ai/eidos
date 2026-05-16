@@ -22,7 +22,10 @@ import (
 // marker line and seeds the prev manifest with a matching entry.
 // Used by every prune-test stanza that needs a "previously
 // generated, no longer claimed" candidate on disk.
-func seedStaleFile(t *testing.T, workdir, brand, dir, name string) (path string, target emit.Target) {
+func seedStaleFile(
+	t *testing.T,
+	workdir, brand, dir, name string,
+) (path string, target emit.Target) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Join(workdir, dir), 0o750); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -46,7 +49,13 @@ func writePrevManifest(t *testing.T, env *cli.Env, targets ...emit.Target) {
 	m := manifest.New("prev-run-id")
 	m.Brand = env.Brand
 	for _, tgt := range targets {
-		m.Add(manifest.Output{Target: tgt, Plugins: []string{"seedgen"}, Hash: "sha256:dummy"})
+		m.Add(
+			manifest.Output{
+				Target:  tgt,
+				Plugins: []manifest.PluginAttribution{{Name: "seedgen"}},
+				Hash:    "sha256:dummy",
+			},
+		)
 	}
 	if err := manifest.Write(env.ManifestPath(), m); err != nil {
 		t.Fatalf("write prev manifest: %v", err)

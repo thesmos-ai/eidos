@@ -3,13 +3,105 @@
 
 package manifest
 
-import "go.thesmos.sh/eidos/emit"
+import (
+	"encoding/json"
+	"fmt"
+	"strconv"
+
+	"go.thesmos.sh/eidos/emit"
+)
 
 // Version is the current manifest schema version. Bump whenever the
 // on-disk format changes incompatibly so older readers detect the
 // mismatch and refuse to interpret the file rather than silently
 // mis-parsing it.
 const Version = 1
+
+// PluginAttribution names one plugin's contribution to a
+// rendered [Output]. Name is the plugin's stable identifier
+// (matches [plugin.Plugin.Name]); OutputTag identifies the
+// multi-output emission the contribution lives in (empty for the
+// plugin's primary output, non-empty for a tagged secondary
+// output).
+//
+// Serialisation is polymorphic so primary-output manifests stay
+// byte-identical to pre-multi-output manifests: an attribution
+// whose OutputTag is empty marshals as a bare JSON string; an
+// attribution carrying a non-empty OutputTag marshals as a JSON
+// object with `name` and `output_tag` fields. Unmarshal accepts
+// either form on the wire.
+type PluginAttribution struct {
+	// Name is the plugin's stable identifier.
+	Name string `json:"name"`
+
+	// OutputTag identifies the multi-output emission this
+	// contribution lives in — matches the [plugin.Output.Tag]
+	// declared by the plugin for its routable outputs. Empty
+	// means the plugin's primary output; non-empty values pair
+	// structurally with Name so consumers can render
+	// `<plugin>:<tag>` for human-readable surfaces.
+	OutputTag string `json:"output_tag,omitempty"`
+}
+
+// String renders the attribution in the canonical
+// `<plugin>:<tag>` cross-tool form — the bare plugin name when
+// OutputTag is empty, otherwise plugin name and tag joined by a
+// colon. Diagnostics, log lines, and explain-style human-readable
+// surfaces use this representation so tag references stay
+// scope-aware across a multi-plugin pipeline.
+func (a PluginAttribution) String() string {
+	if a.OutputTag == "" {
+		return a.Name
+	}
+	return a.Name + ":" + a.OutputTag
+}
+
+// MarshalJSON emits a bare JSON string when no OutputTag is set,
+// or a JSON object otherwise. The bare-string form keeps
+// primary-output manifest entries byte-identical to the format
+// pre-dating multi-output support. Both branches encode the
+// fields via [strconv.AppendQuote] — total over every Go string,
+// so the method never returns a non-nil error and the signature's
+// `error` return exists only to satisfy the [json.Marshaler]
+// contract.
+func (a PluginAttribution) MarshalJSON() ([]byte, error) {
+	if a.OutputTag == "" {
+		return strconv.AppendQuote(nil, a.Name), nil
+	}
+	buf := make([]byte, 0, len(a.Name)+len(a.OutputTag)+pluginAttributionObjectOverhead)
+	buf = append(buf, `{"name":`...)
+	buf = strconv.AppendQuote(buf, a.Name)
+	buf = append(buf, `,"output_tag":`...)
+	buf = strconv.AppendQuote(buf, a.OutputTag)
+	buf = append(buf, '}')
+	return buf, nil
+}
+
+// pluginAttributionObjectOverhead is the byte count of the
+// non-string scaffolding [PluginAttribution.MarshalJSON] emits
+// when rendering the object form: `{"name":""`+`,"output_tag":""}`.
+// Used to pre-size the buffer; the value avoids a recurring
+// magic-number explanation at the call site.
+const pluginAttributionObjectOverhead = len(`{"name":""`) + len(`,"output_tag":""}`)
+
+// UnmarshalJSON accepts both the bare-string form (legacy /
+// untagged attribution) and the object form (tagged attribution).
+// Producers may interleave both shapes within one manifest's
+// plugins array — the framework emits whichever form keeps the
+// entry minimal, and consumers handle both transparently.
+func (a *PluginAttribution) UnmarshalJSON(data []byte) error {
+	if len(data) > 0 && data[0] == '"' {
+		if err := json.Unmarshal(data, &a.Name); err != nil {
+			return fmt.Errorf("manifest: unmarshal plugin name: %w", err)
+		}
+		return nil
+	}
+	type attributionObject PluginAttribution
+	if err := json.Unmarshal(data, (*attributionObject)(a)); err != nil {
+		return fmt.Errorf("manifest: unmarshal plugin attribution: %w", err)
+	}
+	return nil
+}
 
 // Output is one entry in a [Manifest] — the [emit.Target] the
 // pipeline routed the file to, the plugins that contributed to it,
@@ -20,11 +112,22 @@ type Output struct {
 	// file to.
 	Target emit.Target `json:"target"`
 
-	// Plugins is the list of plugin names that contributed to the
-	// rendered file. Multiple plugins appear when free-floating
-	// declarations from different generators share a Target or
-	// when slot-based composition mixes contributions.
-	Plugins []string `json:"plugins"`
+	// Plugins is the list of plugin attributions that contributed
+	// to the rendered file. Each entry pairs a plugin name with
+	// an optional [plugin.Output.Tag] identifying the
+	// multi-output emission the contribution lives in. Multiple
+	// plugins appear when free-floating declarations from
+	// different generators share a Target or when slot-based
+	// composition mixes contributions.
+	//
+	// Serialisation is polymorphic for byte-stable parity with
+	// pre-multi-output manifests: an untagged attribution renders
+	// as a bare JSON string ("enum"); a tagged attribution renders
+	// as a JSON object ({"name":"enum","output_tag":"test"}). The
+	// custom [PluginAttribution.MarshalJSON] /
+	// [PluginAttribution.UnmarshalJSON] pair handles both forms on
+	// both sides of the wire.
+	Plugins []PluginAttribution `json:"plugins"`
 
 	// Hash is the SHA-256 hex digest of the rendered file content
 	// prefixed with "sha256:". A change in any plugin's

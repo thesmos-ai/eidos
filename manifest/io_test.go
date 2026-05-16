@@ -21,7 +21,13 @@ func TestWrite(t *testing.T) {
 		root := t.TempDir()
 		path := filepath.Join(root, ".eidos", "manifest.json")
 		m := manifest.New("run-1")
-		m.Add(manifest.Output{Target: targetAt("a", "b.go"), Plugins: []string{"p"}, Hash: "sha256:x"})
+		m.Add(
+			manifest.Output{
+				Target:  targetAt("a", "b.go"),
+				Plugins: []manifest.PluginAttribution{{Name: "p"}},
+				Hash:    "sha256:x",
+			},
+		)
 		assertNoError(t, manifest.Write(path, m))
 		body, err := os.ReadFile(path)
 		assertNoError(t, err)
@@ -84,7 +90,13 @@ func TestRead(t *testing.T) {
 		path := filepath.Join(root, "manifest.json")
 		original := manifest.New("run-1")
 		original.Brand = "acmegen"
-		original.Add(manifest.Output{Target: targetAt("a", "b.go"), Plugins: []string{"p"}, Hash: "sha256:x"})
+		original.Add(
+			manifest.Output{
+				Target:  targetAt("a", "b.go"),
+				Plugins: []manifest.PluginAttribution{{Name: "p"}},
+				Hash:    "sha256:x",
+			},
+		)
 		assertNoError(t, manifest.Write(path, original))
 
 		got, err := manifest.Read(path)
@@ -123,7 +135,10 @@ func TestRead(t *testing.T) {
 		t.Parallel()
 		root := t.TempDir()
 		path := filepath.Join(root, "future.json")
-		assertNoError(t, os.WriteFile(path, []byte(`{"version":99,"run_id":"x","outputs":[]}`), 0o600))
+		assertNoError(
+			t,
+			os.WriteFile(path, []byte(`{"version":99,"run_id":"x","outputs":[]}`), 0o600),
+		)
 		_, err := manifest.Read(path)
 		if !errors.Is(err, manifest.ErrUnsupportedVersion) {
 			t.Fatalf("expected ErrUnsupportedVersion; got %v", err)

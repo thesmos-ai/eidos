@@ -29,6 +29,161 @@ import (
 // a backend that performs sink.Writes, then read the written
 // manifest and verify its contents.
 
+// TestManifest_MultiOutputAttribution pins the multi-output
+// manifest attribution: a tagged emit decl produces a manifest
+// entry whose Plugins list carries the [emit.BaseEmit.OutputTag]
+// in the contributing plugin's attribution. Primary-output
+// entries marshal as bare strings (preserving byte-stable parity
+// with pre-multi-output manifests); tagged entries marshal as
+// objects with `output_tag`. Both flavours round-trip through
+// [manifest.Read] so consumers can pair name + output_tag
+// structurally without parsing the human-readable form.
+func TestManifest_MultiOutputAttribution(t *testing.T) {
+	t.Parallel()
+
+	t.Run("tagged decl surfaces output_tag in the manifest's Plugins list", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		manifestPath := filepath.Join(root, ".eidos", "manifest.json")
+		mem := sink.NewMemory()
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "a/x.go"}},
+			Name:     "X", Package: "example.com/a",
+		}
+		fe := &nodePackageFE{name: "fe", pkg: &node.Package{
+			Name: "a", Path: "example.com/a",
+			Structs: []*node.Struct{origin},
+		}}
+		primary := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin, SetByName: "enum"},
+			Name:     "X", Package: "a",
+		}
+		tagged := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin, SetByName: "enum", OutputTagName: "test"},
+			Name:     "XTest", Package: "a",
+		}
+		gen := &layoutGen{
+			name: "enum",
+			outputs: []plugin.Output{
+				{Suffix: "_enum.go"},
+				{Tag: "test", Suffix: "_enum_test.go"},
+			},
+			pkg: &emit.Package{
+				Name: "a", Path: "example.com/a",
+				Structs: []*emit.Struct{primary, tagged},
+			},
+		}
+		be := &recBE{
+			name: "be", lang: "stub",
+			render: func(ctx *plugin.BackendContext) {
+				ctx.Reader.EmitStructs().Each(func(s *emit.Struct) {
+					_ = ctx.Sink.Write(s.Target, []byte("body-"+s.Name))
+				})
+			},
+		}
+		p, err := pipeline.New().
+			WithFrontend(fe).
+			WithGenerator(gen).
+			WithBackend(be).
+			WithSink(mem).
+			WithManifestPath(manifestPath).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "a"))
+
+		m, err := manifest.Read(manifestPath)
+		assertNoError(t, err)
+		if len(m.Outputs) != 2 {
+			t.Fatalf("manifest should record 2 outputs; got %d", len(m.Outputs))
+		}
+
+		byFilename := map[string]manifest.Output{}
+		for _, o := range m.Outputs {
+			byFilename[o.Target.Filename] = o
+		}
+		primaryOut, ok := byFilename["x_enum.go"]
+		if !ok {
+			t.Fatalf("manifest missing primary output entry; got %v", byFilename)
+		}
+		if len(primaryOut.Plugins) != 1 || primaryOut.Plugins[0].Name != "enum" {
+			t.Errorf("primary Plugins = %+v, want one attribution for enum", primaryOut.Plugins)
+		}
+		if got := primaryOut.Plugins[0].OutputTag; got != "" {
+			t.Errorf("primary attribution OutputTag = %q, want empty", got)
+		}
+		taggedOut, ok := byFilename["x_enum_test.go"]
+		if !ok {
+			t.Fatalf("manifest missing tagged output entry; got %v", byFilename)
+		}
+		if len(taggedOut.Plugins) != 1 || taggedOut.Plugins[0].Name != "enum" {
+			t.Errorf("tagged Plugins = %+v, want one attribution for enum", taggedOut.Plugins)
+		}
+		if got, want := taggedOut.Plugins[0].OutputTag, "test"; got != want {
+			t.Errorf("tagged attribution OutputTag = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("primary attribution serialises as a bare string on disk", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		manifestPath := filepath.Join(root, ".eidos", "manifest.json")
+		mem := sink.NewMemory()
+		origin := &node.Struct{
+			BaseNode: node.BaseNode{SourcePos: position.Pos{File: "a/x.go"}},
+			Name:     "X", Package: "example.com/a",
+		}
+		fe := &nodePackageFE{name: "fe", pkg: &node.Package{
+			Name: "a", Path: "example.com/a",
+			Structs: []*node.Struct{origin},
+		}}
+		primary := &emit.Struct{
+			BaseEmit: emit.BaseEmit{OriginNode: origin, SetByName: "enum"},
+			Name:     "X", Package: "a",
+		}
+		gen := &layoutGen{
+			name:    "enum",
+			outputs: []plugin.Output{{Suffix: "_enum.go"}},
+			pkg: &emit.Package{
+				Name: "a", Path: "example.com/a",
+				Structs: []*emit.Struct{primary},
+			},
+		}
+		be := &recBE{
+			name: "be", lang: "stub",
+			render: func(ctx *plugin.BackendContext) {
+				ctx.Reader.EmitStructs().Each(func(s *emit.Struct) {
+					_ = ctx.Sink.Write(s.Target, []byte("body"))
+				})
+			},
+		}
+		p, err := pipeline.New().
+			WithFrontend(fe).
+			WithGenerator(gen).
+			WithBackend(be).
+			WithSink(mem).
+			WithManifestPath(manifestPath).
+			Build()
+		assertNoError(t, err)
+		assertNoError(t, p.Run(t.Context(), "a"))
+
+		body, err := os.ReadFile(manifestPath)
+		assertNoError(t, err)
+		// The bare-string form for the plugin element (`"enum"`,
+		// not `{"name":"enum"}`) is the byte-stable shape for
+		// primary-output entries — any drift toward object form
+		// would break manifests written before the M4 output_tag
+		// surface landed. The exact whitespace around the array
+		// follows the json.MarshalIndent contract; we assert on
+		// the indented element form the encoder uses.
+		if !strings.Contains(string(body), "\"enum\"\n") {
+			t.Errorf("primary attribution should serialise as bare string; got:\n%s", body)
+		}
+		if strings.Contains(string(body), `"name": "enum"`) {
+			t.Errorf("primary attribution leaked into object form; got:\n%s", body)
+		}
+	})
+}
+
 func TestManifest_RecordsBackendWrites(t *testing.T) {
 	t.Parallel()
 
@@ -221,7 +376,7 @@ func TestManifest_RecordsBackendWrites(t *testing.T) {
 			t.Fatalf("expected 1 output; got %d", len(m.Outputs))
 		}
 		got := m.Outputs[0].Plugins
-		if len(got) != 1 || got[0] != "attrgen" {
+		if len(got) != 1 || got[0].Name != "attrgen" {
 			t.Fatalf("Plugins = %v, want [attrgen] (only contributing plugin)", got)
 		}
 	})
@@ -320,11 +475,11 @@ func TestManifest_RecordsBackendWrites(t *testing.T) {
 		if len(got) != len(want) {
 			t.Fatalf("Plugins = %v, want every contributor (%v)", got, want)
 		}
-		for _, name := range got {
-			if !want[name] {
-				t.Fatalf("Plugins lists %q which did not contribute; got %v", name, got)
+		for _, attr := range got {
+			if !want[attr.Name] {
+				t.Fatalf("Plugins lists %q which did not contribute; got %v", attr.Name, got)
 			}
-			delete(want, name)
+			delete(want, attr.Name)
 		}
 		if len(want) != 0 {
 			t.Fatalf("Plugins missing contributors %v; got %v", want, m.Outputs[0].Plugins)

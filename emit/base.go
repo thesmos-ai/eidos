@@ -62,7 +62,7 @@ type BaseEmit struct {
 	// Access via [BaseEmit.SetBy].
 	SetByName string `json:"set_by,omitempty"`
 
-	// OutputTag identifies the [go.thesmos.sh/eidos/plugin.Output]
+	// OutputTagName identifies the [go.thesmos.sh/eidos/plugin.Output]
 	// this decl belongs to within its owning plugin's namespace.
 	// Empty means the plugin's primary output; non-empty values
 	// must match one of the values
@@ -73,10 +73,11 @@ type BaseEmit struct {
 	//
 	// Direct field assignment is not the supported authoring API.
 	// Plugins stamp the tag indirectly through the sub-context
-	// `PackageBuilder.File(tag)` returns; reading the field is
+	// `PackageBuilder.File(tag)` returns; reading the value is
 	// always safe for downstream consumers (later generators,
-	// weavers iterating decls, backends rendering output).
-	OutputTag string `json:"output_tag,omitempty"`
+	// weavers iterating decls, backends rendering output) — access
+	// via [BaseEmit.OutputTag].
+	OutputTagName string `json:"output_tag,omitempty"`
 }
 
 // Pos returns [BaseEmit.SourcePos].
@@ -139,3 +140,10 @@ func (b *BaseEmit) Origin() node.Node { return b.OriginNode }
 // produced this emit value, or the empty string for entities
 // constructed without a builder context.
 func (b *BaseEmit) SetBy() string { return b.SetByName }
+
+// OutputTag returns [BaseEmit.OutputTagName] — the
+// [plugin.Output.Tag] this emit value belongs to within its
+// owning plugin's namespace, or the empty string for the
+// plugin's primary output. Downstream consumers pair this with
+// [SetBy] to render `<plugin>:<tag>` for human-readable surfaces.
+func (b *BaseEmit) OutputTag() string { return b.OutputTagName }

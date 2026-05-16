@@ -496,7 +496,7 @@ func TestLayout_PluginOutputFilename(t *testing.T) {
 			Name:     "Primary", Package: "users",
 		}
 		tagged := &emit.Struct{
-			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTagName: "test"},
 			Name:     "Tagged", Package: "users",
 		}
 		p, err := pipeline.New().
@@ -540,7 +540,7 @@ func TestLayout_PluginOutputFilename(t *testing.T) {
 			Name:     "Primary", Package: "users",
 		}
 		tagged := &emit.Struct{
-			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTagName: "test"},
 			Name:     "Tagged", Package: "users",
 		}
 		p, err := pipeline.New().
@@ -1672,7 +1672,7 @@ func TestLayout_MultiOutputDispatch(t *testing.T) {
 			Name:     "UserEnum", Package: "users",
 		}
 		tagged := &emit.Struct{
-			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTagName: "test"},
 			Name:     "UserEnumTest", Package: "users",
 		}
 		p, err := pipeline.New().
@@ -1708,7 +1708,7 @@ func TestLayout_MultiOutputDispatch(t *testing.T) {
 			Name:     "X", Package: "example.com/x",
 		}
 		decl := &emit.Struct{
-			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "nonexistent"},
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTagName: "nonexistent"},
 			Name:     "X", Package: "x",
 		}
 		d := diag.New()
@@ -1801,7 +1801,7 @@ func TestLayout_OutDirective_TagScope(t *testing.T) {
 			Name:     "UserEnum", Package: "users",
 		}
 		tagged := &emit.Struct{
-			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTagName: "test"},
 			Name:     "UserEnumTest", Package: "users",
 		}
 		p, err := pipeline.New().
@@ -1851,7 +1851,7 @@ func TestLayout_OutDirective_TagScope(t *testing.T) {
 			Name:     "UserEnum", Package: "users",
 		}
 		tagged := &emit.Struct{
-			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTagName: "test"},
 			Name:     "UserEnumTest", Package: "users",
 		}
 		p, err := pipeline.New().
@@ -1897,11 +1897,11 @@ func TestLayout_OutDirective_TagScope(t *testing.T) {
 		}
 		// enum:test should match; other:test should NOT.
 		enumTest := &emit.Struct{
-			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTagName: "test"},
 			Name:     "EnumTest", Package: "users",
 		}
 		otherTest := &emit.Struct{
-			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTagName: "test"},
 			Name:     "OtherTest", Package: "users",
 		}
 		p, err := pipeline.New().
@@ -1957,11 +1957,11 @@ func TestLayout_OutDirective_TagScope(t *testing.T) {
 			Name: "User", Package: "example.com/users",
 		}
 		enumTest := &emit.Struct{
-			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTagName: "test"},
 			Name:     "EnumTest", Package: "users",
 		}
 		otherTest := &emit.Struct{
-			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTagName: "test"},
 			Name:     "OtherTest", Package: "users",
 		}
 		p, err := pipeline.New().
@@ -2030,7 +2030,7 @@ func TestLayout_UnscopedMultiOutputOverride(t *testing.T) {
 			Name:     "Primary", Package: "users",
 		}
 		tagged := &emit.Struct{
-			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTagName: "test"},
 			Name:     "Tagged", Package: "users",
 		}
 		d := diag.New()
@@ -2077,7 +2077,7 @@ func TestLayout_UnscopedMultiOutputOverride(t *testing.T) {
 			Name:     "Primary", Package: "users",
 		}
 		tagged := &emit.Struct{
-			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTagName: "test"},
 			Name:     "Tagged", Package: "users",
 		}
 		p, err := pipeline.New().
@@ -2132,7 +2132,7 @@ func TestLayout_TestShift_FiresPerOutput(t *testing.T) {
 			Name:     "Production", Package: "users",
 		}
 		tagged := &emit.Struct{
-			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTagName: "test"},
 			Name:     "Tested", Package: "users",
 		}
 		p, err := pipeline.New().
@@ -2607,7 +2607,7 @@ func TestPipeline_PluginNames_IncludesAnnotators(t *testing.T) {
 		// contribution, so "ann" is absent — but the enumeration
 		// step ran. The successful manifest write is the
 		// observable signal.
-		if got := m.Outputs[0].Plugins; len(got) != 1 || got[0] != "rg" {
+		if got := m.Outputs[0].Plugins; len(got) != 1 || got[0].Name != "rg" {
 			t.Fatalf("Plugins = %v, want [rg]", got)
 		}
 	})
@@ -2673,8 +2673,8 @@ func TestLayout_CollectContributors_InterfaceMethods(t *testing.T) {
 		}
 		got := m.Outputs[0].Plugins
 		want := map[string]bool{"rg": true, "methgen": true}
-		for _, name := range got {
-			delete(want, name)
+		for _, attr := range got {
+			delete(want, attr.Name)
 		}
 		if len(want) != 0 {
 			t.Fatalf("Plugins = %v, missing contributors %v", got, want)
@@ -3105,7 +3105,7 @@ func TestLayout_PerDirective_TagScope(t *testing.T) {
 			Name:     "UserPrimary", Package: "example.com/users",
 		}
 		tagged := &emit.Struct{
-			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTagName: "test"},
 			Name:     "UserTagged", Package: "example.com/users",
 		}
 		p, err := pipeline.New().
@@ -3153,11 +3153,11 @@ func TestLayout_PerDirective_TagScope(t *testing.T) {
 			Name: "User", Package: "example.com/users",
 		}
 		mgTagged := &emit.Struct{
-			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTagName: "test"},
 			Name:     "MgTagged", Package: "example.com/users",
 		}
 		companionTagged := &emit.Struct{
-			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTag: "test"},
+			BaseEmit: emit.BaseEmit{OriginNode: origin, OutputTagName: "test"},
 			Name:     "CompanionTagged", Package: "example.com/users",
 		}
 		p, err := pipeline.New().

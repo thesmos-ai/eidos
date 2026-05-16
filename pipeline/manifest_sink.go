@@ -132,31 +132,40 @@ func (r *recordingSink) asManifest(
 	return m
 }
 
-// pluginsForTarget returns the unique plugin identifiers that
-// produced content routed to target, ordered by the pipeline's
-// registration order. Both top-level entity attribution
-// ([emit.Node.SetBy]) and slot-contribution provenance
-// ([emit.Provenance.SetBy], including method-body weaver
-// contributions) participate. The empty string ("unattributed")
-// drops out unconditionally.
+// pluginsForTarget returns the manifest plugin attributions for
+// every plugin that contributed content routed to target,
+// ordered by the pipeline's registration order. Both top-level
+// entity attribution ([emit.Node.SetBy]) and slot-contribution
+// provenance ([emit.Provenance.SetBy], including method-body
+// weaver contributions) participate. The empty string
+// ("unattributed") drops out unconditionally. Each attribution
+// carries the [emit.Node.OutputTag] inherited from the
+// contributing decl so the manifest pairs <plugin, tag>
+// structurally for downstream consumers.
 //
 // Falls back to the full `order` slice when no entity carries
 // attribution — the test-fixture case where entities are
 // hand-built outside the builder — so the manifest's per-output
 // Plugins list stays consistent with the rendered file's
-// `Plugins:` header in either regime.
-func pluginsForTarget(s *store.Store, target emit.Target, order []string) []string {
-	contributed := map[string]bool{}
+// `Plugins:` header in either regime. Fallback attributions
+// carry empty OutputTag because there is no per-plugin decl to
+// inherit from.
+func pluginsForTarget(s *store.Store, target emit.Target, order []string) []manifest.PluginAttribution {
+	contributed := map[string]string{}
 	for _, e := range s.Emit().ByTarget().Get(target) {
 		collectTargetContributors(e, contributed)
 	}
 	if len(contributed) == 0 {
-		return append([]string(nil), order...)
+		out := make([]manifest.PluginAttribution, len(order))
+		for i, name := range order {
+			out[i] = manifest.PluginAttribution{Name: name}
+		}
+		return out
 	}
-	out := make([]string, 0, len(contributed))
+	out := make([]manifest.PluginAttribution, 0, len(contributed))
 	for _, name := range order {
-		if contributed[name] {
-			out = append(out, name)
+		if tag, ok := contributed[name]; ok {
+			out = append(out, manifest.PluginAttribution{Name: name, OutputTag: tag})
 		}
 	}
 	return out
@@ -166,16 +175,28 @@ func pluginsForTarget(s *store.Store, target emit.Target, order []string) []stri
 // every Provenance stamped on n's slots, recursing one level into
 // the methods of method-bearing hosts. Mirrors the per-target
 // collector the backend's header renderer uses so manifest and
-// header report the same per-target plugin set.
-func collectTargetContributors(n emit.Node, out map[string]bool) {
+// header report the same per-target plugin set. The map records
+// plugin name → OutputTag pairs so the manifest's PluginAttribution
+// list pairs each contributor with the tag of the routable decl
+// that drove the target.
+//
+// Slot provenance inherits the host decl's OutputTag — slot
+// contributions land in the host's rendered file, so the
+// contributing plugin's manifest attribution shares the host's
+// tag.
+func collectTargetContributors(n emit.Node, out map[string]string) {
 	if name := strings.TrimSpace(n.SetBy()); name != "" {
-		out[name] = true
+		if _, seen := out[name]; !seen {
+			out[name] = n.OutputTag()
+		}
 	}
 	if host, ok := n.(slotEnumerator); ok {
 		for _, slot := range host.SlotsByName() {
 			for _, prov := range slot.ProvenanceList {
 				if name := strings.TrimSpace(prov.SetBy); name != "" {
-					out[name] = true
+					if _, seen := out[name]; !seen {
+						out[name] = n.OutputTag()
+					}
 				}
 			}
 		}

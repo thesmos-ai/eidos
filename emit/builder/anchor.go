@@ -96,7 +96,7 @@ func applyBuilderDefaults(b *PackageBuilder, dst *emit.BaseEmit) {
 	if dst.OriginNode == nil && b.defaultOrigin != nil {
 		dst.OriginNode = b.defaultOrigin
 	}
-	if dst.OutputTag == "" {
-		dst.OutputTag = b.outputTag
+	if dst.OutputTagName == "" {
+		dst.OutputTagName = b.outputTag
 	}
 }

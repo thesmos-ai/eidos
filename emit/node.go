@@ -36,4 +36,13 @@ type Node interface {
 	// run's manifest entry's Plugins list); the empty string is
 	// treated as "unattributed".
 	SetBy() string
+
+	// OutputTag returns the [plugin.Output.Tag] this emit value
+	// belongs to within its owning plugin's namespace. Empty for
+	// the plugin's primary output; non-empty for a tagged
+	// secondary output. Consumers (Layout dispatch, manifest
+	// attribution, diagnostics) pair this with [SetBy] to render
+	// the canonical `<plugin>:<tag>` form when surfaces are
+	// human-readable.
+	OutputTag() string
 }
