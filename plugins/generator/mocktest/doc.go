@@ -99,6 +99,28 @@
 // alternative mock generator that stamps the same meta keys plugs
 // in transparently.
 //
+// # Routing
+//
+// `mocktest` anchors every emitted function on the same source
+// node the mock anchored on (read from the mock emit struct's
+// [emit.BaseEmit.Origin]). Sharing an origin means sharing routing:
+// the pipeline's Layout phase places `<src>_mock_test.go` in the
+// same dir the mock landed in, and the framework's `_test.go →
+// <pkg>_test` shift produces an external test package by default.
+//
+// Per-directive `out=` / `pkg=` keys on `+gen:mock` propagate to
+// mocktest's output without restating the override, so the testkit
+// pattern collapses to a single directive line:
+//
+//	// +gen:mock out=storetest/
+//	type Store interface { ... }
+//
+// emits both `store/storetest/store_mock.go` (package `storetest`)
+// and `store/storetest/store_mock_test.go` (package
+// `storetest_test`). Cross-package references into the mock are
+// qualified automatically by the Go backend's
+// [emit.Internal] render path.
+//
 // # Position in the pipeline
 //
 // `mocktest` runs in [sdk.GeneratorCrossCutting] and requires the

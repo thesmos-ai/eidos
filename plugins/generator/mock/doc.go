@@ -66,7 +66,7 @@
 //	        emit.NewExprStmt(emit.NewCall(
 //	            emit.NewField(emit.NewIdent("m"), "record"),
 //	        )),
-//	        emit.Provenance{Plugin: "mock-recording", ID: "mock.recording"},
+//	        emit.Provenance{SetBy: "mock-recording", ID: "mock.recording"},
 //	    )
 //	}
 //
@@ -74,6 +74,34 @@
 // the same slots without coordinating with each other; the
 // framework's capability topo sort orders their contributions by
 // `Provides` / `Requires` declarations.
+//
+// # Routing
+//
+// The plugin makes no placement decisions. Every emit decl
+// anchors on the source interface via [builder.Context.Anchor];
+// the pipeline's Layout phase composes [emit.Target] from the
+// resolved precedence pipeline (framework default → project
+// config → per-directive `out=` / `pkg=` → CLI flags). Three
+// user-facing forms are equivalent at the routing layer:
+//
+//	// default — alongside source, package `<srcpkg>`
+//	// +gen:mock
+//	type Store interface { ... }
+//
+//	// standalone +gen:out, broad scope
+//	// +gen:out testkit/
+//	// +gen:mock
+//	type Store interface { ... }
+//
+//	// per-directive keys on +gen:mock itself
+//	// +gen:mock out=testkit/ pkg=storetest
+//	type Store interface { ... }
+//
+// Per-directive `out=` / `pkg=` propagate to every plugin emitting
+// against the same origin (companion-aware), so the mocktest
+// generator's `_mock_test.go` file follows the mock into the
+// sibling package without restating the override. Users who need
+// strict per-plugin scope use the `+gen:out plugin=<name>` form.
 //
 // # Position in the pipeline
 //

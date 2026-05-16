@@ -27,9 +27,9 @@ import (
 // single place where output routing decisions are made.
 //
 // The phase walks every routable emit kind through an explicit
-// per-kind dispatch, composes a [emit.Target] per decl from the
+// per-kind dispatch, composes an [emit.Target] per decl from the
 // precedence layers — framework default, plugin filename suffix,
-// resolved layout policy, source-side `+gen:out` directive, CLI
+// resolved layout policy, per-source routing directives, CLI
 // overrides — then drains the pending origin-anchored slot list
 // and routes each tuple through the same composition. The
 // one-file-one-package invariant is enforced once both passes
@@ -37,6 +37,25 @@ import (
 // backend's file grouping observes the resolved routing — even
 // when the phase recorded routing errors, the rebuild excludes
 // the offending Targets and renders the non-conflicting subset.
+//
+// Two flavours of per-source routing directive feed the same
+// composition:
+//
+//   - the standalone `+gen:out <path>` directive (with optional
+//     `plugin=<name>` scope and `pkg=<name>` override); and
+//   - per-directive `out=` / `pkg=` keys on any plugin's own
+//     directive — auto-recognised because the pipeline records
+//     directive ownership at Build time (see [Pipeline.directiveOwners]).
+//     Per-directive keys produce unscoped specs so companion plugins
+//     emitting against the same origin inherit the override naturally.
+//
+// At the framework-default precedence layer the resolved package
+// also picks up Go's external-test convention automatically: when
+// the composed filename ends in `_test.go` and the package value
+// was not pinned by a higher precedence layer (and isn't already
+// suffixed `_test`), the layout appends `_test` to both Package
+// and ImportPath. See [coreDirectives] for the full directive
+// surface.
 //
 // Routing errors surface as Error diagnostics attributed to the
 // pipeline's "pipeline.layout" channel. The run continues; the

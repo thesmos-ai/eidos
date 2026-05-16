@@ -6,10 +6,10 @@ package pipeline
 import "go.thesmos.sh/eidos/core/directive"
 
 // OutDirective is the name of the canonical `out` directive — the
-// per-source filename override the Layout phase consumes. Source
-// authors annotate an entity with `+gen:out filename.go` (or
-// whatever prefix the directive parser is configured with) to pin
-// the rendered filename for whatever the plugins emit from that
+// per-source routing override the Layout phase consumes. Source
+// authors annotate an entity with `+gen:out <path>` (with optional
+// `plugin=<name>` scope and `pkg=<name>` override) to influence
+// where the framework places whatever the plugins emit from that
 // entity. The directive name is brand-independent; the parser
 // strips the prefix before dispatch.
 const OutDirective directive.Name = "out"
@@ -20,46 +20,82 @@ const OutDirective directive.Name = "out"
 // and other internal subsystems depend on; reserving them centrally
 // prevents accidental collisions with plugin-defined directives.
 //
-// The `out` directive supports three forms:
+// # The routing surface
 //
-//   - `//+gen:out filename.go` — pins the rendered filename for
-//     every plugin's output anchored to this source node.
+// Output placement has three equivalent user-facing forms — pick the
+// one that fits the source. All three feed the same precedence
+// pipeline in the Layout phase; only the syntactic anchor differs.
 //
-//   - `//+gen:out filename.go plugin=<name>` — pins the filename
-//     only for the named plugin's output; other plugins fall back
-//     to their default suffix or to an unscoped `+gen:out` on the
-//     same source. Useful when one plugin's output (mockgen's
-//     test-package mode) needs a different filename from the rest.
+// 1. **Default** — no directive. Files land alongside source in the
+// origin's source package. The `_test.go → <pkg>_test` shift fires
+// automatically for any plugin whose filename suffix produces a
+// test file.
 //
-//   - `//+gen:out filename.go pkg=<name>` — pins the rendered
-//     `package <name>` clause along with the filename. Combine
-//     with `plugin=<name>` to scope the package override too.
+//	type Store interface { ... }
+//	// → store/store_mock.go (package store)
+//	// → store/store_mock_test.go (package store_test)
 //
-// `plugin` and `pkg` are key=value modifiers; the filename is the
-// positional first argument. Multiple `+gen:out` directives may
-// appear on one node — each plugin-scoped form wins over the
-// unscoped form for its named plugin, and the unscoped form
-// applies to every plugin no scoped directive targets.
+// 2. **Standalone `+gen:out`** — anchored on the source node, not
+// on any particular emitter. Supports positional path (`testkit/`,
+// `mocks/handler.go`), optional `plugin=<name>` scope to narrow the
+// override to one plugin, and `pkg=<name>` to pin the rendered
+// `package` clause:
 //
-// Source-side use:
+//	//+gen:out testkit/
+//	//+gen:mock
+//	type Store interface { ... }
+//	// → store/testkit/store_mock.go (package testkit)
+//	// → store/testkit/store_mock_test.go (package testkit_test)
 //
-//	//+gen:out user_codegen.go
-//	//+gen:out user_mock_test.go plugin=mockgen
-//	type UserRepo interface { ... }
+// 3. **Per-directive keys** — `out=` and `pkg=` keys on any plugin's
+// own directive. The pipeline auto-recognises them on every
+// directive owned by a plugin (tracked at Build time from
+// [plugin.DirectiveProvider.Directives]). The override is
+// companion-aware: applies to every plugin emitting against the
+// same origin, so sibling generators discovering output via meta
+// inherit the routing without restating it.
 //
-// In that example repogen / buildergen / registrygen land in
-// user_codegen.go (`package <src>`); mockgen lands in
-// user_mock_test.go (`package <src>_test`). The two routed targets
-// have distinct filenames so the one-file-one-package invariant
-// stays clean.
+//	//+gen:mock out=testkit/ pkg=storetest
+//	type Store interface { ... }
+//	// → store/testkit/store_mock.go (package storetest)
+//	// → store/testkit/store_mock_test.go (package storetest_test)
+//
+// # Precedence
+//
+// Layout composes [emit.Target] through layers, low → high:
+// framework default → plugin's [plugin.FilenameProvider] suffix →
+// project layout policy (config) → per-source directive
+// (forms 2 + 3) → CLI `-o` / `-p`. The `_test.go → <pkg>_test`
+// shift runs at the framework-default layer and is skipped when
+// the package was set at any higher layer (or when it already
+// ends in `_test`, so plugins that opted into the convention
+// themselves don't double-shift).
+//
+// # Strict per-plugin scope
+//
+// Per-directive keys (form 3) propagate to every plugin on the
+// origin by design. When a user needs strict per-plugin scope —
+// `+gen:mock out=mocks/` should affect ONLY the mock plugin, not
+// its companion mocktest — they reach for the standalone form
+// with the `plugin=` selector:
+//
+//	//+gen:out mocks/ plugin=mock
+//	//+gen:mock
+//	type Store interface { ... }
+//
+// This is the rare case; the per-directive form covers the common
+// "this directive's outputs travel together" intent without typing.
 func coreDirectives() []directive.Schema {
 	return []directive.Schema{
 		directive.NewSchema(OutDirective).
 			Describe(
-				"Pins the rendered filename for emit entities anchored to this source node. " +
-					"Positional `filename` is required; optional `plugin=<name>` scopes the override " +
-					"to one plugin's output, and optional `pkg=<name>` pins the rendered package " +
-					"clause. CLI -o overrides this directive in turn.",
+				"Routing override for emit entities anchored to this source node. " +
+					"Positional path (filename or relative dir + filename) is required; " +
+					"optional `plugin=<name>` scopes the override to one plugin's output, " +
+					"and optional `pkg=<name>` pins the rendered package clause. CLI -o " +
+					"and -p override this directive in turn. Per-directive `out=` / `pkg=` " +
+					"keys on any plugin's own directive serve the same role with the " +
+					"emitter as natural anchor.",
 			).
 			Positional("filename").
 			DenyNegation().

@@ -35,6 +35,12 @@ order:
    each shipping its own template and contributing into the
    host method's slots without coordinating with each other.
 
+6. **[routing.md](routing.md)** — Where rendered output goes.
+   The three user-facing forms (`+gen:out`, per-directive
+   `out=`/`pkg=` keys, defaults), the `_test.go` shift, the
+   precedence pipeline, and the cross-package reference
+   resolution the backend handles automatically.
+
 ## Reference plugins
 
 Every reference plugin in `reference/` is a complete, tested,
