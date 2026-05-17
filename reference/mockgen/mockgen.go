@@ -41,7 +41,7 @@ import (
 	"go.thesmos.sh/eidos/core/opt"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/emit/builder"
-	"go.thesmos.sh/eidos/emit/refconv"
+	refconv "go.thesmos.sh/eidos/lang/golang"
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/sdk"
 )
@@ -343,7 +343,7 @@ func (p *Plugin) emitForEmitInterface(pkg *builder.PackageBuilder, i *emit.Inter
 
 // emitForSourceInterface emits a Mock struct for a source-side
 // interface, lifting its node-layer types into emit refs through
-// [refconv.FromNode] so the generated mock parses against the same
+// [golang.FromNode] so the generated mock parses against the same
 // signatures the source declares. ifaceRef is the reference the
 // emitted mock uses for the source interface — the plugin always
 // passes [emit.External]; the renderer qualifies references back
@@ -441,7 +441,7 @@ type emitTypeParamSpec struct {
 
 // emitTypeParamsFromNode lifts a [node.TypeParam] slice into the
 // emitTypeParamSpec slice the mock builder consumes. Constraint
-// conversion runs through [refconv.ConstraintFromNode] so the
+// conversion runs through [golang.ConstraintFromNode] so the
 // any-constraint shape collapses to nil for round-tripping through
 // the renderer's IsAny path.
 func emitTypeParamsFromNode(params []*node.TypeParam) []emitTypeParamSpec {

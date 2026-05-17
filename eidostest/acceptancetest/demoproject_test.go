@@ -51,7 +51,7 @@ func TestRunOnDemoProject(t *testing.T) {
 		"blog/article_repo.go",
 		"blog/user_repo.go",
 
-		// buildergen targets blog.Article, blog.User, blog.Comment
+		// builder targets blog.Article, blog.User, blog.Comment
 		"blog/article_builder.go",
 		"blog/user_builder.go",
 		"blog/comment_builder.go",

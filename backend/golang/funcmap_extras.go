@@ -5,12 +5,14 @@ package golang
 
 import (
 	"fmt"
+	"maps"
 	"reflect"
 	"strings"
 	"unicode"
 
 	"go.thesmos.sh/eidos/core/naming"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/lang/golang"
 )
 
 // extrasFuncMap returns the overrideable funcmap categories — the
@@ -21,7 +23,7 @@ import (
 // `provenance`, `imp`) are wired separately and may not be
 // overridden.
 func extrasFuncMap() map[string]any {
-	return map[string]any{
+	out := map[string]any{
 		// Naming — delegates to core/naming.
 		"pascal":    naming.Pascal,
 		"camel":     naming.Camel,
@@ -53,6 +55,16 @@ func extrasFuncMap() map[string]any {
 		"origin":  origin,
 		"explain": explain,
 	}
+	// Layer the shared Go conventions ([golang.FuncMap]) on top so
+	// every plugin template targeting the Go backend has access to
+	// the canonical identifier-convention helpers (`isExported`,
+	// `isByteSlice`, `selfType`, …) without the plugin having to
+	// register them itself. Living under [extrasFuncMap] keeps them
+	// overrideable — projects that need bridge-aware variants
+	// (proto → Go `go.name` substitution, …) can supply replacements
+	// through [plugin.TemplateProvider.TemplateOverrides].
+	maps.Copy(out, map[string]any(golang.FuncMap()))
+	return out
 }
 
 // exported returns s with the first rune title-cased — the

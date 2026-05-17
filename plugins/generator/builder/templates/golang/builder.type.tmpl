@@ -1,0 +1,122 @@
+{{- define "builder.type" -}}
+{{- $s := .Source }}
+{{- $builderName := printf "%s%s" $s.Name .Suffix }}
+{{- $args := typeArgs $s }}
+{{- $self := selfType $s }}
+// {{ $builderName }} accumulates field values for {{ $s.Name }} and
+// produces the populated value via [{{ $builderName }}.Build]. Start
+// with [New{{ $s.Name }}]{{ if .DefaultsArg }} or [New{{ $s.Name }}WithDefaults]{{ end }}
+// or [New{{ $s.Name }}From], chain With* setters, then call Build.
+type {{ $builderName }}{{ renderTypeParams (typeParams $s) }} struct {
+	v {{ renderType $self }}
+}
+
+// New{{ $s.Name }} creates a builder seeded with zero values.
+func New{{ $s.Name }}{{ renderTypeParams (typeParams $s) }}() *{{ $builderName }}{{ $args }} {
+	return &{{ $builderName }}{{ $args }}{}
+}
+{{ if .DefaultsArg }}
+// New{{ $s.Name }}WithDefaults creates a builder seeded from the
+// directive-pinned defaults factory.
+func New{{ $s.Name }}WithDefaults{{ renderTypeParams (typeParams $s) }}() *{{ $builderName }}{{ $args }} {
+	return &{{ $builderName }}{{ $args }}{v: {{ renderExpr (defaultsExpr .DefaultsArg) }}()}
+}
+{{ end }}
+// New{{ $s.Name }}From creates a builder seeded with v. Use when the
+// test starts from a known value rather than zero / defaults — e.g.
+// for round-trip / clone scenarios.
+func New{{ $s.Name }}From{{ renderTypeParams (typeParams $s) }}(v {{ renderType $self }}) *{{ $builderName }}{{ $args }} {
+	return &{{ $builderName }}{{ $args }}{v: v}
+}
+{{ range $f := exportedFields $s }}
+{{- if isSlice $f.Type }}
+// With{{ $f.Name }} replaces the {{ $f.Name }} slice (variadic). The
+// second call overwrites the first — use Append{{ $f.Name }} to extend.
+func (b *{{ $builderName }}{{ $args }}) With{{ $f.Name }}(v ...{{ renderType (elemType $f.Type) }}) *{{ $builderName }}{{ $args }} {
+	b.v.{{ $f.Name }} = v
+	return b
+}
+
+// Append{{ $f.Name }} appends to the {{ $f.Name }} slice, preserving
+// any previously-set elements.
+func (b *{{ $builderName }}{{ $args }}) Append{{ $f.Name }}(v ...{{ renderType (elemType $f.Type) }}) *{{ $builderName }}{{ $args }} {
+	b.v.{{ $f.Name }} = append(b.v.{{ $f.Name }}, v...)
+	return b
+}
+{{ else if isMap $f.Type }}
+// With{{ $f.Name }} replaces the {{ $f.Name }} map.
+func (b *{{ $builderName }}{{ $args }}) With{{ $f.Name }}(m {{ renderType (fieldType $f) }}) *{{ $builderName }}{{ $args }} {
+	b.v.{{ $f.Name }} = m
+	return b
+}
+
+// With{{ $f.Name }}Entry adds or replaces a single entry. Lazy-inits
+// the map if it's currently nil.
+func (b *{{ $builderName }}{{ $args }}) With{{ $f.Name }}Entry(k {{ renderType (mapKeyType $f.Type) }}, v {{ renderType (mapValType $f.Type) }}) *{{ $builderName }}{{ $args }} {
+	if b.v.{{ $f.Name }} == nil {
+		b.v.{{ $f.Name }} = {{ renderType (fieldType $f) }}{}
+	}
+	b.v.{{ $f.Name }}[k] = v
+	return b
+}
+{{ else if isByteSlice $f.Type }}
+// With{{ $f.Name }} sets the {{ $f.Name }} field.
+func (b *{{ $builderName }}{{ $args }}) With{{ $f.Name }}(v []byte) *{{ $builderName }}{{ $args }} {
+	b.v.{{ $f.Name }} = v
+	return b
+}
+
+// With{{ $f.Name }}String sets {{ $f.Name }} from a string. Convenience
+// for tests that don't want to wrap their literal in []byte(...).
+func (b *{{ $builderName }}{{ $args }}) With{{ $f.Name }}String(s string) *{{ $builderName }}{{ $args }} {
+	b.v.{{ $f.Name }} = []byte(s)
+	return b
+}
+{{ else }}
+// With{{ $f.Name }} sets the {{ $f.Name }} field.
+func (b *{{ $builderName }}{{ $args }}) With{{ $f.Name }}(v {{ renderType (fieldType $f) }}) *{{ $builderName }}{{ $args }} {
+	b.v.{{ $f.Name }} = v
+	return b
+}
+{{ end }}
+{{- end }}
+// Mutate applies fn to the value under construction. Use for
+// deeply-nested fields or mutations that don't warrant a dedicated
+// setter.
+func (b *{{ $builderName }}{{ $args }}) Mutate(fn func(*{{ renderType $self }})) *{{ $builderName }}{{ $args }} {
+	fn(&b.v)
+	return b
+}
+
+// Clone returns a deep copy of the builder. Slice, map, and []byte
+// fields are copied so mutations to the clone don't bleed into the
+// original; scalar and struct-value fields use Go's default copy
+// semantics.
+func (b *{{ $builderName }}{{ $args }}) Clone() *{{ $builderName }}{{ $args }} {
+	out := &{{ $builderName }}{{ $args }}{v: b.v}
+{{- range $f := exportedFields $s }}
+{{- if isSlice $f.Type }}
+	if b.v.{{ $f.Name }} != nil {
+		out.v.{{ $f.Name }} = append([]{{ renderType (elemType $f.Type) }}(nil), b.v.{{ $f.Name }}...)
+	}
+{{- else if isMap $f.Type }}
+	if b.v.{{ $f.Name }} != nil {
+		out.v.{{ $f.Name }} = make({{ renderType (fieldType $f) }}, len(b.v.{{ $f.Name }}))
+		for k, v := range b.v.{{ $f.Name }} {
+			out.v.{{ $f.Name }}[k] = v
+		}
+	}
+{{- else if isByteSlice $f.Type }}
+	if b.v.{{ $f.Name }} != nil {
+		out.v.{{ $f.Name }} = append([]byte(nil), b.v.{{ $f.Name }}...)
+	}
+{{- end }}
+{{- end }}
+	return out
+}
+
+// Build returns the constructed [{{ renderType $self }}].
+func (b *{{ $builderName }}{{ $args }}) Build() {{ renderType $self }} {
+	return b.v
+}
+{{- end -}}

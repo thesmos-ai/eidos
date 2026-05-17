@@ -1,17 +1,7 @@
 // Copyright Thesmos B.V. 2026
 // SPDX-License-Identifier: MIT
 
-// Package refconv lifts language-agnostic [node.TypeRef] values into
-// concrete [emit.Ref] values. Plugins that consume source-side
-// declarations share the conversion through this package so the
-// rules stay aligned across every consumer — a new TypeRef variant
-// lands here once and every plugin inherits the support.
-//
-// The produced emit ref's OriginNode points back at the source
-// [node.TypeRef] so backends and downstream consumers can reach
-// source-side meta (e.g., bridge-annotator-stamped `go.type` for
-// proto→Go translation).
-package refconv
+package golang
 
 import (
 	"go.thesmos.sh/eidos/emit"

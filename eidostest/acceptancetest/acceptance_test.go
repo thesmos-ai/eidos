@@ -33,7 +33,7 @@ func TestVersionSubcommand(t *testing.T) {
 		"protogo",      // bridge
 		"shape-writer", // annotator
 		"repogen",      // foundation generator
-		"buildergen",   // foundation generator
+		"builder",      // foundation generator
 		"mockgen",      // composition generator
 		"audit-weaver", // cross-cutter
 		"debug-weaver", // cross-cutter

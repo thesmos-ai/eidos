@@ -112,6 +112,23 @@ var HasPositive = directive.HasPositive
 // name with [Directive.Negated] true — the `-gen:NAME` form.
 var HasNegated = directive.HasNegated
 
+// OutDirective is the canonical `+gen:out` directive name —
+// the per-source routing override the Layout phase consumes.
+// Plugins that consult or honour the per-source routing
+// override read this constant instead of the literal
+// "out" string.
+const OutDirective DirectiveName = "out"
+
+// ValueDirective is the canonical `+gen:value <override>`
+// directive name — a per-source string override on any node
+// whose identity translates into a rendered or serialised
+// string form (enum-variant string forms, sentinel error
+// codes, struct-field tags, identifier renames, ...).
+// Plugins that translate node identity into strings read
+// this constant instead of the literal "value" string so
+// the framework owns the shared schema.
+const ValueDirective DirectiveName = "value"
+
 // Error sentinels surfaced by the directive parser, registry,
 // and validator. Plugin code that wants to distinguish failure
 // modes wraps them with [errors.Is].

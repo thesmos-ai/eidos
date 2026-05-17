@@ -1,13 +1,13 @@
 // Copyright Thesmos B.V. 2026
 // SPDX-License-Identifier: MIT
 
-package refconv_test
+package golang_test
 
 import (
 	"testing"
 
 	"go.thesmos.sh/eidos/emit"
-	"go.thesmos.sh/eidos/emit/refconv"
+	refconv "go.thesmos.sh/eidos/lang/golang"
 	"go.thesmos.sh/eidos/node"
 )
 

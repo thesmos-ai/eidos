@@ -31,7 +31,7 @@ import (
 	"go.thesmos.sh/eidos/core/opt"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/emit/builder"
-	"go.thesmos.sh/eidos/emit/refconv"
+	refconv "go.thesmos.sh/eidos/lang/golang"
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/sdk"
 )
@@ -281,7 +281,7 @@ func (p *Plugin) emitOne(pkg *builder.PackageBuilder, src *node.Struct, srcRefBa
 			// translated identifier for the builder's intentionally-
 			// unexported `fieldIdent(...)` form — a mismatch with
 			// the setter body that assigns to that identifier. Type
-			// provenance still flows through [refconv.FromNode], which
+			// provenance still flows through [golang.FromNode], which
 			// threads the source TypeRef's OriginNode so the bridge's
 			// `go.type` override resolves at render time.
 			b.Field(fieldIdent(effectiveFieldName(f)), refconv.FromNode(f.Type), nil)
