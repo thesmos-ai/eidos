@@ -4,18 +4,18 @@
 func Test{{ .TypeName }}String_RoundTrip(t *{{ renderExpr .TestingTPtrRef }}) {
 	t.Parallel()
 	cases := []struct {
-		in  {{ $.TypeName }}
+		in  {{ renderExpr $.TypeRef }}
 		out string
 	}{
 {{- range .Variants }}
-		{ {{ .ConstName }}, {{ printf "%q" .StringValue }} },
+		{ {{ renderExpr .Ref }}, {{ printf "%q" .StringValue }} },
 {{- end }}
 	}
 	for _, c := range cases {
 		if got := c.in.String(); got != c.out {
 			t.Errorf("%v.String() = %q, want %q", c.in, got, c.out)
 		}
-		parsed, err := {{ .ParseName }}(c.out)
+		parsed, err := {{ renderExpr $.ParseRef }}(c.out)
 		if err != nil {
 			t.Errorf("{{ .ParseName }}(%q): %v", c.out, err)
 			continue
@@ -31,8 +31,8 @@ func Test{{ .TypeName }}String_RoundTrip(t *{{ renderExpr .TestingTPtrRef }}) {
 // variant.
 func TestParse{{ .TypeName }}_Unknown(t *{{ renderExpr $.TestingTPtrRef }}) {
 	t.Parallel()
-	_, err := {{ .ParseName }}("__nonexistent__")
-	if !{{ renderExpr .ErrorsIsRef }}(err, {{ .SentinelName }}) {
+	_, err := {{ renderExpr $.ParseRef }}("__nonexistent__")
+	if !{{ renderExpr .ErrorsIsRef }}(err, {{ renderExpr $.SentinelRef }}) {
 		t.Fatalf("expected {{ .SentinelName }}; got %v", err)
 	}
 }
@@ -41,16 +41,16 @@ func TestParse{{ .TypeName }}_Unknown(t *{{ renderExpr $.TestingTPtrRef }}) {
 // UnmarshalJSON round-trip across every declared variant.
 func Test{{ .TypeName }}JSON_RoundTrip(t *{{ renderExpr $.TestingTPtrRef }}) {
 	t.Parallel()
-	for _, v := range []{{ $.TypeName }}{
+	for _, v := range []{{ renderExpr $.TypeRef }}{
 {{- range .Variants }}
-		{{ .ConstName }},
+		{{ renderExpr .Ref }},
 {{- end }}
 	} {
 		body, err := {{ renderExpr $.JSONMarshalRef }}(v)
 		if err != nil {
 			t.Fatalf("Marshal(%v): %v", v, err)
 		}
-		var got {{ $.TypeName }}
+		var got {{ renderExpr $.TypeRef }}
 		if err := {{ renderExpr $.JSONUnmarshalRef }}(body, &got); err != nil {
 			t.Fatalf("Unmarshal(%s): %v", body, err)
 		}

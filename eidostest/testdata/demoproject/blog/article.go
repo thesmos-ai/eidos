@@ -6,6 +6,8 @@
 // `+gen:` directives the plugins target and cover the rendering
 // surface (composites, generics, enums, named returns, embedded
 // interfaces, cross-package imports) the backend learned to handle.
+//
+// +gen:sentinel
 package blog
 
 import (

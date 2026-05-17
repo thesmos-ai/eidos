@@ -70,6 +70,13 @@ func TestRunOnDemoProject(t *testing.T) {
 		// _enum_test.go (auto-shifted to package blog_test).
 		"blog/status_enum.go",
 		"blog/status_enum_test.go",
+
+		// sentinel scans the +gen:sentinel-annotated blog
+		// package for Err* vars + custom error types and emits
+		// pinned tests into a sibling _sentinel_test.go file.
+		// Anchored to auth_errors.go (the first contributing
+		// file in source order).
+		"blog/auth_errors_sentinel_test.go",
 	} {
 		path := filepath.Join(workdir, rel)
 		if _, err := os.Stat(path); err != nil {
@@ -109,6 +116,19 @@ func TestRunOnDemoProject_GeneratedOutputCompiles(t *testing.T) {
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("go build of generated demoproject failed: %v\nstderr:\n%s",
 			err, stderr.String())
+	}
+	// `go build ./...` skips _test.go files. Run `go vet ./...`
+	// after the build so the generator's test-side output (e.g.
+	// the sentinel plugin's _sentinel_test.go) also passes
+	// language-level checks — vet's scanning includes _test.go
+	// files in the package compilation graph.
+	vetCmd := exec.CommandContext(t.Context(), "go", "vet", "./...")
+	vetCmd.Dir = workdir
+	var vetStderr bytes.Buffer
+	vetCmd.Stderr = &vetStderr
+	if err := vetCmd.Run(); err != nil {
+		t.Fatalf("go vet of generated demoproject failed: %v\nstderr:\n%s",
+			err, vetStderr.String())
 	}
 }
 

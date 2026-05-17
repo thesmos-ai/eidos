@@ -259,6 +259,14 @@ type Variant struct {
 	// [Options.StripPrefix] is true) or the `+gen:value`
 	// override.
 	StringValue string
+
+	// Ref is the [emit.External] expression that renders as the
+	// fully-qualified constant reference from the external test
+	// package (e.g. `blog.StatusActive`). Populated only on
+	// variants destined for the test output; the primary output
+	// renders constants unqualified because it lives in the
+	// source package.
+	Ref *emit.Expr
 }
 
 // API is the plugin-defined emit kind every production-output
@@ -319,19 +327,44 @@ var _ emit.Node = (*API)(nil)
 // contract — `Test<Type>String_RoundTrip`,
 // `TestParse<Type>_Known`, `TestParse<Type>_Unknown`,
 // `Test<Type>JSON_RoundTrip`.
+//
+// The test file lives in the `<pkg>_test` external test package
+// (the framework's auto-shift for files ending in `_test.go`),
+// so every reference to the source-package's identifiers is
+// expressed through [emit.External] expressions and rendered via
+// the backend's `renderExpr` funcmap — both for cross-package
+// qualification and for automatic import registration.
 type Tests struct {
 	emit.BaseEmit
 
-	// TypeName is the source enum's type identifier.
+	// TypeName is the source enum's type identifier (kept for
+	// rendering in test-function names / log messages).
 	TypeName string
+
+	// TypeRef is the [emit.External] expression that renders as
+	// the fully-qualified type reference from the external test
+	// package (e.g. `blog.Status`).
+	TypeRef *emit.Expr
 
 	// ParseName is the parse function's identifier.
 	ParseName string
 
+	// ParseRef is the [emit.External] expression that renders as
+	// the fully-qualified parse function reference
+	// (e.g. `blog.ParseStatus`).
+	ParseRef *emit.Expr
+
 	// SentinelName is the parse-error sentinel's identifier.
 	SentinelName string
 
-	// Variants is the variant list the test cases iterate.
+	// SentinelRef is the [emit.External] expression that renders
+	// as the fully-qualified sentinel reference
+	// (e.g. `blog.ErrUnknownStatus`).
+	SentinelRef *emit.Expr
+
+	// Variants is the variant list the test cases iterate. Each
+	// variant's [Variant.Ref] is populated for cross-package
+	// qualification.
 	Variants []Variant
 
 	// JSONMarshalRef is the `json.Marshal` callee expression —
@@ -403,6 +436,11 @@ func (p *Plugin) Generate(ctx *sdk.GeneratorContext) error {
 			return fmt.Errorf("%s: append api slot: %w", Name, err)
 		}
 
+		testVariants := make([]Variant, len(variants))
+		copy(testVariants, variants)
+		for i := range testVariants {
+			testVariants[i].Ref = emit.NewExternal(e.Package, testVariants[i].ConstName)
+		}
 		tests := &Tests{
 			BaseEmit: emit.BaseEmit{
 				OriginNode:    e,
@@ -411,9 +449,12 @@ func (p *Plugin) Generate(ctx *sdk.GeneratorContext) error {
 				OutputTagName: TestOutputTag,
 			},
 			TypeName:         e.Name,
+			TypeRef:          emit.NewExternal(e.Package, e.Name),
 			ParseName:        parseName,
+			ParseRef:         emit.NewExternal(e.Package, parseName),
 			SentinelName:     sentinelName,
-			Variants:         variants,
+			SentinelRef:      emit.NewExternal(e.Package, sentinelName),
+			Variants:         testVariants,
 			JSONMarshalRef:   emit.NewExternal("encoding/json", "Marshal"),
 			JSONUnmarshalRef: emit.NewExternal("encoding/json", "Unmarshal"),
 			ErrorsIsRef:      emit.NewExternal("errors", "Is"),

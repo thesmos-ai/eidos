@@ -44,6 +44,7 @@ import (
 	"go.thesmos.sh/eidos/frontend/protobuf"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/plugins/generator/enum"
+	"go.thesmos.sh/eidos/plugins/generator/sentinel"
 	"go.thesmos.sh/eidos/reference/auditweaver"
 	"go.thesmos.sh/eidos/reference/buildergen"
 	"go.thesmos.sh/eidos/reference/debugweaver"
@@ -167,10 +168,12 @@ func defaultPlugins() []plugin.Plugin {
 		mockgen.New(),
 
 		// Generators (cross-cutting bucket) — contribute into
-		// existing emit decls' slots.
+		// existing emit decls' slots, or scan post-generation
+		// state to assert invariants.
 		auditweaver.New(),
 		debugweaver.New(),
 		registrygen.New(),
+		sentinel.New(),
 
 		// Backend — render emit graph to target language.
 		golang.New(),

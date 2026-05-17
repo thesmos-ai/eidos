@@ -1,0 +1,697 @@
+// Copyright Thesmos B.V. 2026
+// SPDX-License-Identifier: MIT
+
+// Package sentinel is the production test-generator for typed
+// error contracts. Annotating a source package with
+// `+gen:sentinel` opts every Err* sentinel variable and every
+// exported error-implementing struct in the package into a
+// generated `_sentinel_test.go` file that pins the contracts
+// callers rely on: sentinel uniqueness, cross-pair non-overlap
+// under [errors.Is], wrap-chain preservation through
+// [errors.Join] and [fmt.Errorf], and per-error-type
+// [errors.As] round-trip / format completeness / non-overlap.
+//
+// The plugin generates ONLY tests — the user authors the
+// sentinel variables and error types themselves, the plugin
+// asserts their invariants. No production code is synthesised.
+//
+// # Source patterns scanned
+//
+//  1. Exported package-level variables whose identifier begins
+//     with `Err` (e.g. `var ErrUserNotFound = errors.New(...)`)
+//     — collected into the package's sentinel set.
+//
+//  2. Exported structs whose method set includes
+//     `Error() string` — collected as custom error types. The
+//     plugin separately notes whether each type provides
+//     `Is(error) bool` and / or `Unwrap() error` so the rendered
+//     tests cover those branches when present.
+//
+// # Output
+//
+// One `_sentinel_test.go` file per annotated source package,
+// rendered through the `sentinel.tests` template. The file's
+// basename derives from the source file the anchor entity (the
+// first Err* var or the first error type in source order) lives
+// in, so the rendered tests colocate with the package's error
+// declarations. The framework's automatic `_test.go → <pkg>_test`
+// package shift moves the rendered file into the external
+// test package.
+//
+// # Runtime
+//
+// The rendered tests rely only on the standard library
+// (`testing`, `errors`, `fmt`, `strings`). No external runtime
+// dependency.
+package sentinel
+
+import (
+	"embed"
+	"errors"
+	"fmt"
+	"io/fs"
+	"strings"
+	"text/template"
+
+	"go.thesmos.sh/eidos/core/kind"
+	"go.thesmos.sh/eidos/core/opt"
+	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/emit/builder"
+	"go.thesmos.sh/eidos/node"
+	"go.thesmos.sh/eidos/sdk"
+)
+
+// Name is the plugin's stable identifier.
+const Name = "sentinel"
+
+// Capability is the capability label the plugin advertises so
+// downstream consumers can declare a documentary dependency
+// through their own `Requires` list.
+const Capability = "sentinel"
+
+// DirectiveName is the bare directive name (without the `+gen:`
+// or `-gen:` prefix) the plugin reads from source package
+// declarations to opt the package in for test generation.
+const DirectiveName sdk.DirectiveName = "sentinel"
+
+// Language is the target backend language whose template tree the
+// plugin ships. Other languages get the empty signal from
+// [Plugin.Outputs] and [Plugin.Templates].
+const Language = "golang"
+
+// Suffix is the per-source-basename suffix the routing layer
+// composes for the generated test file. The `_test.go` ending
+// triggers the framework's automatic `<pkg>_test` package shift
+// so the generated tests live in an external test package.
+const Suffix = "_sentinel_test.go"
+
+// SlotName is the [emit.File] slot the plugin appends its
+// rendered [Tests] emit values into. `top` renders the content
+// between the package clause and the first core decl — the
+// natural placement for a self-contained test-function block.
+const SlotName = "top"
+
+// KindTests is the plugin-defined [emit.Node.Kind] every [Tests]
+// emit value reports. The matching template lives at
+// `templates/golang/sentinel.tests.tmpl`.
+const KindTests kind.Kind = "sentinel.tests"
+
+// ErrPrefix is the variable-name prefix that distinguishes a
+// sentinel error from any other exported package-level var.
+const ErrPrefix = "Err"
+
+// ErrorMethodName is the method name on a struct that signals
+// the type implements the error interface.
+const ErrorMethodName = "Error"
+
+// IsMethodName / UnwrapMethodName are the additional optional
+// methods the rendered tests cover when present.
+const (
+	IsMethodName     = "Is"
+	UnwrapMethodName = "Unwrap"
+)
+
+// errorTypeName is the rendered string for the builtin error
+// interface — used to identify error-typed fields without
+// importing go/types.
+const errorTypeName = "error"
+
+// PrefixKey is the directive keyword that pins (or kills) the
+// message prefix every sentinel's `.Error()` is asserted to
+// start with. Resolved per-package in [resolvePrefix].
+const PrefixKey = "prefix"
+
+// PrefixOff is the directive-arg sentinel that disables the
+// prefix subtest entirely — `+gen:sentinel prefix=off`. An
+// empty value (`+gen:sentinel prefix=`) carries the same
+// meaning; the rendered test suite simply omits the prefix
+// subtest for that package.
+const PrefixOff = "off"
+
+// Options carries the plugin's user-tunable settings. The
+// sentinel plugin has no behaviour toggles today — the
+// per-package `+gen:sentinel prefix=…` directive arg covers the
+// only configurable knob the rendered tests surface. The struct
+// exists so future settings can land without changing the
+// plugin's options surface.
+type Options struct{}
+
+// Plugin is the sentinel test generator. Zero value is unusable;
+// go through [New] so the embedded [opt.Holder] binds to the
+// options field.
+type Plugin struct {
+	*opt.Holder[Options]
+	opts Options
+}
+
+// New returns a fresh plugin instance with the options holder
+// bound.
+func New() *Plugin {
+	p := &Plugin{}
+	p.Holder = opt.Bind(&p.opts)
+	return p
+}
+
+// Name returns [Name].
+func (*Plugin) Name() string { return Name }
+
+// Priority places the plugin in the cross-cutting bucket so it
+// runs after foundation / composition generators — its scan
+// observes the post-generation package shape, which lets it
+// assert invariants over Err* vars / error types that other
+// plugins may have synthesised.
+func (*Plugin) Priority() sdk.Priority { return sdk.GeneratorCrossCutting }
+
+// Provides advertises [Capability].
+func (*Plugin) Provides() []string { return []string{Capability} }
+
+// Requires returns nil — the sentinel plugin reads source
+// nodes only.
+func (*Plugin) Requires() []string { return nil }
+
+// Directives declares the `+gen:sentinel` schema on the source
+// package node — annotating the package's doc comment opts
+// every error in the package into the generated test suite.
+// The optional `prefix=` keyword arg overrides the default
+// `<pkg>: ` prefix the rendered prefix subtest asserts; an
+// empty value or the literal `off` disables the subtest.
+func (*Plugin) Directives() []sdk.DirectiveSchema {
+	return []sdk.DirectiveSchema{
+		sdk.NewDirective(DirectiveName).
+			On(node.KindPackage).
+			AllowedKeys(PrefixKey).
+			Describe(
+				"Opts the host source package in for sentinel-error / error-type " +
+					"test generation. `prefix=<value>` overrides the default `<pkg>: ` " +
+					"prefix asserted on every Err* var's .Error(); `prefix=off` (or " +
+					"`prefix=`) disables the prefix subtest entirely.",
+			).
+			Build(),
+	}
+}
+
+// Outputs returns the single test-file output in Go. Other
+// languages return nil — the plugin ships only golang
+// templates today.
+func (*Plugin) Outputs(lang string) []sdk.Output {
+	if lang != Language {
+		return nil
+	}
+	return []sdk.Output{{Suffix: Suffix}}
+}
+
+//go:embed templates/golang/*.tmpl
+var templatesFS embed.FS
+
+// Templates returns the embedded template filesystem for the
+// requested language. Only `golang` is shipped today.
+func (*Plugin) Templates(lang string) (fs.FS, bool) {
+	if lang != Language {
+		return nil, false
+	}
+	sub, _ := fs.Sub(templatesFS, "templates/"+lang)
+	return sub, true
+}
+
+// TemplateFuncs returns nil — the plugin ships no funcmap
+// extensions.
+func (*Plugin) TemplateFuncs(string) template.FuncMap { return nil }
+
+// TemplateOverrides returns nil — the plugin ships no funcmap
+// overrides.
+func (*Plugin) TemplateOverrides(string) template.FuncMap { return nil }
+
+// Sentinel is one Err* package-level variable rolled into the
+// rendered test suite.
+type Sentinel struct {
+	// Name is the variable identifier (e.g. `ErrUserNotFound`).
+	Name string
+
+	// Ref is the [emit.External] expression that renders as the
+	// fully-qualified reference to the variable from the
+	// external test package (e.g. `blog.ErrUserNotFound`). The
+	// renderer registers the source package's import on the
+	// rendered file's import set automatically.
+	Ref *emit.Expr
+}
+
+// Field is one exported field on a custom error type carrying
+// the metadata the per-type tests need: type string for the
+// sample-value selector, the sample value the test passes when
+// constructing the error, and the substring the format-string
+// assertion looks for. IsError is true when the field's type
+// is the builtin `error` interface.
+type Field struct {
+	Name             string
+	TypeStr          string
+	SampleValue      string
+	FormatCheckValue string
+	IsError          bool
+}
+
+// ErrorType is one custom error-implementing struct rolled into
+// the rendered test suite.
+type ErrorType struct {
+	// Name is the struct identifier (e.g. `ValidationError`).
+	Name string
+
+	// Ref is the [emit.External] expression that renders as the
+	// fully-qualified type reference from the external test
+	// package (e.g. `blog.ValidationError`). The renderer
+	// registers the source package's import on the rendered
+	// file's import set automatically.
+	Ref *emit.Expr
+
+	// OtherTypeRefs is the matching [emit.External] expression
+	// list for [OtherTypes] — the rendered non-overlap subtest
+	// references peer types through these so the import set
+	// stays correct under the external-test-package shift.
+	OtherTypeRefs []*emit.Expr
+
+	// Fields lists the exported fields the rendered tests
+	// exercise — round-tripped through [errors.As] and asserted
+	// to appear in the `Error()` format string.
+	Fields []Field
+
+	// OtherTypes is the names of every OTHER error type in the
+	// same package — the rendered tests assert this type does
+	// not [errors.Is]-match foreign types.
+	OtherTypes []string
+
+	// FormatCheckOrder is the ordered list of substrings the
+	// rendered "Error format includes all fields" subtest
+	// expects to find in source order. Pre-computed so the
+	// template stays free of list-building primitives.
+	FormatCheckOrder []string
+
+	// HasIs / HasUnwrap report whether the struct provides the
+	// matching method — the rendered tests gate the
+	// corresponding subtests on these flags.
+	HasIs     bool
+	HasUnwrap bool
+
+	// UnwrapField is the name of the field the Unwrap test
+	// expects to be returned from `Unwrap()`. Populated when
+	// the struct provides Unwrap AND carries at least one
+	// error-typed field; empty otherwise.
+	UnwrapField string
+}
+
+// Tests is the plugin-defined emit kind the rendered emit value
+// reports. The matching `sentinel.tests.tmpl` template renders
+// it as the full test-function set for one source package.
+//
+// The `*Ref` fields are [emit.External] expressions the template
+// renders once each via the backend's `renderExpr` funcmap so
+// the corresponding stdlib imports register on the host file's
+// import set automatically. The template carries no hard-coded
+// import lines.
+type Tests struct {
+	emit.BaseEmit
+
+	// TestName is the suffix the rendered `TestXxxSentinelErrors`
+	// function uses. Derived from the package's short name in
+	// CamelCase (e.g. `package auth` → `AuthSentinelErrors`).
+	TestName string
+
+	// Prefix is the message prefix every Err* sentinel's
+	// `.Error()` is asserted to start with. Only meaningful when
+	// [EmitPrefix] is true.
+	Prefix string
+
+	// EmitPrefix gates the rendered prefix subtest. False when
+	// the source package declared `prefix=off` or `prefix=` on
+	// `+gen:sentinel`, signalling the author doesn't want a
+	// prefix assertion at all.
+	EmitPrefix bool
+
+	// Sentinels is the package's Err* variable set in source
+	// order.
+	Sentinels []Sentinel
+
+	// ErrorTypes is the package's custom error-implementing
+	// struct set in source order.
+	ErrorTypes []ErrorType
+
+	// TestingTRef registers the `testing` import — referenced
+	// in every test function's `*testing.T` parameter type.
+	TestingTRef *emit.Expr
+
+	// ErrorsIsRef / ErrorsAsRef / ErrorsJoinRef / ErrorsNewRef
+	// register the `errors` import — referenced across the
+	// sentinel-set + error-type subtests.
+	ErrorsIsRef   *emit.Expr
+	ErrorsAsRef   *emit.Expr
+	ErrorsJoinRef *emit.Expr
+	ErrorsNewRef  *emit.Expr
+
+	// FmtErrorfRef registers the `fmt` import — referenced by
+	// the `fmt.Errorf` chain subtest.
+	FmtErrorfRef *emit.Expr
+
+	// StringsHasPrefixRef registers the `strings` import —
+	// referenced by the prefix subtest's `.Error()` assertion.
+	StringsHasPrefixRef *emit.Expr
+
+	// StringsContainsRef registers `strings.Contains` — used
+	// by the format-strictness subtest to assert each field's
+	// FormatCheckValue appears in `Error()`.
+	StringsContainsRef *emit.Expr
+}
+
+// Kind returns [KindTests].
+func (*Tests) Kind() kind.Kind { return KindTests }
+
+// Compile-time confirmation that *Tests satisfies [emit.Node].
+var _ emit.Node = (*Tests)(nil)
+
+// HasContent reports whether the package contributed any
+// sentinels or error types worth generating tests for. Empty
+// packages drop from the output set without surfacing a
+// diagnostic.
+func (t *Tests) HasContent() bool {
+	return len(t.Sentinels) > 0 || len(t.ErrorTypes) > 0
+}
+
+// Generate walks every annotated source package, scans it for
+// Err* sentinels and custom error types, and queues one [Tests]
+// contribution against the first contributing entity's source
+// file when the scan yields anything. The Layout phase resolves
+// the contribution to a sibling `_sentinel_test.go` file via
+// the standard routing precedence.
+func (*Plugin) Generate(ctx *sdk.GeneratorContext) error {
+	c := builder.For(Name, emit.Target{})
+	for _, pkg := range ctx.Reader.Packages().Slice() {
+		if !pkg.HasPositiveDirective(DirectiveName) {
+			continue
+		}
+		sentinels := collectSentinels(pkg)
+		errorTypes := collectErrorTypes(pkg)
+		if len(sentinels) == 0 && len(errorTypes) == 0 {
+			continue
+		}
+		applyExternalRefs(pkg.Path, sentinels, errorTypes)
+		anchor := chooseAnchor(pkg, sentinels, errorTypes)
+		if anchor == nil {
+			continue
+		}
+		prefix, emitPrefix := resolvePrefix(pkg)
+		tests := &Tests{
+			BaseEmit: emit.BaseEmit{
+				OriginNode: anchor,
+				SetByName:  c.SetBy(),
+				SourcePos:  anchor.Pos(),
+			},
+			TestName:            testNameFor(pkg.Name),
+			Prefix:              prefix,
+			EmitPrefix:          emitPrefix,
+			Sentinels:           sentinels,
+			ErrorTypes:          errorTypes,
+			TestingTRef:         emit.NewExternal("testing", "T"),
+			ErrorsIsRef:         emit.NewExternal("errors", "Is"),
+			ErrorsAsRef:         emit.NewExternal("errors", "As"),
+			ErrorsJoinRef:       emit.NewExternal("errors", "Join"),
+			ErrorsNewRef:        emit.NewExternal("errors", "New"),
+			FmtErrorfRef:        emit.NewExternal("fmt", "Errorf"),
+			StringsHasPrefixRef: emit.NewExternal("strings", "HasPrefix"),
+			StringsContainsRef:  emit.NewExternal("strings", "Contains"),
+		}
+		prov := c.Provenance("sentinel.tests." + pkg.Name)
+		if err := ctx.Store.Emit().AppendOriginSlot(anchor, SlotName, tests, prov); err != nil {
+			return fmt.Errorf("%s: append slot for package %q: %w", Name, pkg.Name, err)
+		}
+	}
+	return nil
+}
+
+// collectSentinels returns the package's Err* variable set —
+// every exported variable whose identifier starts with the
+// canonical `Err` prefix.
+func collectSentinels(pkg *node.Package) []Sentinel {
+	var out []Sentinel
+	for _, v := range pkg.Variables {
+		if !isExported(v.Name) {
+			continue
+		}
+		if !strings.HasPrefix(v.Name, ErrPrefix) {
+			continue
+		}
+		out = append(out, Sentinel{Name: v.Name})
+	}
+	return out
+}
+
+// collectErrorTypes returns the package's custom error-type set
+// — every exported struct whose method list includes
+// `Error() string`. Per-type analysis (field samples, OtherTypes,
+// HasIs / HasUnwrap) runs in a second pass once the full set is
+// known so the cross-type non-overlap subtest data can be
+// pre-computed.
+func collectErrorTypes(pkg *node.Package) []ErrorType {
+	var raw []*node.Struct
+	for _, s := range pkg.Structs {
+		if !isExported(s.Name) {
+			continue
+		}
+		if !structImplementsError(s) {
+			continue
+		}
+		raw = append(raw, s)
+	}
+	out := make([]ErrorType, 0, len(raw))
+	for _, s := range raw {
+		et := ErrorType{
+			Name:      s.Name,
+			HasIs:     hasMethod(s, IsMethodName, isErrorBoolSignature),
+			HasUnwrap: hasMethod(s, UnwrapMethodName, returnsErrorOnly),
+		}
+		for _, f := range s.Fields {
+			if !isExported(f.Name) {
+				continue
+			}
+			fd := buildFieldData(f)
+			et.Fields = append(et.Fields, fd)
+			if fd.IsError && et.HasUnwrap && et.UnwrapField == "" {
+				et.UnwrapField = fd.Name
+			}
+			if fd.FormatCheckValue != "" {
+				et.FormatCheckOrder = append(et.FormatCheckOrder, fd.FormatCheckValue)
+			}
+		}
+		out = append(out, et)
+	}
+	for i := range out {
+		for j := range out {
+			if i == j {
+				continue
+			}
+			out[i].OtherTypes = append(out[i].OtherTypes, out[j].Name)
+		}
+	}
+	return out
+}
+
+// buildFieldData picks the rendered sample value and
+// format-check substring for one struct field based on its type.
+// Supported types: string, int, error. Unsupported types still
+// participate in the errors.As round-trip via their zero value
+// but contribute no format-check substring.
+func buildFieldData(f *node.Field) Field {
+	fd := Field{Name: f.Name}
+	if f.Type != nil {
+		fd.TypeStr = f.Type.Name
+	}
+	lower := strings.ToLower(f.Name)
+	switch fd.TypeStr {
+	case errorTypeName:
+		fd.SampleValue = `errors.New("test-` + lower + `")`
+		fd.FormatCheckValue = "test-" + lower
+		fd.IsError = true
+	case "string":
+		fd.SampleValue = `"test-` + lower + `"`
+		fd.FormatCheckValue = "test-" + lower
+	case "int", "int32", "int64":
+		fd.SampleValue = "42"
+		fd.FormatCheckValue = "42"
+	default:
+		// Unsupported field type: pass the type's zero literal
+		// so errors.As still round-trips, but skip the format
+		// check (FormatCheckValue stays empty).
+		fd.SampleValue = zeroLiteralFor(fd.TypeStr)
+	}
+	return fd
+}
+
+// applyExternalRefs stamps [emit.External] expressions onto
+// every sentinel and error-type so the template can render
+// fully-qualified `<pkg>.<Name>` references that the backend's
+// import scanner registers against the rendered file's import
+// set automatically. Necessary because the framework's
+// `_test.go → <pkg>_test` package shift moves the rendered file
+// into an external test package — the source-package references
+// must be qualified at that point.
+func applyExternalRefs(packagePath string, sentinels []Sentinel, errorTypes []ErrorType) {
+	for i := range sentinels {
+		sentinels[i].Ref = emit.NewExternal(packagePath, sentinels[i].Name)
+	}
+	for i := range errorTypes {
+		errorTypes[i].Ref = emit.NewExternal(packagePath, errorTypes[i].Name)
+		for _, other := range errorTypes[i].OtherTypes {
+			errorTypes[i].OtherTypeRefs = append(
+				errorTypes[i].OtherTypeRefs,
+				emit.NewExternal(packagePath, other),
+			)
+		}
+	}
+}
+
+// chooseAnchor returns the entity to anchor the [Tests] emit
+// value to — the first Err* var in source order, or the first
+// error type when the package declares no Err* vars. Both lists
+// are guaranteed non-empty when this function is called.
+func chooseAnchor(pkg *node.Package, sentinels []Sentinel, errorTypes []ErrorType) node.Node {
+	if len(sentinels) > 0 {
+		first := sentinels[0].Name
+		for _, v := range pkg.Variables {
+			if v.Name == first {
+				return v
+			}
+		}
+	}
+	if len(errorTypes) > 0 {
+		first := errorTypes[0].Name
+		for _, s := range pkg.Structs {
+			if s.Name == first {
+				return s
+			}
+		}
+	}
+	return nil
+}
+
+// structImplementsError reports whether s declares an
+// `Error() string` method.
+func structImplementsError(s *node.Struct) bool {
+	return hasMethod(s, ErrorMethodName, returnsStringOnly)
+}
+
+// hasMethod reports whether s declares a method named name whose
+// signature satisfies the supplied signature predicate.
+func hasMethod(s *node.Struct, name string, sigOK func(*node.Method) bool) bool {
+	for _, m := range s.Methods {
+		if m.Name == name && sigOK(m) {
+			return true
+		}
+	}
+	return false
+}
+
+// returnsStringOnly reports whether m's signature is `() string`.
+func returnsStringOnly(m *node.Method) bool {
+	if len(m.Params) != 0 || len(m.Returns) != 1 {
+		return false
+	}
+	return m.Returns[0] != nil && m.Returns[0].Name == "string"
+}
+
+// returnsErrorOnly reports whether m's signature is `() error`.
+func returnsErrorOnly(m *node.Method) bool {
+	if len(m.Params) != 0 || len(m.Returns) != 1 {
+		return false
+	}
+	return m.Returns[0] != nil && m.Returns[0].Name == errorTypeName
+}
+
+// isErrorBoolSignature reports whether m's signature is
+// `(error) bool` — the standard `Is(error) bool` shape
+// [errors.Is] consults.
+func isErrorBoolSignature(m *node.Method) bool {
+	if len(m.Params) != 1 || len(m.Returns) != 1 {
+		return false
+	}
+	if m.Params[0].Type == nil || m.Params[0].Type.Name != errorTypeName {
+		return false
+	}
+	return m.Returns[0] != nil && m.Returns[0].Name == "bool"
+}
+
+// isExported reports whether name follows Go's exported-identifier
+// rule (first rune upper-case ASCII for the simple cases the
+// plugin targets).
+func isExported(name string) bool {
+	if name == "" {
+		return false
+	}
+	c := name[0]
+	return c >= 'A' && c <= 'Z'
+}
+
+// testNameFor returns the suffix the rendered
+// `TestXxxSentinelErrors` function uses, derived from the
+// package name in CamelCase. Idiomatic Go test naming keeps the
+// rendered output predictable when callers grep for test
+// functions.
+func testNameFor(packageName string) string {
+	if packageName == "" {
+		return "SentinelErrors"
+	}
+	return strings.ToUpper(packageName[:1]) + packageName[1:] + "SentinelErrors"
+}
+
+// resolvePrefix reads the per-package `+gen:sentinel prefix=…`
+// override and returns the effective prefix plus a flag for
+// whether the prefix subtest should be emitted at all.
+//
+// Resolution table:
+//
+//	directive                             effective prefix    emit?
+//	------------------------------------- ------------------- ----
+//	+gen:sentinel                          "<pkg>: "          yes
+//	+gen:sentinel prefix=<value>           "<value>"          yes
+//	+gen:sentinel prefix=                  ""                 no
+//	+gen:sentinel prefix=off               ""                 no
+//
+// Empty value and the literal `off` are synonyms — both express
+// "I don't want the prefix assertion." The rendered tests omit
+// the subtest in that case so the assertion isn't silently
+// vacuous (every string starts with the empty string).
+func resolvePrefix(pkg *node.Package) (prefix string, emit bool) {
+	d := pkg.Directive(DirectiveName)
+	if d == nil {
+		return pkg.Name + ": ", true
+	}
+	value, hasKey := d.KV[PrefixKey]
+	if !hasKey {
+		return pkg.Name + ": ", true
+	}
+	if value == "" || value == PrefixOff {
+		return "", false
+	}
+	return value, true
+}
+
+// zeroLiteralFor returns a Go zero-literal for the named type.
+// Used by [buildFieldData] when the field's type isn't one of
+// the explicitly-recognised shapes; the rendered test still
+// constructs the struct, just without a meaningful sample
+// value or format-check substring for this field.
+func zeroLiteralFor(typeStr string) string {
+	switch typeStr {
+	case "bool":
+		return "false"
+	case "float32", "float64":
+		return "0"
+	case "byte", "rune", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr":
+		return "0"
+	default:
+		// Pointer / slice / map / chan / interface zero is nil.
+		return "nil"
+	}
+}
+
+// ErrUnused is documented for symmetry with the other generator
+// plugins' sentinel-error pattern; the sentinel plugin's
+// diagnostic surface is currently empty, so the symbol exists
+// only to leave room for future framework-level rejection paths
+// (e.g. annotated package without any errors → warning).
+var ErrUnused = errors.New("sentinel: reserved sentinel — currently unused")

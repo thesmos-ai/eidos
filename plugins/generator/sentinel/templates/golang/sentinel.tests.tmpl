@@ -1,0 +1,265 @@
+{{- define "sentinel.tests" -}}
+{{- if .Sentinels }}
+
+// Test{{ .TestName }} pins the package's Err* sentinel set:
+{{- if .EmitPrefix }}
+//   - prefix:           every sentinel's .Error() starts with {{ printf "%q" .Prefix }}.
+{{- end }}
+//   - uniqueness:       no two sentinels share an .Error() message.
+//   - non-overlap:      errors.Is is false for every cross-pair.
+//   - errors.Join chain: errors.Is sees through errors.Join.
+//   - fmt.Errorf chain: errors.Is sees through fmt.Errorf("...: %w", err).
+func Test{{ .TestName }}(t *{{ renderExpr .TestingTRef }}) {
+	t.Parallel()
+
+	type entry struct {
+		name string
+		err  error
+	}
+	all := []entry{
+{{- range .Sentinels }}
+		{ {{ printf "%q" .Name }}, {{ renderExpr .Ref }} },
+{{- end }}
+	}
+{{- if .EmitPrefix }}
+
+	// "prefix": every Err* var's .Error() must start with the
+	// package-derived prefix. Catches sentinels that silently
+	// lose their prefix during refactors.
+	t.Run("prefix", func(t *testing.T) {
+		t.Parallel()
+		const want = {{ printf "%q" .Prefix }}
+		for _, e := range all {
+			if !{{ renderExpr .StringsHasPrefixRef }}(e.err.Error(), want) {
+				t.Errorf("%s.Error() = %q, must start with %q", e.name, e.err.Error(), want)
+			}
+		}
+	})
+{{- end }}
+
+	// "uniqueness": no two sentinels may share an identical
+	// .Error() message — duplicate text would let errors.Is
+	// succeed for the wrong reason in user code that compares
+	// strings.
+	t.Run("uniqueness", func(t *testing.T) {
+		t.Parallel()
+		seen := make(map[string]string, len(all))
+		for _, e := range all {
+			msg := e.err.Error()
+			if other, dup := seen[msg]; dup {
+				t.Errorf("%s and %s have identical .Error(): %q", e.name, other, msg)
+			}
+			seen[msg] = e.name
+		}
+	})
+
+	// "non-overlap": errors.Is(a, b) must be false for every
+	// distinct pair. A passing test guarantees a caller's
+	// `if errors.Is(err, ErrFoo)` cannot accidentally match a
+	// different sentinel.
+	t.Run("non-overlap", func(t *testing.T) {
+		t.Parallel()
+		for i, a := range all {
+			for j, b := range all {
+				if i == j {
+					continue
+				}
+				if {{ renderExpr .ErrorsIsRef }}(a.err, b.err) {
+					t.Errorf("%s must not errors.Is-match %s", a.name, b.name)
+				}
+			}
+		}
+	})
+
+	// "errors.Join chain": wrapping a sentinel via errors.Join
+	// must preserve errors.Is — confirms sentinels are usable
+	// inside multi-error aggregates without callers losing
+	// identity checks.
+	t.Run("errors.Join chain", func(t *testing.T) {
+		t.Parallel()
+		for _, e := range all {
+			wrapped := {{ renderExpr .ErrorsJoinRef }}(e.err, {{ renderExpr .ErrorsNewRef }}("extra context"))
+			if !errors.Is(wrapped, e.err) {
+				t.Errorf("errors.Join(%s, ...) must satisfy errors.Is", e.name)
+			}
+		}
+	})
+
+	// "fmt.Errorf chain": wrapping with fmt.Errorf("...: %w", err)
+	// must preserve errors.Is — the most common wrapping idiom in
+	// Go must not break sentinel identity.
+	t.Run("fmt.Errorf chain", func(t *testing.T) {
+		t.Parallel()
+		for _, e := range all {
+			wrapped := {{ renderExpr .FmtErrorfRef }}("context: %w", e.err)
+			if !errors.Is(wrapped, e.err) {
+				t.Errorf("fmt.Errorf(%%w, %s) must satisfy errors.Is", e.name)
+			}
+		}
+	})
+}
+{{- end }}
+{{- range $et := .ErrorTypes }}
+
+// Test{{ $et.Name }} pins the *{{ $et.Name }} contract:
+//   - errors.As round-trip:  extracted instance preserves every field.
+//   - errors.Join wrapping:  errors.As succeeds through errors.Join.
+//   - fmt.Errorf wrapping:   errors.As succeeds through fmt.Errorf("%w").
+//   - Error format:          output includes every recognised field value.
+{{- if $et.OtherTypes }}
+//   - non-overlap:           does not alias other custom error types.
+{{- end }}
+{{- if $et.HasIs }}
+//   - Is method:             same-type instances match; foreign errors do not.
+{{- end }}
+{{- if $et.HasUnwrap }}
+//   - Unwrap method:         returns the wrapped cause; errors.Is traverses the chain.
+{{- end }}
+func Test{{ $et.Name }}(t *{{ renderExpr $.TestingTRef }}) {
+	t.Parallel()
+
+	// errors.As must extract the concrete error type and
+	// round-trip every exported field value back to the caller.
+	t.Run("errors.As extracts type", func(t *testing.T) {
+		t.Parallel()
+{{- range $et.Fields }}
+		want{{ .Name }} := {{ .SampleValue }}
+{{- end }}
+		err := &{{ renderExpr $et.Ref }}{
+{{- range $et.Fields }}
+			{{ .Name }}: want{{ .Name }},
+{{- end }}
+		}
+		var target *{{ renderExpr $et.Ref }}
+		if !{{ renderExpr $.ErrorsAsRef }}(err, &target) {
+			t.Fatalf("errors.As must succeed for *{{ $et.Name }}")
+		}
+{{- range $et.Fields }}
+{{- if .IsError }}
+		if !{{ renderExpr $.ErrorsIsRef }}(target.{{ .Name }}, want{{ .Name }}) {
+			t.Errorf("{{ .Name }} must round-trip through errors.As")
+		}
+{{- else }}
+		if target.{{ .Name }} != want{{ .Name }} {
+			t.Errorf("{{ .Name }} = %v, want %v", target.{{ .Name }}, want{{ .Name }})
+		}
+{{- end }}
+{{- end }}
+	})
+
+	// errors.As must keep working when the error is one branch
+	// of an errors.Join multi-error — confirms the type is
+	// reachable through the Join tree, not just at the top level.
+	t.Run("survives errors.Join wrapping", func(t *testing.T) {
+		t.Parallel()
+		original := &{{ renderExpr $et.Ref }}{
+{{- range $et.Fields }}
+			{{ .Name }}: {{ .SampleValue }},
+{{- end }}
+		}
+		wrapped := {{ renderExpr $.ErrorsJoinRef }}(original, {{ renderExpr $.ErrorsNewRef }}("extra context"))
+		var target *{{ renderExpr $et.Ref }}
+		if !errors.As(wrapped, &target) {
+			t.Fatalf("errors.As must work through errors.Join for *{{ $et.Name }}")
+		}
+	})
+
+	// errors.As must keep working when the error is wrapped via
+	// fmt.Errorf("...: %w", err) — the canonical Go wrapping
+	// idiom.
+	t.Run("survives fmt.Errorf wrapping", func(t *testing.T) {
+		t.Parallel()
+		original := &{{ renderExpr $et.Ref }}{
+{{- range $et.Fields }}
+			{{ .Name }}: {{ .SampleValue }},
+{{- end }}
+		}
+		wrapped := {{ renderExpr $.FmtErrorfRef }}("context: %w", original)
+		var target *{{ renderExpr $et.Ref }}
+		if !errors.As(wrapped, &target) {
+			t.Fatalf("errors.As must work through fmt.Errorf for *{{ $et.Name }}")
+		}
+	})
+{{- if $et.FormatCheckOrder }}
+
+	// Error() output must be non-empty and include every
+	// recognised field value as a substring. Catches regressions
+	// where a refactor drops a field from the format string.
+	t.Run("Error format includes all fields", func(t *testing.T) {
+		t.Parallel()
+		err := &{{ renderExpr $et.Ref }}{
+{{- range $et.Fields }}
+			{{ .Name }}: {{ .SampleValue }},
+{{- end }}
+		}
+		got := err.Error()
+		if got == "" {
+			t.Fatalf("Error() returned empty string")
+		}
+{{- range $et.FormatCheckOrder }}
+		if !{{ renderExpr $.StringsContainsRef }}(got, {{ printf "%q" . }}) {
+			t.Errorf("Error() %q missing substring %q", got, {{ printf "%q" . }})
+		}
+{{- end }}
+	})
+{{- end }}
+{{- if $et.OtherTypes }}
+
+	// Each custom error type must be distinct from every other
+	// custom error type in the package — errors.Is on a foreign
+	// type must return false. Catches degenerate Is()
+	// implementations that silently match unrelated types.
+	t.Run("does not match other error types in package", func(t *testing.T) {
+		t.Parallel()
+		err := &{{ renderExpr $et.Ref }}{}
+{{- range $et.OtherTypeRefs }}
+		if errors.Is(err, &{{ renderExpr . }}{}) {
+			t.Errorf("foreign error type matched via errors.Is")
+		}
+{{- end }}
+	})
+{{- end }}
+{{- if $et.HasIs }}
+
+	// The type's Is method must accept same-type instances
+	// regardless of field values and reject foreign errors.
+	t.Run("Is method accepts same-type, rejects foreign", func(t *testing.T) {
+		t.Parallel()
+		a := &{{ renderExpr $et.Ref }}{}
+		b := &{{ renderExpr $et.Ref }}{}
+		if !a.Is(b) {
+			t.Errorf("*{{ $et.Name }}.Is must accept same-type instances")
+		}
+		foreign := errors.New("foreign")
+		if a.Is(foreign) {
+			t.Errorf("*{{ $et.Name }}.Is must reject foreign errors")
+		}
+	})
+{{- end }}
+{{- if $et.HasUnwrap }}
+
+	// The type's Unwrap method must return the wrapped cause
+	// when set, and errors.Is must traverse the chain. nil cause
+	// must surface as nil from Unwrap (not panic).
+	t.Run("Unwrap returns the wrapped cause", func(t *testing.T) {
+		t.Parallel()
+{{- if $et.UnwrapField }}
+		cause := errors.New("test-cause")
+		err := &{{ renderExpr $et.Ref }}{ {{ $et.UnwrapField }}: cause }
+		if got := err.Unwrap(); got != cause {
+			t.Errorf("Unwrap() = %v, want %v", got, cause)
+		}
+		if !errors.Is(err, cause) {
+			t.Errorf("errors.Is must traverse Unwrap chain")
+		}
+{{- else }}
+		err := &{{ renderExpr $et.Ref }}{}
+		if got := err.Unwrap(); got != nil {
+			t.Errorf("Unwrap() on zero value = %v, want nil", got)
+		}
+{{- end }}
+	})
+{{- end }}
+}
+{{- end }}
+{{- end -}}
