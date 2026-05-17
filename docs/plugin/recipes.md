@@ -71,7 +71,7 @@ interface, function), emit a counterpart in a generated
 package. The canonical "for each `+gen:repo` struct emit a
 `<Type>Repository` interface + `<Type>Repo` struct" pattern.
 
-**Reference:** [`reference/repogen`](../../reference/repogen) (canonical), [`reference/buildergen`](../../reference/buildergen), [`reference/mockgen`](../../reference/mockgen)
+**Reference:** [`reference/repogen`](../../reference/repogen) (canonical), [`reference/mockgen`](../../reference/mockgen), [`plugins/generator/builder`](../../plugins/generator/builder) (template-driven variant)
 
 ```go
 package repogen

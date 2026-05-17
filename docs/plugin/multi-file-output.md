@@ -266,7 +266,7 @@ The `output` block accepts per-plugin and per-tag overrides:
 ```yaml
 output:
   # Single-output plugin (no tags): plugin-level routing block.
-  buildergen:
+  builder:
     layout: alongside-source
     dir: internal/builders
 

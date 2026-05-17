@@ -27,9 +27,7 @@
 package debugweaver
 
 import (
-	"go.thesmos.sh/eidos/core/opt"
 	"go.thesmos.sh/eidos/emit"
-	"go.thesmos.sh/eidos/emit/builder"
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/sdk"
 )
@@ -84,7 +82,7 @@ type Options struct {
 
 // Plugin is the cross-cutting debug-weaver.
 type Plugin struct {
-	*opt.Holder[Options]
+	*sdk.Holder[Options]
 	opts Options
 }
 
@@ -92,7 +90,7 @@ type Plugin struct {
 // bound.
 func New() *Plugin {
 	p := &Plugin{}
-	p.Holder = opt.Bind(&p.opts)
+	p.Holder = sdk.BindOptions(&p.opts)
 	return p
 }
 
@@ -129,13 +127,13 @@ func (*Plugin) Directives() []sdk.DirectiveSchema {
 // Options.Package on the host file's import set via the
 // [emit.NewExternal] expression.
 func (p *Plugin) Generate(ctx *sdk.GeneratorContext) error {
-	c := builder.For(Name, emit.Target{})
+	c := sdk.NewProvenance(Name, sdk.EmitTarget{})
 	for _, m := range ctx.Reader.EmitMethods().Slice() {
 		if m.HasNegatedDirective(DirectiveName) {
 			continue
 		}
 		stmt := emit.NewExprStmt(emit.NewCall(
-			emit.NewExternal(p.pkg(), p.funcName()),
+			sdk.NewExternal(p.pkg(), p.funcName()),
 			emit.NewLiteralString(p.format()),
 			emit.NewLiteralString(ownerName(m)+"."+m.Name),
 		))

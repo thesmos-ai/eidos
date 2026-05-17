@@ -77,7 +77,7 @@ plugins:
 
   # ---- Reference generators ---------------------------------------------
 
-  - name: buildergen
+  - name: builder
     options:
       suffix: Builder                # emitted type is <Type><Suffix>
 

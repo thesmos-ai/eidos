@@ -26,7 +26,6 @@ package repogen
 import (
 	"errors"
 
-	"go.thesmos.sh/eidos/core/opt"
 	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/emit/builder"
 	"go.thesmos.sh/eidos/node"
@@ -97,16 +96,16 @@ type Options struct {
 // unusable — go through [New] so the embedded [opt.Holder] binds
 // to the plugin's options field.
 type Plugin struct {
-	*opt.Holder[Options]
+	*sdk.Holder[Options]
 	opts Options
 }
 
 // New returns a fresh plugin instance with the options holder bound.
 // The pipeline overlays caller-supplied option values via
-// [Plugin.SetOptions] (promoted from [opt.Holder]) at Build time.
+// [Plugin.SetOptions] (promoted from [sdk.Holder]) at Build time.
 func New() *Plugin {
 	p := &Plugin{}
-	p.Holder = opt.Bind(&p.opts)
+	p.Holder = sdk.BindOptions(&p.opts)
 	return p
 }
 
@@ -175,7 +174,7 @@ func (p *Plugin) Generate(ctx *sdk.GeneratorContext) error {
 		if !ok {
 			continue
 		}
-		c := builder.For(Name, emit.Target{})
+		c := sdk.NewProvenance(Name, sdk.EmitTarget{})
 		pkg := c.Package(srcPkg.Name, srcPkg.Path)
 		for _, s := range groups[path] {
 			p.emitOne(pkg, s, emit.External(s.Package, s.Name))

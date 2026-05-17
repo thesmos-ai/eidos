@@ -38,10 +38,7 @@ import (
 	"io/fs"
 	"text/template"
 
-	"go.thesmos.sh/eidos/core/kind"
-	"go.thesmos.sh/eidos/core/opt"
 	"go.thesmos.sh/eidos/emit"
-	"go.thesmos.sh/eidos/emit/builder"
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/sdk"
 )
@@ -59,7 +56,7 @@ const DirectiveName sdk.DirectiveName = "register"
 // Kind is the plugin-defined emit kind every [Registration] reports
 // from [Registration.Kind]. The dotted spelling keeps it outside
 // the core `emit.*` namespace.
-const Kind kind.Kind = "registrygen.registration"
+const Kind sdk.Kind = "registrygen.registration"
 
 // Language is the target language whose template tree the plugin
 // contributes. Other languages get the empty signal from
@@ -120,9 +117,9 @@ type Options struct {
 }
 
 // Plugin is the registry-gen generator. Go through [New] so the
-// embedded [opt.Holder] binds to the plugin's options field.
+// embedded [sdk.Holder] binds to the plugin's options field.
 type Plugin struct {
-	*opt.Holder[Options]
+	*sdk.Holder[Options]
 	opts Options
 }
 
@@ -130,7 +127,7 @@ type Plugin struct {
 // bound.
 func New() *Plugin {
 	p := &Plugin{}
-	p.Holder = opt.Bind(&p.opts)
+	p.Holder = sdk.BindOptions(&p.opts)
 	return p
 }
 
@@ -229,11 +226,11 @@ type Registration struct {
 }
 
 // Kind returns [Kind].
-func (*Registration) Kind() kind.Kind { return Kind }
+func (*Registration) Kind() sdk.Kind { return Kind }
 
 // Compile-time confirmation that *Registration is a valid
-// [emit.Node].
-var _ emit.Node = (*Registration)(nil)
+// [sdk.EmitNode].
+var _ sdk.EmitNode = (*Registration)(nil)
 
 // Generate walks the source structs and appends one
 // origin-anchored Registration to the `init` slot for each
@@ -241,7 +238,7 @@ var _ emit.Node = (*Registration)(nil)
 // each contribution's origin to a rendered file downstream;
 // the plugin itself sets no Target.
 func (p *Plugin) Generate(ctx *sdk.GeneratorContext) error {
-	c := builder.For(Name, emit.Target{})
+	c := sdk.NewProvenance(Name, sdk.EmitTarget{})
 	for _, s := range ctx.Reader.Structs().Slice() {
 		if !s.HasPositiveDirective(DirectiveName) {
 			continue

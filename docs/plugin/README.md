@@ -58,11 +58,15 @@ production-grade example:
 |--------------------------------|------------------|------------------------------------|
 | [shapewriter](../../reference/shapewriter)   | Annotator        | Infer structural shape; stamp meta |
 | [repogen](../../reference/repogen)           | Generator        | Per-source-struct emit (CRUD repo) |
-| [buildergen](../../reference/buildergen)     | Generator        | Per-source-struct emit (builder)   |
 | [mockgen](../../reference/mockgen)           | Generator        | Per-source-interface emit (mock)   |
 | [auditweaver](../../reference/auditweaver)   | Cross-cutting    | Method prebody-slot contribution   |
 | [debugweaver](../../reference/debugweaver)   | Cross-cutting    | Method prebody-slot contribution   |
 | [registrygen](../../reference/registrygen)   | Cross-cutting    | Plugin-defined emit kind + init() registration |
+
+The production [`plugins/generator/builder`](../../plugins/generator/builder)
+is the canonical template-driven generator — copy from it when
+your plugin ships per-language templates rather than constructing
+emit decls programmatically.
 
 Read the reference plugin matching your intended pattern before
 writing your own — every framework idiom appears in at least one
