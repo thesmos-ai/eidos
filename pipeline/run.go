@@ -4,11 +4,13 @@
 package pipeline
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +18,7 @@ import (
 	"go.thesmos.sh/eidos/cache"
 	"go.thesmos.sh/eidos/core/diag"
 	"go.thesmos.sh/eidos/core/position"
+	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/manifest"
 	"go.thesmos.sh/eidos/plugin"
 	"go.thesmos.sh/eidos/sink"
@@ -87,8 +90,16 @@ func (p *Pipeline) Run(ctx context.Context, patterns ...string) error {
 // correctness) so a manifest-write failure does not turn the run
 // into a failed one.
 //
-// The write is skipped when an existing manifest at the same path
-// differs only by RunID: the timestamp would otherwise refresh
+// Narrow-scope runs (e.g. `eidos run ./sub/...` after a prior
+// `./...` run) merge with the prior manifest rather than
+// overwriting it: prior entries whose [emit.Target.ImportPath]
+// matches a package the current run did NOT load are preserved
+// verbatim. Without the merge, a `./sub/...` run would shrink the
+// manifest to just `sub/` entries and orphan everything else from
+// prune / drift tracking. See [mergeManifestPreservingOutOfScope].
+//
+// The write is skipped when the merged manifest matches the prior
+// on disk modulo RunID: the timestamp would otherwise refresh
 // mtime and dirty the file in version control even when nothing
 // the manifest describes changed. The RunID stays in the wire
 // format (drift / prune tooling reads it to attribute outputs back
@@ -98,12 +109,98 @@ func (p *Pipeline) writeManifest(rec *recordingSink, s *store.Store) {
 		return
 	}
 	current := rec.asManifest(time.Now().UTC().Format(time.RFC3339), s, p.pluginNames(), p)
-	if prev, err := manifest.Read(p.manifestPath); err == nil && manifestContentEqual(prev, current) {
+	prev, _ := manifest.Read(p.manifestPath)
+	merged := mergeManifestPreservingOutOfScope(prev, current, scopeImportPathsForRun(s))
+	if prev != nil && manifestContentEqual(prev, merged) {
 		return
 	}
-	if err := manifest.Write(p.manifestPath, current); err != nil {
+	if err := manifest.Write(p.manifestPath, merged); err != nil {
 		p.diag.For("pipeline").Warnf(position.Pos{}, "manifest write failed: %v", err)
 	}
+}
+
+// scopeImportPathsForRun returns the set of source-package import
+// paths the current run loaded. Used by
+// [mergeManifestPreservingOutOfScope] to identify which prior-
+// manifest entries this run had authority over: entries whose
+// [emit.Target.ImportPath] matches a loaded package (allowing the
+// framework's `<pkg>_test` auto-shift) were "in scope" and the
+// current run's outputs replace them; entries outside the scope
+// are preserved verbatim.
+func scopeImportPathsForRun(s *store.Store) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, pkg := range s.Nodes().Packages().Items() {
+		if pkg.Path != "" {
+			out[pkg.Path] = struct{}{}
+		}
+	}
+	return out
+}
+
+// mergeManifestPreservingOutOfScope returns a manifest that pairs
+// every output from current with every output from prior whose
+// target package was NOT loaded by the current run — preserving
+// prior entries that the current run had no authority over.
+//
+// Prior entries with no [emit.Target.ImportPath] attribution are
+// preserved (safer default: we can't determine ownership, so the
+// merge errs on the side of not losing data).
+//
+// A nil prior reduces to current verbatim.
+func mergeManifestPreservingOutOfScope(prev, current *manifest.Manifest, scope map[string]struct{}) *manifest.Manifest {
+	if prev == nil {
+		return current
+	}
+	merged := manifest.New(current.RunID)
+	merged.Brand = current.Brand
+	seen := map[emit.Target]struct{}{}
+	for _, o := range prev.Outputs {
+		if entryInScope(o, scope) {
+			continue
+		}
+		merged.Add(o)
+		seen[o.Target] = struct{}{}
+	}
+	for _, o := range current.Outputs {
+		if _, dup := seen[o.Target]; dup {
+			continue
+		}
+		merged.Add(o)
+	}
+	slices.SortFunc(merged.Outputs, func(a, b manifest.Output) int {
+		if c := cmp.Compare(a.Target.Dir, b.Target.Dir); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(a.Target.Filename, b.Target.Filename); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(a.Target.Package, b.Target.Package); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.Target.ImportPath, b.Target.ImportPath)
+	})
+	return merged
+}
+
+// entryInScope reports whether o's target lives in a package the
+// current run loaded. Matches the exact ImportPath plus the
+// framework's `<pkg>_test` auto-shift variant. Entries with no
+// ImportPath are reported out-of-scope so the merge preserves
+// them (safer default than dropping unattributed entries).
+func entryInScope(o manifest.Output, scope map[string]struct{}) bool {
+	path := o.Target.ImportPath
+	if path == "" {
+		return false
+	}
+	if _, ok := scope[path]; ok {
+		return true
+	}
+	if stripped, ok := strings.CutSuffix(path, "_test"); ok {
+		if _, hit := scope[stripped]; hit {
+			return true
+		}
+	}
+	return false
 }
 
 // manifestContentEqual reports whether prev and current describe the

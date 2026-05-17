@@ -6,6 +6,7 @@ package pipeline_test
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"go.thesmos.sh/eidos/core/diag"
 	"go.thesmos.sh/eidos/core/position"
 	"go.thesmos.sh/eidos/emit"
+	"go.thesmos.sh/eidos/manifest"
 	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/pipeline"
 	"go.thesmos.sh/eidos/plugin"
@@ -785,6 +787,178 @@ func TestPipeline_Run_ParallelAnnotatorsWithPlainPlugin(t *testing.T) {
 		assertNoError(t, p.Run(t.Context()))
 		if plain.calls != 1 {
 			t.Fatalf("plain annotator should run; calls=%d", plain.calls)
+		}
+	})
+}
+
+// TestPipeline_Run_ManifestScopePreserve pins the
+// scope-aware manifest merge: a narrow-pattern run must NOT
+// wipe prior entries for packages the current run did not
+// load. Without the merge, `eidos run ./sub/...` after a
+// prior `eidos run ./...` would shrink the manifest to just
+// the sub/ entries, orphaning everything else from prune /
+// drift tracking.
+func TestPipeline_Run_ManifestScopePreserve(t *testing.T) {
+	t.Parallel()
+
+	t.Run("narrow re-run preserves out-of-scope entries from prior wide run", func(t *testing.T) {
+		t.Parallel()
+		tmp := t.TempDir()
+		manifestPath := filepath.Join(tmp, "manifest.json")
+
+		// fePkg builds a frontend that loads a single source
+		// package whose Name == Path == pkg, carrying one
+		// emit-able struct.
+		fePkg := func(pkg string) *recFE {
+			return &recFE{
+				name: "fe",
+				loadFn: func(s *store.Store) {
+					_ = s.Nodes().AddPackage(&node.Package{
+						Name: pkg, Path: pkg,
+						Structs: []*node.Struct{{
+							BaseNode: node.BaseNode{SourcePos: position.Pos{File: pkg + "/x.go"}},
+							Name:     "X", Package: pkg,
+						}},
+					})
+				},
+			}
+		}
+		// Mirror generator: one emit struct per source struct,
+		// stamped with the source ImportPath so the manifest
+		// entry carries Target.ImportPath = pkg.
+		gen := &recGen{
+			name: "gen",
+			generate: func(ctx *plugin.GeneratorContext) {
+				ctx.Reader.Structs().Each(func(srcStruct *node.Struct) {
+					_ = ctx.Store.Emit().AddPackage(&emit.Package{
+						Name: srcStruct.Package, Path: srcStruct.Package, Dir: srcStruct.Package,
+						Structs: []*emit.Struct{{
+							BaseEmit: emit.BaseEmit{OriginNode: srcStruct, SetByName: "gen"},
+							Name:     srcStruct.Name, Package: srcStruct.Package,
+						}},
+					})
+				})
+			},
+		}
+		be := &recBE{
+			name: "be", lang: "stub",
+			render: func(ctx *plugin.BackendContext) {
+				ctx.Reader.EmitStructs().Each(func(s *emit.Struct) {
+					_ = ctx.Sink.Write(s.Target, []byte("rendered:"+s.Name))
+				})
+			},
+		}
+		buildPipe := func(fe *recFE) *pipeline.Pipeline {
+			p, err := pipeline.New().
+				WithFrontend(fe).
+				WithGenerator(gen).
+				WithBackend(be).
+				WithSink(sink.NewMemory()).
+				WithManifestPath(manifestPath).
+				Build()
+			assertNoError(t, err)
+			return p
+		}
+
+		// First run: load package "a" → manifest gets one entry.
+		assertNoError(t, buildPipe(fePkg("a")).Run(t.Context(), "a"))
+		// Second run: load package "b" only → without scope-merge
+		// this would WIPE the "a" entry; with scope-merge it
+		// preserves "a" and adds "b".
+		assertNoError(t, buildPipe(fePkg("b")).Run(t.Context(), "b"))
+
+		m, err := manifest.Read(manifestPath)
+		assertNoError(t, err)
+		importPaths := make([]string, 0, len(m.Outputs))
+		for _, o := range m.Outputs {
+			importPaths = append(importPaths, o.Target.ImportPath)
+		}
+		if !slices.Contains(importPaths, "a") {
+			t.Errorf("narrow re-run wiped out-of-scope entry; "+
+				"manifest ImportPaths = %v, want includes 'a'", importPaths)
+		}
+		if !slices.Contains(importPaths, "b") {
+			t.Errorf("narrow re-run missing current entry; "+
+				"manifest ImportPaths = %v, want includes 'b'", importPaths)
+		}
+	})
+
+	t.Run("re-run with identical scope replaces prior entry for same Target", func(t *testing.T) {
+		t.Parallel()
+		tmp := t.TempDir()
+		manifestPath := filepath.Join(tmp, "manifest.json")
+
+		// Generator emits with a varying name so successive runs
+		// produce different hashes for the same Target — proves
+		// the merge replaces (rather than duplicates) when scope
+		// matches.
+		var renderTag string
+		fe := &recFE{
+			name: "fe",
+			loadFn: func(s *store.Store) {
+				_ = s.Nodes().AddPackage(&node.Package{
+					Name: "a", Path: "a",
+					Structs: []*node.Struct{{
+						BaseNode: node.BaseNode{SourcePos: position.Pos{File: "a/x.go"}},
+						Name:     "X", Package: "a",
+					}},
+				})
+			},
+		}
+		gen := &recGen{
+			name: "gen",
+			generate: func(ctx *plugin.GeneratorContext) {
+				ctx.Reader.Structs().Each(func(srcStruct *node.Struct) {
+					_ = ctx.Store.Emit().AddPackage(&emit.Package{
+						Name: srcStruct.Package, Path: srcStruct.Package, Dir: srcStruct.Package,
+						Structs: []*emit.Struct{{
+							BaseEmit: emit.BaseEmit{OriginNode: srcStruct, SetByName: "gen"},
+							Name:     srcStruct.Name, Package: srcStruct.Package,
+						}},
+					})
+				})
+			},
+		}
+		be := &recBE{
+			name: "be", lang: "stub",
+			render: func(ctx *plugin.BackendContext) {
+				ctx.Reader.EmitStructs().Each(func(s *emit.Struct) {
+					_ = ctx.Sink.Write(s.Target, []byte("rendered:"+s.Name+":"+renderTag))
+				})
+			},
+		}
+		buildPipe := func() *pipeline.Pipeline {
+			p, err := pipeline.New().
+				WithFrontend(fe).
+				WithGenerator(gen).
+				WithBackend(be).
+				WithSink(sink.NewMemory()).
+				WithManifestPath(manifestPath).
+				Build()
+			assertNoError(t, err)
+			return p
+		}
+
+		renderTag = "first"
+		assertNoError(t, buildPipe().Run(t.Context(), "a"))
+		renderTag = "second"
+		assertNoError(t, buildPipe().Run(t.Context(), "a"))
+
+		m, err := manifest.Read(manifestPath)
+		assertNoError(t, err)
+		count := 0
+		var hash string
+		for _, o := range m.Outputs {
+			if o.Target.ImportPath == "a" {
+				count++
+				hash = o.Hash
+			}
+		}
+		if count != 1 {
+			t.Errorf("same-scope re-run must replace, not duplicate; got %d entries for ImportPath 'a'", count)
+		}
+		if hash == "" {
+			t.Errorf("expected a hash on the merged entry; got empty")
 		}
 	})
 }
