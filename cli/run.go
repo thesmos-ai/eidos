@@ -95,7 +95,7 @@ func (c *RunCommand) Execute(ctx context.Context, env *Env) (exit int) {
 	}
 	patterns := c.Config.Patterns
 	if len(patterns) == 0 {
-		patterns = patternsFromConfig(cfg)
+		patterns = patternsOrDefault(cfg)
 	}
 	runErr := p.Run(ctx, patterns...)
 	rerr := RenderDiagnostics(env.Stderr, p.Diag(), c.Config.DiagFormat, c.Config.Verbose, c.Config.Quiet)
