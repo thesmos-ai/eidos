@@ -1,0 +1,62 @@
+{{- define "enum.test" -}}
+// Test{{ .TypeName }}String_RoundTrip pins the String / Parse
+// round-trip across every declared variant.
+func Test{{ .TypeName }}String_RoundTrip(t *{{ renderExpr .TestingTPtrRef }}) {
+	t.Parallel()
+	cases := []struct {
+		in  {{ $.TypeName }}
+		out string
+	}{
+{{- range .Variants }}
+		{ {{ .ConstName }}, {{ printf "%q" .StringValue }} },
+{{- end }}
+	}
+	for _, c := range cases {
+		if got := c.in.String(); got != c.out {
+			t.Errorf("%v.String() = %q, want %q", c.in, got, c.out)
+		}
+		parsed, err := {{ .ParseName }}(c.out)
+		if err != nil {
+			t.Errorf("{{ .ParseName }}(%q): %v", c.out, err)
+			continue
+		}
+		if parsed != c.in {
+			t.Errorf("{{ .ParseName }}(%q) = %v, want %v", c.out, parsed, c.in)
+		}
+	}
+}
+
+// TestParse{{ .TypeName }}_Unknown pins the {{ .SentinelName }}
+// sentinel returned for inputs that don't match any declared
+// variant.
+func TestParse{{ .TypeName }}_Unknown(t *{{ renderExpr $.TestingTPtrRef }}) {
+	t.Parallel()
+	_, err := {{ .ParseName }}("__nonexistent__")
+	if !{{ renderExpr .ErrorsIsRef }}(err, {{ .SentinelName }}) {
+		t.Fatalf("expected {{ .SentinelName }}; got %v", err)
+	}
+}
+
+// Test{{ .TypeName }}JSON_RoundTrip pins the MarshalJSON /
+// UnmarshalJSON round-trip across every declared variant.
+func Test{{ .TypeName }}JSON_RoundTrip(t *{{ renderExpr $.TestingTPtrRef }}) {
+	t.Parallel()
+	for _, v := range []{{ $.TypeName }}{
+{{- range .Variants }}
+		{{ .ConstName }},
+{{- end }}
+	} {
+		body, err := {{ renderExpr $.JSONMarshalRef }}(v)
+		if err != nil {
+			t.Fatalf("Marshal(%v): %v", v, err)
+		}
+		var got {{ $.TypeName }}
+		if err := {{ renderExpr $.JSONUnmarshalRef }}(body, &got); err != nil {
+			t.Fatalf("Unmarshal(%s): %v", body, err)
+		}
+		if got != v {
+			t.Errorf("round-trip: got %v, want %v", got, v)
+		}
+	}
+}
+{{- end -}}

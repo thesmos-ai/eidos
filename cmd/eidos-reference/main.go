@@ -43,6 +43,7 @@ import (
 	frontendgolang "go.thesmos.sh/eidos/frontend/golang"
 	"go.thesmos.sh/eidos/frontend/protobuf"
 	"go.thesmos.sh/eidos/plugin"
+	"go.thesmos.sh/eidos/plugins/generator/enum"
 	"go.thesmos.sh/eidos/reference/auditweaver"
 	"go.thesmos.sh/eidos/reference/buildergen"
 	"go.thesmos.sh/eidos/reference/debugweaver"
@@ -159,6 +160,7 @@ func defaultPlugins() []plugin.Plugin {
 		// other generators may compose against.
 		repogen.New(),
 		buildergen.New(),
+		enum.New(),
 
 		// Generators (composition bucket) — depend on
 		// foundation output.

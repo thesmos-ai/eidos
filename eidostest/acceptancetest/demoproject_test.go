@@ -64,6 +64,12 @@ func TestRunOnDemoProject(t *testing.T) {
 		"blog/searcher_mock_test.go",
 		"blog/article_mock_test.go",
 		"blog/user_mock_test.go",
+
+		// enum (multi-output) targets blog.Status — production
+		// surface in _enum.go, paired round-trip tests in
+		// _enum_test.go (auto-shifted to package blog_test).
+		"blog/status_enum.go",
+		"blog/status_enum_test.go",
 	} {
 		path := filepath.Join(workdir, rel)
 		if _, err := os.Stat(path); err != nil {

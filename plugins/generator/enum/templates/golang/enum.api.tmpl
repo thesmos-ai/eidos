@@ -1,0 +1,50 @@
+{{- define "enum.api" -}}
+// String returns the textual form of {{ .TypeName }}.
+func (v {{ .TypeName }}) String() string {
+	switch v {
+{{- range .Variants }}
+	case {{ .ConstName }}:
+		return {{ printf "%q" .StringValue }}
+{{- end }}
+	}
+	return {{ renderExpr $.SprintfRef }}({{ printf "%q" (printf "%s(%%d)" .TypeName) }}, int(v))
+}
+
+// {{ .SentinelName }} is returned by {{ .ParseName }} when the
+// input string doesn't match any declared variant.
+var {{ .SentinelName }} = {{ renderExpr .ErrorsNewRef }}({{ printf "%q" (printf "%s: unknown %s" "enum" .TypeName) }})
+
+// {{ .ParseName }} parses s into a {{ .TypeName }} value, returning
+// {{ .SentinelName }} when s does not match any declared variant.
+func {{ .ParseName }}(s string) ({{ .TypeName }}, error) {
+	switch s {
+{{- range .Variants }}
+	case {{ printf "%q" .StringValue }}:
+		return {{ .ConstName }}, nil
+{{- end }}
+	}
+	var zero {{ $.TypeName }}
+	return zero, {{ $.SentinelName }}
+}
+
+// MarshalJSON serialises v as the variant's textual form.
+func (v {{ .TypeName }}) MarshalJSON() ([]byte, error) {
+	return {{ renderExpr .JSONMarshalRef }}(v.String())
+}
+
+// UnmarshalJSON parses the variant's textual form, returning
+// {{ .SentinelName }} when the decoded string is not a
+// declared variant.
+func (v *{{ .TypeName }}) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := {{ renderExpr .JSONUnmarshalRef }}(data, &s); err != nil {
+		return err
+	}
+	parsed, err := {{ .ParseName }}(s)
+	if err != nil {
+		return err
+	}
+	*v = parsed
+	return nil
+}
+{{- end -}}
