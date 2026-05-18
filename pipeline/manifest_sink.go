@@ -111,6 +111,7 @@ func (r *recordingSink) asManifest(
 
 	layoutRouted := p.hasLayoutActivity()
 	m := manifest.New(runID)
+	m.Brand = p.brand
 	for _, target := range targets {
 		body := r.files[target]
 		sum := sha256.Sum256(body)

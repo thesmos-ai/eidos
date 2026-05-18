@@ -63,7 +63,7 @@ func buildPipeline(
 	if err != nil {
 		return nil, err
 	}
-	b := pipeline.New()
+	b := pipeline.New().WithBrand(env.Brand)
 	for _, p := range enabled {
 		registerPlugin(b, p)
 	}

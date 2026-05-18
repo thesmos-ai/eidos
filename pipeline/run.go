@@ -551,6 +551,7 @@ func (p *Pipeline) runBackend(s *store.Store, dst sink.Sink) {
 		Ordered:    p.orderedPlugins(),
 		Command:    p.commandHeader(),
 		SourceRoot: p.sourceRoot,
+		Brand:      p.brand,
 	}
 	if err := p.backend.Render(ctx); err != nil {
 		p.reportPluginError(ps, p.backend.Name(), "backend", err)

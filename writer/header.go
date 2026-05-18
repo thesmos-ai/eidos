@@ -122,6 +122,30 @@ func ExtractProvenance(body []byte) (string, bool) {
 	return string(rest[:end]), true
 }
 
+// IsProvenanceAtTail reports whether body's provenance trailer is
+// the final non-whitespace content of body. Returns false when no
+// trailer is present, or when the file carries any non-whitespace
+// content past the trailer's newline — the tamper-detection
+// signal an idempotent re-write short-circuit consults to decide
+// whether to trust the on-disk file's provenance hash. Manual
+// edits appended past the `// <brand>: end of generated content.`
+// marker leave the original provenance line intact, so a
+// hash-only equality check would happily skip the rewrite and the
+// user's tamper would stick. Requiring the trailer to be at the
+// tail closes that gap.
+func IsProvenanceAtTail(body []byte) bool {
+	idx := bytes.LastIndex(body, []byte(ProvenanceMarker))
+	if idx < 0 {
+		return false
+	}
+	rest := body[idx+len(ProvenanceMarker):]
+	nl := bytes.IndexAny(rest, "\r\n")
+	if nl < 0 {
+		return true
+	}
+	return len(bytes.TrimSpace(rest[nl:])) == 0
+}
+
 // sortedCopy returns a sorted copy of in. nil and empty in return
 // nil unchanged.
 func sortedCopy(in []string) []string {

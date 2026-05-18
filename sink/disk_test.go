@@ -4,6 +4,7 @@
 package sink_test
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -111,6 +112,36 @@ func TestDisk_Write(t *testing.T) {
 			t.Fatalf(
 				"header-only delta with matching provenance hash must not rewrite; first=%v second=%v",
 				first.ModTime(), second.ModTime(),
+			)
+		}
+	})
+
+	t.Run("rewrites when the on-disk file has been tampered past the provenance marker", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		d := sink.NewDisk(root)
+		// First write: a normal generated file.
+		body := generatedBlob("eidos run", "package x\n", "deadbeef")
+		assertNoError(t, d.Write(targetAt("a", "b.go"), body))
+		path := filepath.Join(root, "a", "b.go")
+		// User tampers: appends a manual line past the end-of-generated
+		// marker. The provenance line is still inside the file —
+		// LastIndex would find it — but the file is no longer
+		// terminated by the trailer.
+		tampered := append([]byte(nil), body...)
+		tampered = append(tampered, []byte("// MANUAL EDIT\n")...)
+		assertNoError(t, os.WriteFile(path, tampered, 0o600))
+		// Second write of identical body must rewrite the file
+		// (eliminating the tampered tail) — the hash-match
+		// short-circuit must not apply when the on-disk file has
+		// content past the provenance trailer.
+		assertNoError(t, d.Write(targetAt("a", "b.go"), body))
+		got, err := os.ReadFile(path)
+		assertNoError(t, err)
+		if !bytes.Equal(got, body) {
+			t.Fatalf(
+				"tampered file must be rewritten; got %q, want %q",
+				got, body,
 			)
 		}
 	})

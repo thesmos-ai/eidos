@@ -9,7 +9,7 @@ version: 1
 #     destination drive it through the routing surface
 #     (`+gen:out:mockgen <path> pkg=…` on the source, or `-o` / `-p`
 #     on the CLI).
-#   - repogen + buildergen + registrygen run with defaults
+#   - repogen + builder + registrygen run with defaults
 #     (alongside-source layout, log.Print fallbacks).
 #   - audit-weaver / debug-weaver run with stdlib log fallbacks.
 sources:
@@ -26,7 +26,7 @@ plugins:
   - name: golang
   - name: backend.golang
   - name: repogen
-  - name: buildergen
+  - name: builder
   - name: mockgen
   - name: registry-gen
   - name: audit-weaver

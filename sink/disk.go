@@ -109,12 +109,24 @@ func (d *Disk) Write(target emit.Target, body []byte) error {
 // header-only deltas — Command lines, source-path normalisation
 // — don't surface as drift). Files missing the trailer fall
 // through to the byte-equal verdict.
+//
+// The hash-equality fallback additionally requires the existing
+// file's trailer to be at the file tail
+// ([writer.IsProvenanceAtTail]). Manual edits appended past the
+// `end of generated content` marker leave the original
+// provenance line intact, so the hash inside the file would
+// still match the freshly-rendered hash and the sink would skip
+// the rewrite — leaving the user's tamper in place forever.
+// Tail-checking the trailer closes that gap.
 func bodiesMatch(a, b []byte) bool {
 	if bytes.Equal(a, b) {
 		return true
 	}
 	ah, aOK := writer.ExtractProvenance(a)
 	if !aOK {
+		return false
+	}
+	if !writer.IsProvenanceAtTail(a) {
 		return false
 	}
 	bh, bOK := writer.ExtractProvenance(b)

@@ -99,6 +99,7 @@ type Pipeline struct {
 	parallel     map[Phase]bool
 	manifestPath string
 	pipelineID   string
+	brand        string
 	command      string
 	sourceRoot   string
 	// policy is the default [LayoutPolicy] returned by
