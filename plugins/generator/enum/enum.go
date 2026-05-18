@@ -258,10 +258,12 @@ type Variant struct {
 // `MarshalJSON` / `UnmarshalJSON` surface for one source
 // enum.
 //
-// Every stdlib reference is expressed through
-// [sdk.NewExternal] expressions so the backend's
-// `renderExpr` registers the import on the host file's
-// import set automatically.
+// The struct carries only language-neutral data. The
+// per-language template reaches stdlib symbols through
+// the backend's `external` funcmap entry (`{{ renderExpr
+// (external "fmt" "Sprintf") }}`); the backend's
+// `renderExpr` registers the matching import on the host
+// file's import set automatically.
 type API struct {
 	sdk.BaseEmit
 
@@ -281,23 +283,6 @@ type API struct {
 	// order in the source enum, so iota-based numeric
 	// values stay aligned with the rendered switch cases.
 	Variants []Variant
-
-	// SprintfRef is the `fmt.Sprintf` callee expression —
-	// used by the `String` method's fall-through branch
-	// when no variant matches.
-	SprintfRef *sdk.Expr
-
-	// ErrorsNewRef is the `errors.New` callee expression —
-	// used to construct the parse-error sentinel.
-	ErrorsNewRef *sdk.Expr
-
-	// JSONMarshalRef is the `json.Marshal` callee
-	// expression — used inside `MarshalJSON`.
-	JSONMarshalRef *sdk.Expr
-
-	// JSONUnmarshalRef is the `json.Unmarshal` callee
-	// expression — used inside `UnmarshalJSON`.
-	JSONUnmarshalRef *sdk.Expr
 }
 
 // Kind returns [KindAPI].
@@ -314,11 +299,12 @@ var _ sdk.EmitNode = (*API)(nil)
 //
 // The test file lives in the `<pkg>_test` external test
 // package (the Go adapter's auto-shift for files ending in
-// `_test.go`), so every reference to source-package
-// identifiers is expressed through [sdk.NewExternal] —
-// both for cross-package qualification and for automatic
-// import registration via the backend's `renderExpr`
-// funcmap.
+// `_test.go`), so source-package identifiers route through
+// [sdk.NewExternal] for cross-package qualification. The
+// per-language template reaches stdlib symbols
+// (`testing.T`, `errors.Is`, `encoding/json` helpers)
+// through the backend's `external` funcmap entry, not a
+// data-side ref.
 type Tests struct {
 	sdk.BaseEmit
 
@@ -352,24 +338,6 @@ type Tests struct {
 	// Each variant's [Variant.Ref] is populated for
 	// cross-package qualification.
 	Variants []Variant
-
-	// JSONMarshalRef is the `json.Marshal` callee
-	// expression — used in the JSON round-trip test.
-	JSONMarshalRef *sdk.Expr
-
-	// JSONUnmarshalRef is the `json.Unmarshal` callee
-	// expression — used in the JSON round-trip test.
-	JSONUnmarshalRef *sdk.Expr
-
-	// ErrorsIsRef is the `errors.Is` callee expression —
-	// used in the unknown-variant test to compare against
-	// the sentinel.
-	ErrorsIsRef *sdk.Expr
-
-	// TestingTPtrRef is the `*testing.T` parameter type —
-	// used to register the `testing` import on the host
-	// file.
-	TestingTPtrRef *sdk.Expr
 }
 
 // Kind returns [KindTests].
@@ -413,14 +381,10 @@ func (p *Plugin) Generate(ctx *sdk.GeneratorContext) error {
 				SetByName:  c.SetBy(),
 				SourcePos:  e.Pos(),
 			},
-			TypeName:         e.Name,
-			ParseName:        parseName,
-			SentinelName:     sentinelName,
-			Variants:         variants,
-			SprintfRef:       sdk.NewExternal("fmt", "Sprintf"),
-			ErrorsNewRef:     sdk.NewExternal("errors", "New"),
-			JSONMarshalRef:   sdk.NewExternal("encoding/json", "Marshal"),
-			JSONUnmarshalRef: sdk.NewExternal("encoding/json", "Unmarshal"),
+			TypeName:     e.Name,
+			ParseName:    parseName,
+			SentinelName: sentinelName,
+			Variants:     variants,
 		}
 		if err := ctx.Store.Emit().AppendOriginSlot(e, SlotName, api, c.Provenance("enum.api."+e.Name)); err != nil {
 			return fmt.Errorf("%s: append api slot: %w", Name, err)
@@ -438,17 +402,13 @@ func (p *Plugin) Generate(ctx *sdk.GeneratorContext) error {
 				SourcePos:     e.Pos(),
 				OutputTagName: GoTestOutputTag,
 			},
-			TypeName:         e.Name,
-			TypeRef:          sdk.NewExternal(e.Package, e.Name),
-			ParseName:        parseName,
-			ParseRef:         sdk.NewExternal(e.Package, parseName),
-			SentinelName:     sentinelName,
-			SentinelRef:      sdk.NewExternal(e.Package, sentinelName),
-			Variants:         testVariants,
-			JSONMarshalRef:   sdk.NewExternal("encoding/json", "Marshal"),
-			JSONUnmarshalRef: sdk.NewExternal("encoding/json", "Unmarshal"),
-			ErrorsIsRef:      sdk.NewExternal("errors", "Is"),
-			TestingTPtrRef:   sdk.NewExternal("testing", "T"),
+			TypeName:     e.Name,
+			TypeRef:      sdk.NewExternal(e.Package, e.Name),
+			ParseName:    parseName,
+			ParseRef:     sdk.NewExternal(e.Package, parseName),
+			SentinelName: sentinelName,
+			SentinelRef:  sdk.NewExternal(e.Package, sentinelName),
+			Variants:     testVariants,
 		}
 		if err := ctx.Store.Emit().AppendOriginSlot(e, SlotName, tests, c.Provenance("enum.test."+e.Name)); err != nil {
 			return fmt.Errorf("%s: append test slot: %w", Name, err)

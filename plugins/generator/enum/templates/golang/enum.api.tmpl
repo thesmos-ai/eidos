@@ -7,12 +7,12 @@ func (v {{ .TypeName }}) String() string {
 		return {{ printf "%q" .StringValue }}
 {{- end }}
 	}
-	return {{ renderExpr $.SprintfRef }}({{ printf "%q" (printf "%s(%%d)" .TypeName) }}, int(v))
+	return {{ renderExpr (external "fmt" "Sprintf") }}({{ printf "%q" (printf "%s(%%d)" .TypeName) }}, int(v))
 }
 
 // {{ .SentinelName }} is returned by {{ .ParseName }} when the
 // input string doesn't match any declared variant.
-var {{ .SentinelName }} = {{ renderExpr .ErrorsNewRef }}({{ printf "%q" (printf "%s: unknown %s" "enum" .TypeName) }})
+var {{ .SentinelName }} = {{ renderExpr (external "errors" "New") }}({{ printf "%q" (printf "%s: unknown %s" "enum" .TypeName) }})
 
 // {{ .ParseName }} parses s into a {{ .TypeName }} value, returning
 // {{ .SentinelName }} when s does not match any declared variant.
@@ -29,7 +29,7 @@ func {{ .ParseName }}(s string) ({{ .TypeName }}, error) {
 
 // MarshalJSON serialises v as the variant's textual form.
 func (v {{ .TypeName }}) MarshalJSON() ([]byte, error) {
-	return {{ renderExpr .JSONMarshalRef }}(v.String())
+	return {{ renderExpr (external "encoding/json" "Marshal") }}(v.String())
 }
 
 // UnmarshalJSON parses the variant's textual form, returning
@@ -37,7 +37,7 @@ func (v {{ .TypeName }}) MarshalJSON() ([]byte, error) {
 // declared variant.
 func (v *{{ .TypeName }}) UnmarshalJSON(data []byte) error {
 	var s string
-	if err := {{ renderExpr .JSONUnmarshalRef }}(data, &s); err != nil {
+	if err := {{ renderExpr (external "encoding/json" "Unmarshal") }}(data, &s); err != nil {
 		return err
 	}
 	parsed, err := {{ .ParseName }}(s)

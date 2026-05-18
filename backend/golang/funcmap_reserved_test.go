@@ -104,6 +104,47 @@ type {{ .Name }} struct {
 	})
 }
 
+// TestExternalFuncmap covers the `external` funcmap entry — the
+// canonical helper plugin templates use to construct a polymorphic
+// package-qualified symbol reference at render time. The helper
+// takes (pkg, name) and returns a [*emit.Expr] that downstream
+// `renderExpr` resolves to `<alias>.<name>` and registers the
+// import on the host file's import set, identically to refs
+// constructed in Go code via [emit.NewExternal].
+//
+// Each subtest exercises one concrete (pkg, name) pair so the
+// dispatch through `renderExpr` is observed end-to-end and the
+// rendered text confirms the alias-qualified spelling lands in
+// the output. Import registration itself is `renderExpr`'s
+// contract, covered in its own tests.
+func TestExternalFuncmap(t *testing.T) {
+	t.Parallel()
+
+	t.Run("renderExpr (external pkg name) emits qualified reference", func(t *testing.T) {
+		t.Parallel()
+		body := renderWithPluginTemplate(t,
+			`{{ define "emit.constant" -}}
+// Call: {{ renderExpr (external "fmt" "Sprintf") }}
+const {{ .Name }} = {{ renderExpr .Value }}
+{{- end -}}`)
+		if !strings.Contains(body, "// Call: fmt.Sprintf") {
+			t.Fatalf("expected fmt.Sprintf qualified reference; got:\n%s", body)
+		}
+	})
+
+	t.Run("multi-segment import path qualifies on last path element", func(t *testing.T) {
+		t.Parallel()
+		body := renderWithPluginTemplate(t,
+			`{{ define "emit.constant" -}}
+// Call: {{ renderExpr (external "encoding/json" "Marshal") }}
+const {{ .Name }} = {{ renderExpr .Value }}
+{{- end -}}`)
+		if !strings.Contains(body, "// Call: json.Marshal") {
+			t.Fatalf("expected json.Marshal qualified reference; got:\n%s", body)
+		}
+	})
+}
+
 // TestProvenanceFuncmap covers the `provenance` funcmap entry —
 // the canonical attribution helper plugin templates use to surface
 // "where did this come from" markers in generated comments.

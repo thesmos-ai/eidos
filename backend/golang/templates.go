@@ -69,6 +69,7 @@ var parsePlaceholders = func() map[string]any {
 		"renderFunctionReturns":  func(*emit.Function) (string, error) { return "", errPlaceholderInvoked },
 		"renderMethodReturns":    func(*emit.Method) (string, error) { return "", errPlaceholderInvoked },
 		"imp":                    func(string) (string, error) { return "", errPlaceholderInvoked },
+		"external":               func(string, string) *emit.Expr { return nil },
 		"slot":                   func(emit.Node, string) (*emit.Slot, error) { return nil, errPlaceholderInvoked },
 		"provenance":             func(emit.Node) string { return "" },
 	}

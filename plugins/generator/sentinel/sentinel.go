@@ -305,11 +305,12 @@ type ErrorType struct {
 // renders it as the full test-function set for one source
 // package.
 //
-// The `*Ref` fields are [sdk.NewExternal] expressions the
-// template renders once each via the backend's `renderExpr`
-// funcmap so the corresponding stdlib imports register on
-// the host file's import set automatically. The template
-// carries no hard-coded import lines.
+// The struct carries only language-neutral data. The
+// per-language template reaches stdlib symbols
+// (`testing.T`, `errors.{Is,As,Join,New}`, `fmt.Errorf`,
+// `strings.{HasPrefix,Contains}`) through the backend's
+// `external` funcmap entry; the matching imports register
+// on the host file via `renderExpr` automatically.
 type Tests struct {
 	sdk.BaseEmit
 
@@ -337,32 +338,6 @@ type Tests struct {
 	// ErrorTypes is the package's custom error-implementing
 	// struct set in source order.
 	ErrorTypes []ErrorType
-
-	// TestingTRef registers the `testing` import — referenced
-	// in every test function's `*testing.T` parameter type.
-	TestingTRef *sdk.Expr
-
-	// ErrorsIsRef / ErrorsAsRef / ErrorsJoinRef /
-	// ErrorsNewRef register the `errors` import — referenced
-	// across the sentinel-set + error-type subtests.
-	ErrorsIsRef   *sdk.Expr
-	ErrorsAsRef   *sdk.Expr
-	ErrorsJoinRef *sdk.Expr
-	ErrorsNewRef  *sdk.Expr
-
-	// FmtErrorfRef registers the `fmt` import — referenced
-	// by the `fmt.Errorf` chain subtest.
-	FmtErrorfRef *sdk.Expr
-
-	// StringsHasPrefixRef registers the `strings` import —
-	// referenced by the prefix subtest's `.Error()`
-	// assertion.
-	StringsHasPrefixRef *sdk.Expr
-
-	// StringsContainsRef registers `strings.Contains` —
-	// used by the format-strictness subtest to assert each
-	// field's FormatCheckValue appears in `Error()`.
-	StringsContainsRef *sdk.Expr
 }
 
 // Kind returns [KindTests].
@@ -410,19 +385,11 @@ func (*Plugin) Generate(ctx *sdk.GeneratorContext) error {
 				SetByName:  c.SetBy(),
 				SourcePos:  anchor.Pos(),
 			},
-			TestName:            testNameFor(pkg.Name),
-			Prefix:              prefix,
-			EmitPrefix:          emitPrefix,
-			Sentinels:           sentinels,
-			ErrorTypes:          errorTypes,
-			TestingTRef:         sdk.NewExternal("testing", "T"),
-			ErrorsIsRef:         sdk.NewExternal("errors", "Is"),
-			ErrorsAsRef:         sdk.NewExternal("errors", "As"),
-			ErrorsJoinRef:       sdk.NewExternal("errors", "Join"),
-			ErrorsNewRef:        sdk.NewExternal("errors", "New"),
-			FmtErrorfRef:        sdk.NewExternal("fmt", "Errorf"),
-			StringsHasPrefixRef: sdk.NewExternal("strings", "HasPrefix"),
-			StringsContainsRef:  sdk.NewExternal("strings", "Contains"),
+			TestName:   testNameFor(pkg.Name),
+			Prefix:     prefix,
+			EmitPrefix: emitPrefix,
+			Sentinels:  sentinels,
+			ErrorTypes: errorTypes,
 		}
 		prov := c.Provenance("sentinel.tests." + pkg.Name)
 		if err := ctx.Store.Emit().AppendOriginSlot(anchor, SlotName, tests, prov); err != nil {

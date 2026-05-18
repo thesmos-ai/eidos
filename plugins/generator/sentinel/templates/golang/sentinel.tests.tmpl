@@ -9,7 +9,7 @@
 //   - non-overlap:      errors.Is is false for every cross-pair.
 //   - errors.Join chain: errors.Is sees through errors.Join.
 //   - fmt.Errorf chain: errors.Is sees through fmt.Errorf("...: %w", err).
-func Test{{ .TestName }}(t *{{ renderExpr .TestingTRef }}) {
+func Test{{ .TestName }}(t *{{ renderExpr (external "testing" "T") }}) {
 	t.Parallel()
 
 	type entry struct {
@@ -30,7 +30,7 @@ func Test{{ .TestName }}(t *{{ renderExpr .TestingTRef }}) {
 		t.Parallel()
 		const want = {{ printf "%q" .Prefix }}
 		for _, e := range all {
-			if !{{ renderExpr .StringsHasPrefixRef }}(e.err.Error(), want) {
+			if !{{ renderExpr (external "strings" "HasPrefix") }}(e.err.Error(), want) {
 				t.Errorf("%s.Error() = %q, must start with %q", e.name, e.err.Error(), want)
 			}
 		}
@@ -64,7 +64,7 @@ func Test{{ .TestName }}(t *{{ renderExpr .TestingTRef }}) {
 				if i == j {
 					continue
 				}
-				if {{ renderExpr .ErrorsIsRef }}(a.err, b.err) {
+				if {{ renderExpr (external "errors" "Is") }}(a.err, b.err) {
 					t.Errorf("%s must not errors.Is-match %s", a.name, b.name)
 				}
 			}
@@ -78,7 +78,7 @@ func Test{{ .TestName }}(t *{{ renderExpr .TestingTRef }}) {
 	t.Run("errors.Join chain", func(t *testing.T) {
 		t.Parallel()
 		for _, e := range all {
-			wrapped := {{ renderExpr .ErrorsJoinRef }}(e.err, {{ renderExpr .ErrorsNewRef }}("extra context"))
+			wrapped := {{ renderExpr (external "errors" "Join") }}(e.err, {{ renderExpr (external "errors" "New") }}("extra context"))
 			if !errors.Is(wrapped, e.err) {
 				t.Errorf("errors.Join(%s, ...) must satisfy errors.Is", e.name)
 			}
@@ -91,7 +91,7 @@ func Test{{ .TestName }}(t *{{ renderExpr .TestingTRef }}) {
 	t.Run("fmt.Errorf chain", func(t *testing.T) {
 		t.Parallel()
 		for _, e := range all {
-			wrapped := {{ renderExpr .FmtErrorfRef }}("context: %w", e.err)
+			wrapped := {{ renderExpr (external "fmt" "Errorf") }}("context: %w", e.err)
 			if !errors.Is(wrapped, e.err) {
 				t.Errorf("fmt.Errorf(%%w, %s) must satisfy errors.Is", e.name)
 			}
@@ -115,7 +115,7 @@ func Test{{ .TestName }}(t *{{ renderExpr .TestingTRef }}) {
 {{- if $et.HasUnwrap }}
 //   - Unwrap method:         returns the wrapped cause; errors.Is traverses the chain.
 {{- end }}
-func Test{{ $et.Name }}(t *{{ renderExpr $.TestingTRef }}) {
+func Test{{ $et.Name }}(t *{{ renderExpr (external "testing" "T") }}) {
 	t.Parallel()
 
 	// errors.As must extract the concrete error type and
@@ -131,12 +131,12 @@ func Test{{ $et.Name }}(t *{{ renderExpr $.TestingTRef }}) {
 {{- end }}
 		}
 		var target *{{ renderExpr $et.Ref }}
-		if !{{ renderExpr $.ErrorsAsRef }}(err, &target) {
+		if !{{ renderExpr (external "errors" "As") }}(err, &target) {
 			t.Fatalf("errors.As must succeed for *{{ $et.Name }}")
 		}
 {{- range $et.Fields }}
 {{- if .IsError }}
-		if !{{ renderExpr $.ErrorsIsRef }}(target.{{ .Name }}, want{{ .Name }}) {
+		if !{{ renderExpr (external "errors" "Is") }}(target.{{ .Name }}, want{{ .Name }}) {
 			t.Errorf("{{ .Name }} must round-trip through errors.As")
 		}
 {{- else }}
@@ -157,7 +157,7 @@ func Test{{ $et.Name }}(t *{{ renderExpr $.TestingTRef }}) {
 			{{ .Name }}: {{ .SampleValue }},
 {{- end }}
 		}
-		wrapped := {{ renderExpr $.ErrorsJoinRef }}(original, {{ renderExpr $.ErrorsNewRef }}("extra context"))
+		wrapped := {{ renderExpr (external "errors" "Join") }}(original, {{ renderExpr (external "errors" "New") }}("extra context"))
 		var target *{{ renderExpr $et.Ref }}
 		if !errors.As(wrapped, &target) {
 			t.Fatalf("errors.As must work through errors.Join for *{{ $et.Name }}")
@@ -174,7 +174,7 @@ func Test{{ $et.Name }}(t *{{ renderExpr $.TestingTRef }}) {
 			{{ .Name }}: {{ .SampleValue }},
 {{- end }}
 		}
-		wrapped := {{ renderExpr $.FmtErrorfRef }}("context: %w", original)
+		wrapped := {{ renderExpr (external "fmt" "Errorf") }}("context: %w", original)
 		var target *{{ renderExpr $et.Ref }}
 		if !errors.As(wrapped, &target) {
 			t.Fatalf("errors.As must work through fmt.Errorf for *{{ $et.Name }}")
@@ -197,7 +197,7 @@ func Test{{ $et.Name }}(t *{{ renderExpr $.TestingTRef }}) {
 			t.Fatalf("Error() returned empty string")
 		}
 {{- range $et.FormatCheckOrder }}
-		if !{{ renderExpr $.StringsContainsRef }}(got, {{ printf "%q" . }}) {
+		if !{{ renderExpr (external "strings" "Contains") }}(got, {{ printf "%q" . }}) {
 			t.Errorf("Error() %q missing substring %q", got, {{ printf "%q" . }})
 		}
 {{- end }}

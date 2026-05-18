@@ -186,6 +186,7 @@ func (s *renderState) coreFuncMap() template.FuncMap {
 		"renderFunctionReturns":  s.renderFunctionReturns,
 		"renderMethodReturns":    s.renderMethodReturns,
 		"imp":                    s.imports.Imp,
+		"external":               emit.NewExternal,
 		"slot":                   slot,
 		"provenance":             provenance,
 	}
