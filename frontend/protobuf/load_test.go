@@ -138,6 +138,52 @@ func TestLoad_SurfacesParseErrors(t *testing.T) {
 	})
 }
 
+// TestLoad_GoStyleGlobOutsideProtoTree pins the resolver's
+// silent-skip behaviour for Go-style recursive patterns that
+// resolve to directories holding no `.proto` files. The protobuf
+// frontend shares a pattern slice with sibling frontends in a
+// multi-frontend pipeline; a Go-flavoured `./blog/...` pattern
+// (intended for the Go frontend) used to trip the proto compiler
+// with a misleading "open ...: no such file" error. Now those
+// patterns produce zero entries and no diagnostics.
+func TestLoad_GoStyleGlobOutsideProtoTree(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Go-style /... pattern naming a directory with no proto files is a no-op", func(t *testing.T) {
+		t.Parallel()
+		// "simple" fixture root holds proto files at the top
+		// level only — the messages.proto et al. Driving Load
+		// with "./nonexistent_subdir/..." resolves a directory
+		// inside the fixture root that doesn't exist; the
+		// frontend treats that as "no proto input for this
+		// pattern" rather than an error.
+		env := loadFixture(t, "simple", "./nonexistent_subdir/...")
+		for _, d := range env.diag.Diagnostics() {
+			if d.Plugin == protobuf.FrontendName && d.Severity == diag.Error {
+				t.Errorf(
+					"Go-style pattern naming a non-proto subtree must not error; "+
+						"got: %s",
+					d.Message,
+				)
+			}
+		}
+	})
+
+	t.Run("Go-style /... pattern naming a non-existent path is a no-op", func(t *testing.T) {
+		t.Parallel()
+		env := loadFixture(t, "simple", "./doesnotexist/...")
+		for _, d := range env.diag.Diagnostics() {
+			if d.Plugin == protobuf.FrontendName && d.Severity == diag.Error {
+				t.Errorf(
+					"Go-style pattern resolving to a non-existent path "+
+						"must not error; got: %s",
+					d.Message,
+				)
+			}
+		}
+	})
+}
+
 // TestLoad_EmptyPatternIsNoop pins the documented empty-Pattern
 // guard: callers that drive the frontend without a Pattern get a
 // no-op rather than a panic, which keeps the plugin-shape tests

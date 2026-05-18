@@ -109,30 +109,58 @@ func resolveRoot(configured string) string {
 }
 
 // discoverProtoFiles walks root and returns every `.proto` file
-// reachable per pattern. Two pattern forms are supported:
+// reachable per pattern. Three pattern forms are supported:
 //
-//   - `./...` — recursive walk for every `.proto` under root.
-//   - `<file.proto>` — a single literal file path relative to root.
+//   - `<dir>/...` — Go-style recursive glob. Walks `root/<dir>/`
+//     (or root itself when dir is empty / `.`) for every
+//     `*.proto`. Includes `./...`, `./sub/...`, `sub/...`,
+//     and similar.
+//   - `<dir>` — a directory path (no `/...` suffix, no `.proto`
+//     extension). Walks `root/<dir>/` non-recursively at the
+//     top level — equivalent to `<dir>/*.proto`.
+//   - `<file.proto>` — a single literal file path relative to
+//     root. Passed through verbatim.
 //
-// Patterns other than `./...` are interpreted as single proto
-// file paths relative to root; subdirectory globs and shell
-// wildcards are not expanded. Callers wanting a narrower scope
-// than `./...` either run the frontend per-file or extend this
-// surface with explicit glob handling.
+// Walks that find no proto files return the empty slice without
+// error — a Go-style pattern naming a directory that holds no
+// proto sources is a legitimate "no input for the protobuf
+// frontend on this pattern" signal, not a failure. Loaders for
+// other source languages handle those patterns instead.
 //
 // Returned paths are root-relative so protocompile's resolver
 // finds them via the configured [SourceResolver.ImportPaths]. The
 // slice is sorted alphabetically for deterministic compile order.
 func discoverProtoFiles(root, pattern string) ([]string, error) {
-	if pattern != "./..." {
+	// Literal `.proto` file path → trust the caller.
+	if filepath.Ext(pattern) == ".proto" {
 		return []string{pattern}, nil
 	}
+	scanDir, recursive := scanTargetForPattern(pattern)
+	walkRoot := filepath.Join(root, scanDir)
+	info, err := os.Stat(walkRoot)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			// Pattern named a directory that doesn't exist under
+			// root — legitimate "no proto input for this pattern"
+			// when the pattern targets a non-proto source tree.
+			return nil, nil
+		}
+		return nil, fmt.Errorf("protobuf: stat %s: %w", walkRoot, err)
+	}
+	if !info.IsDir() {
+		// Resolved to a file but not a `.proto` — also a legitimate
+		// "no proto input" signal.
+		return nil, nil
+	}
 	var out []string
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return fmt.Errorf("walk %s: %w", path, walkErr)
+	walkErr := filepath.WalkDir(walkRoot, func(path string, d fs.DirEntry, werr error) error {
+		if werr != nil {
+			return fmt.Errorf("walk %s: %w", path, werr)
 		}
 		if d.IsDir() {
+			if !recursive && path != walkRoot {
+				return fs.SkipDir
+			}
 			return nil
 		}
 		if filepath.Ext(path) != ".proto" {
@@ -145,11 +173,36 @@ func discoverProtoFiles(root, pattern string) ([]string, error) {
 		out = append(out, filepath.ToSlash(rel))
 		return nil
 	})
-	if err != nil {
-		return nil, fmt.Errorf("protobuf: walk %s: %w", root, err)
+	if walkErr != nil {
+		return nil, fmt.Errorf("protobuf: walk %s: %w", walkRoot, walkErr)
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// scanTargetForPattern splits a Go-style source pattern into the
+// directory to walk and whether the walk should recurse.
+//
+// Pattern shapes:
+//
+//   - `./...` / `...` → root, recursive
+//   - `<dir>/...` / `./<dir>/...` → <dir>, recursive
+//   - `<dir>` / `./<dir>` → <dir>, top-level only
+func scanTargetForPattern(pattern string) (dir string, recursive bool) {
+	cleaned := strings.TrimPrefix(pattern, "./")
+	if cleaned == "..." {
+		return ".", true
+	}
+	if stripped, ok := strings.CutSuffix(cleaned, "/..."); ok {
+		if stripped == "" {
+			return ".", true
+		}
+		return stripped, true
+	}
+	if cleaned == "" {
+		return ".", false
+	}
+	return cleaned, false
 }
 
 // filterUnsupportedSyntax pre-scans each file for the proto3-only
