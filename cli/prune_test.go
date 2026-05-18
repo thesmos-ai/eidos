@@ -18,10 +18,22 @@ import (
 	"go.thesmos.sh/eidos/plugin"
 )
 
+// pruneScopePath is the in-scope import path the prune-flavoured
+// tests stamp on the seeded target. The matching [stubFrontend]
+// is constructed with the same value in its `packages` field so
+// the pipeline's [pipeline.Pipeline.ScopeImportPaths] includes
+// it — without that the manifest.Prune scope guard filters the
+// orphan out and the assertion under test never fires.
+const pruneScopePath = "example.com/test/scope"
+
 // seedStaleFile writes a file with the canonical generated-by
 // marker line and seeds the prev manifest with a matching entry.
 // Used by every prune-test stanza that needs a "previously
 // generated, no longer claimed" candidate on disk.
+//
+// Target.ImportPath is stamped with [pruneScopePath] so the
+// manifest.Prune scope guard treats the entry as in-scope when
+// the matching [stubFrontend] registers that package on Load.
 func seedStaleFile(
 	t *testing.T,
 	workdir, brand, dir, name string,
@@ -35,12 +47,36 @@ func seedStaleFile(
 	if err := os.WriteFile(path, body, 0o600); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
-	return path, emit.Target{Dir: dir, Filename: name, Package: "x"}
+	return path, emit.Target{Dir: dir, Filename: name, Package: "x", ImportPath: pruneScopePath}
+}
+
+// pruneScopedFrontend returns a [stubFrontend] that registers
+// [pruneScopePath] as a source package during Load — pairs with
+// [seedStaleFile]'s in-scope target so manifest.Prune sees the
+// orphan rather than filtering it out.
+func pruneScopedFrontend() stubFrontend {
+	return stubFrontend{name: "fe", packages: []string{pruneScopePath}}
+}
+
+// derivePruneTestPipelineID builds the pipeline once with the
+// supplied plugin universe to discover the auto-derived
+// [pipeline.Pipeline.PipelineID] the PruneCommand will tag its
+// outputs with. The test fixture stamps the same value on the
+// previous manifest's entries so the prune diff matches.
+func derivePruneTestPipelineID(t *testing.T, env *cli.Env, plugins []plugin.Plugin) string {
+	t.Helper()
+	p, err := cli.BuildPipeline(env, cli.DefaultConfig(), plugins)
+	if err != nil {
+		t.Fatalf("derive pipeline id: %v", err)
+	}
+	return p.PipelineID()
 }
 
 // writePrevManifest writes a previous-run manifest at the
 // brand-derived manifest path so the prune command finds it.
-func writePrevManifest(t *testing.T, env *cli.Env, targets ...emit.Target) {
+// Outputs are stamped with pipelineID so manifest.Prune's
+// PipelineID guard matches the current run.
+func writePrevManifest(t *testing.T, env *cli.Env, pipelineID string, targets ...emit.Target) {
 	t.Helper()
 	stateDir := env.StateDir()
 	if err := os.MkdirAll(stateDir, 0o750); err != nil {
@@ -51,9 +87,10 @@ func writePrevManifest(t *testing.T, env *cli.Env, targets ...emit.Target) {
 	for _, tgt := range targets {
 		m.Add(
 			manifest.Output{
-				Target:  tgt,
-				Plugins: []manifest.PluginAttribution{{Name: "seedgen"}},
-				Hash:    "sha256:dummy",
+				Target:     tgt,
+				Plugins:    []manifest.PluginAttribution{{Name: "seedgen"}},
+				Hash:       "sha256:dummy",
+				PipelineID: pipelineID,
 			},
 		)
 	}
@@ -73,13 +110,12 @@ func TestPruneCommand_DeletesStaleWithMarker(t *testing.T) {
 		t.Parallel()
 		env, stdout, _ := freshEnv(t, "eidos")
 		path, target := seedStaleFile(t, env.Workdir, env.Brand, "out", "stale.go")
-		writePrevManifest(t, env, target)
-		cmd := &cli.PruneCommand{Config: cli.PruneConfig{
-			Plugins: []plugin.Plugin{
-				stubFrontend{name: "fe"},
-				stubBackend{name: "be", lang: "stub"},
-			},
-		}}
+		plugins := []plugin.Plugin{
+			pruneScopedFrontend(),
+			stubBackend{name: "be", lang: "stub"},
+		}
+		writePrevManifest(t, env, derivePruneTestPipelineID(t, env, plugins), target)
+		cmd := &cli.PruneCommand{Config: cli.PruneConfig{Plugins: plugins}}
 		if code := cmd.Execute(t.Context(), env); code != cli.ExitOK {
 			t.Fatalf("Execute = %d, want ExitOK", code)
 		}
@@ -111,21 +147,23 @@ func TestPruneCommand_SkipsWithoutMarker(t *testing.T) {
 		if err := os.WriteFile(path, body, 0o600); err != nil {
 			t.Fatalf("write fixture: %v", err)
 		}
-		writePrevManifest(t, env, emit.Target{Dir: "out", Filename: "edited.go", Package: "x"})
-		cmd := &cli.PruneCommand{Config: cli.PruneConfig{
-			Plugins: []plugin.Plugin{
-				stubFrontend{name: "fe"},
-				stubBackend{name: "be", lang: "stub"},
-			},
-		}}
+		plugins := []plugin.Plugin{
+			pruneScopedFrontend(),
+			stubBackend{name: "be", lang: "stub"},
+		}
+		writePrevManifest(t, env,
+			derivePruneTestPipelineID(t, env, plugins),
+			emit.Target{Dir: "out", Filename: "edited.go", Package: "x", ImportPath: pruneScopePath},
+		)
+		cmd := &cli.PruneCommand{Config: cli.PruneConfig{Plugins: plugins}}
 		if code := cmd.Execute(t.Context(), env); code != cli.ExitOK {
 			t.Fatalf("Execute = %d, want ExitOK", code)
 		}
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("file without marker should survive; got %v", err)
 		}
-		if !strings.Contains(stdout.String(), "skipped") {
-			t.Fatalf("expected skip count in stdout; got %q", stdout.String())
+		if !strings.Contains(stdout.String(), "1 skipped") {
+			t.Fatalf("expected `1 skipped` count in stdout; got %q", stdout.String())
 		}
 	})
 }
@@ -139,13 +177,14 @@ func TestPruneCommand_DryRunDoesNotDelete(t *testing.T) {
 		t.Parallel()
 		env, stdout, _ := freshEnv(t, "eidos")
 		path, target := seedStaleFile(t, env.Workdir, env.Brand, "out", "candidate.go")
-		writePrevManifest(t, env, target)
+		plugins := []plugin.Plugin{
+			pruneScopedFrontend(),
+			stubBackend{name: "be", lang: "stub"},
+		}
+		writePrevManifest(t, env, derivePruneTestPipelineID(t, env, plugins), target)
 		cmd := &cli.PruneCommand{Config: cli.PruneConfig{
-			DryRun: true,
-			Plugins: []plugin.Plugin{
-				stubFrontend{name: "fe"},
-				stubBackend{name: "be", lang: "stub"},
-			},
+			DryRun:  true,
+			Plugins: plugins,
 		}}
 		if code := cmd.Execute(t.Context(), env); code != cli.ExitOK {
 			t.Fatalf("Execute = %d, want ExitOK", code)
@@ -225,13 +264,12 @@ func TestPruneCommand_PreservesManifestJSON(t *testing.T) {
 		t.Parallel()
 		env, _, _ := freshEnv(t, "eidos")
 		_, target := seedStaleFile(t, env.Workdir, env.Brand, "out", "stale.go")
-		writePrevManifest(t, env, target)
-		cmd := &cli.PruneCommand{Config: cli.PruneConfig{
-			Plugins: []plugin.Plugin{
-				stubFrontend{name: "fe"},
-				stubBackend{name: "be", lang: "stub"},
-			},
-		}}
+		plugins := []plugin.Plugin{
+			pruneScopedFrontend(),
+			stubBackend{name: "be", lang: "stub"},
+		}
+		writePrevManifest(t, env, derivePruneTestPipelineID(t, env, plugins), target)
+		cmd := &cli.PruneCommand{Config: cli.PruneConfig{Plugins: plugins}}
 		if code := cmd.Execute(t.Context(), env); code != cli.ExitOK {
 			t.Fatalf("Execute = %d, want ExitOK", code)
 		}

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"go.thesmos.sh/eidos/cli"
+	"go.thesmos.sh/eidos/node"
 	"go.thesmos.sh/eidos/pipeline"
 	"go.thesmos.sh/eidos/plugin"
 )
@@ -19,10 +20,30 @@ import (
 // implementations Plan / Prune tests need to satisfy
 // pipeline.Build's "at least one frontend, exactly one backend"
 // invariant.
-type stubFrontend struct{ name string }
+//
+// Packages is the optional list of source-package import paths the
+// stub registers during Load. Prune-flavoured tests populate it so
+// the pipeline's ScopeImportPaths includes the stale entry's
+// Target.ImportPath — manifest.Prune's scope guard filters out
+// orphans whose source package the current pipeline did not load.
+type stubFrontend struct {
+	name     string
+	packages []string
+}
 
-func (f stubFrontend) Name() string                       { return f.name }
-func (stubFrontend) Load(_ *plugin.FrontendContext) error { return nil }
+func (f stubFrontend) Name() string { return f.name }
+func (f stubFrontend) Load(fctx *plugin.FrontendContext) error {
+	for _, path := range f.packages {
+		if err := fctx.Store.Nodes().AddPackage(&node.Package{
+			BaseNode: node.BaseNode{},
+			Name:     path,
+			Path:     path,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 type stubBackend struct{ name, lang string }
 
