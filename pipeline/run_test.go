@@ -883,6 +883,96 @@ func TestPipeline_Run_ManifestScopePreserve(t *testing.T) {
 		}
 	})
 
+	t.Run("two pipelines sharing one manifest coexist (testkit-style multi-pipeline)", func(t *testing.T) {
+		t.Parallel()
+		tmp := t.TempDir()
+		manifestPath := filepath.Join(tmp, "manifest.json")
+
+		// Same source loaded by both pipelines. Each pipeline
+		// produces a different Target (different filename suffix
+		// via the rendering closure) and is identified by a
+		// distinct WithPipelineID so the merge preserves both.
+		fe := func() *recFE {
+			return &recFE{
+				name: "fe",
+				loadFn: func(s *store.Store) {
+					_ = s.Nodes().AddPackage(&node.Package{
+						Name: "a", Path: "a",
+						Structs: []*node.Struct{{
+							BaseNode: node.BaseNode{SourcePos: position.Pos{File: "a/x.go"}},
+							Name:     "X", Package: "a",
+						}},
+					})
+				},
+			}
+		}
+		genFn := func(name string) *recGen {
+			return &recGen{
+				name: name,
+				generate: func(ctx *plugin.GeneratorContext) {
+					ctx.Reader.Structs().Each(func(srcStruct *node.Struct) {
+						_ = ctx.Store.Emit().AddPackage(&emit.Package{
+							Name: srcStruct.Package,
+							Path: srcStruct.Package,
+							Dir:  srcStruct.Package,
+							Structs: []*emit.Struct{{
+								BaseEmit: emit.BaseEmit{OriginNode: srcStruct, SetByName: name},
+								Name:     srcStruct.Name + "_" + name, Package: srcStruct.Package,
+							}},
+						})
+					})
+				},
+			}
+		}
+		beFn := func() *recBE {
+			return &recBE{
+				name: "be", lang: "stub",
+				render: func(ctx *plugin.BackendContext) {
+					ctx.Reader.EmitStructs().Each(func(s *emit.Struct) {
+						_ = ctx.Sink.Write(s.Target, []byte("rendered:"+s.Name))
+					})
+				},
+			}
+		}
+		buildPipe := func(id, genName string) *pipeline.Pipeline {
+			p, err := pipeline.New().
+				WithFrontend(fe()).
+				WithGenerator(genFn(genName)).
+				WithBackend(beFn()).
+				WithSink(sink.NewMemory()).
+				WithManifestPath(manifestPath).
+				WithPipelineID(id).
+				Build()
+			assertNoError(t, err)
+			return p
+		}
+
+		// Pipeline "bench" runs first, claims its entry.
+		assertNoError(t, buildPipe("bench", "bench-gen").Run(t.Context(), "a"))
+		// Pipeline "suite" runs second against the SAME source
+		// package. Without PipelineID-scoped merge, the bench
+		// entry would be wiped (same scope, no plugin-id distinction).
+		assertNoError(t, buildPipe("suite", "suite-gen").Run(t.Context(), "a"))
+
+		m, err := manifest.Read(manifestPath)
+		assertNoError(t, err)
+		var benchCount, suiteCount int
+		for _, o := range m.Outputs {
+			switch o.PipelineID {
+			case "bench":
+				benchCount++
+			case "suite":
+				suiteCount++
+			}
+		}
+		if benchCount == 0 {
+			t.Errorf("bench pipeline's entry must survive when suite pipeline re-runs same scope")
+		}
+		if suiteCount == 0 {
+			t.Errorf("suite pipeline's entry must be present after its run")
+		}
+	})
+
 	t.Run("re-run with identical scope replaces prior entry for same Target", func(t *testing.T) {
 		t.Parallel()
 		tmp := t.TempDir()

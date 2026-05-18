@@ -15,7 +15,13 @@ import (
 // on-disk format changes incompatibly so older readers detect the
 // mismatch and refuse to interpret the file rather than silently
 // mis-parsing it.
-const Version = 1
+//
+// Version 2 added the required [Output.PipelineID] field so a
+// single manifest can host outputs from several pipelines sharing
+// one workdir (the testkit-style "one binary, multiple pipelines"
+// pattern). Version 1 manifests are not read; rerun the pipeline
+// to regenerate.
+const Version = 2
 
 // PluginAttribution names one plugin's contribution to a
 // rendered [Output]. Name is the plugin's stable identifier
@@ -144,6 +150,19 @@ type Output struct {
 	// post-mortem diagnosis. Optional — older manifests written
 	// before the routing layer landed omit the field.
 	ResolvedLayout *ResolvedLayout `json:"resolved_layout,omitempty"`
+
+	// PipelineID identifies the pipeline that produced this entry
+	// — either an explicit identifier supplied via
+	// [pipeline.Builder.WithPipelineID] or the framework's
+	// auto-derived hash of the registered plugin set. Two
+	// pipelines sharing one workdir (e.g. `testkit bench` and
+	// `testkit suite` both built on top of the eidos framework
+	// against the same source tree) write their entries into one
+	// manifest; PipelineID tags each entry with its producing
+	// pipeline so the scope-aware merge preserves entries from
+	// one pipeline's runs even when another pipeline re-runs
+	// against overlapping source packages.
+	PipelineID string `json:"pipeline_id"`
 }
 
 // Layer names the precedence layer that supplied a composed

@@ -115,9 +115,10 @@ func (r *recordingSink) asManifest(
 		body := r.files[target]
 		sum := sha256.Sum256(body)
 		out := manifest.Output{
-			Target:  target,
-			Plugins: pluginsForTarget(s, target, order),
-			Hash:    "sha256:" + hex.EncodeToString(sum[:]),
+			Target:     target,
+			Plugins:    pluginsForTarget(s, target, order),
+			Hash:       "sha256:" + hex.EncodeToString(sum[:]),
+			PipelineID: p.pipelineID,
 		}
 		if rl, ok := p.resolvedLayoutFor(target); ok {
 			rl := rl // local for pointer

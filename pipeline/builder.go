@@ -4,11 +4,14 @@
 package pipeline
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"maps"
 	"os"
 	"slices"
+	"strings"
 
 	"go.thesmos.sh/eidos/cache"
 	"go.thesmos.sh/eidos/core/diag"
@@ -41,6 +44,7 @@ type Builder struct {
 	verbose         bool
 	parallel        map[Phase]bool
 	manifestPath    string
+	pipelineID      string
 	options         map[string]map[string]string
 	command         string
 	sourceRoot      string
@@ -110,6 +114,26 @@ func (b *Builder) WithParallel(phases ...Phase) *Builder {
 // hashed. Empty path (the default) disables manifest writing.
 func (b *Builder) WithManifestPath(path string) *Builder {
 	b.manifestPath = path
+	return b
+}
+
+// WithPipelineID pins the identifier the manifest stamps on
+// every [manifest.Output] this pipeline produces. Used by the
+// scope-aware merge to distinguish overlapping-source runs
+// across different pipelines sharing one workdir (e.g. a
+// `testkit bench` pipeline and a `testkit suite` pipeline
+// both rooted at the project; their manifest entries coexist
+// in `.testkit/manifest.json` without one wiping the other).
+//
+// Empty (the default) falls back to a deterministic
+// auto-derived digest of the registered plugin set —
+// stable across runs of the same pipeline, distinct across
+// pipelines with different plugin slates. Explicit IDs are
+// the right choice when several pipelines share the SAME
+// plugin set but with different options or routing, since
+// the auto-derivation hashes plugin names only.
+func (b *Builder) WithPipelineID(id string) *Builder {
+	b.pipelineID = id
 	return b
 }
 
@@ -459,6 +483,7 @@ func (b *Builder) Build() (*Pipeline, error) {
 		verbose:            b.verbose,
 		parallel:           b.parallel,
 		manifestPath:       b.manifestPath,
+		pipelineID:         resolvePipelineID(b),
 		command:            b.command,
 		sourceRoot:         b.resolveSourceRoot(),
 		defaultPolicy:      defaultPolicy,
@@ -493,6 +518,42 @@ func (b *Builder) resolveSourceRoot() string {
 		return ""
 	}
 	return wd
+}
+
+// resolvePipelineID returns the pipeline identifier the manifest
+// stamps on every [manifest.Output] this pipeline produces. The
+// explicit value from [Builder.WithPipelineID] wins outright;
+// when empty, the function falls back to a deterministic SHA-256
+// digest of the registered plugin set's `Name()` values (sorted
+// lexically and truncated to 12 hex characters for readability).
+//
+// Same plugin set across runs → same auto-derived ID. Different
+// plugin sets (typical "one binary, several pipelines" case where
+// each pipeline registers a distinct slate) → distinct IDs. The
+// auto-derivation hashes plugin NAMES only — pipelines sharing
+// the same plugin slate but configured with different options
+// must call [Builder.WithPipelineID] to disambiguate.
+func resolvePipelineID(b *Builder) string {
+	if b.pipelineID != "" {
+		return b.pipelineID
+	}
+	names := make([]string, 0,
+		len(b.frontends)+len(b.annotators)+len(b.generators)+len(b.backends))
+	for _, fe := range b.frontends {
+		names = append(names, fe.Name())
+	}
+	for _, ann := range b.annotators {
+		names = append(names, ann.Name())
+	}
+	for _, gen := range b.generators {
+		names = append(names, gen.Name())
+	}
+	for _, be := range b.backends {
+		names = append(names, be.Name())
+	}
+	slices.Sort(names)
+	sum := sha256.Sum256([]byte(strings.Join(names, "\n")))
+	return hex.EncodeToString(sum[:6])
 }
 
 // resolveLayoutPolicies pre-computes the per-plugin

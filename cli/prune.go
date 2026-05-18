@@ -106,7 +106,7 @@ func (c *PruneCommand) Execute(ctx context.Context, env *Env) (exit int) {
 	}
 
 	current := readManifestSilent(prevPath)
-	stale := manifest.Prune(prev, current)
+	stale := manifest.Prune(prev, current, p.PipelineID())
 	return c.applyPrune(env, stale, runErr)
 }
 

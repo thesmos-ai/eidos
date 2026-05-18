@@ -98,6 +98,7 @@ type Pipeline struct {
 	verbose      bool
 	parallel     map[Phase]bool
 	manifestPath string
+	pipelineID   string
 	command      string
 	sourceRoot   string
 	// policy is the default [LayoutPolicy] returned by
@@ -162,6 +163,15 @@ type Pipeline struct {
 // between phases, and reusing the Pipeline for another Run replaces
 // the cached store with the next run's instance.
 func (p *Pipeline) Store() *store.Store { return p.lastStore.Load() }
+
+// PipelineID returns the stable identifier the manifest tags
+// each [Output] with. Either the explicit value supplied via
+// [Builder.WithPipelineID] or the framework's auto-derived
+// digest of the registered plugin set ([derivePipelineID]).
+// Used by the scope-aware manifest merge and by the prune
+// subcommand to scope to one pipeline's entries in a
+// multi-pipeline workdir.
+func (p *Pipeline) PipelineID() string { return p.pipelineID }
 
 // Frontends returns the registered frontends in registration order.
 func (p *Pipeline) Frontends() []plugin.Frontend {

@@ -110,7 +110,7 @@ func (p *Pipeline) writeManifest(rec *recordingSink, s *store.Store) {
 	}
 	current := rec.asManifest(time.Now().UTC().Format(time.RFC3339), s, p.pluginNames(), p)
 	prev, _ := manifest.Read(p.manifestPath)
-	merged := mergeManifestPreservingOutOfScope(prev, current, scopeImportPathsForRun(s))
+	merged := mergeManifestPreservingOutOfScope(prev, current, scopeImportPathsForRun(s), p.pipelineID)
 	if prev != nil && manifestContentEqual(prev, merged) {
 		return
 	}
@@ -138,31 +138,44 @@ func scopeImportPathsForRun(s *store.Store) map[string]struct{} {
 }
 
 // mergeManifestPreservingOutOfScope returns a manifest that pairs
-// every output from current with every output from prior whose
-// target package was NOT loaded by the current run — preserving
-// prior entries that the current run had no authority over.
-//
-// Prior entries with no [emit.Target.ImportPath] attribution are
-// preserved (safer default: we can't determine ownership, so the
-// merge errs on the side of not losing data).
+// every output from current with every prior output that the
+// current run had no authority over — entries produced by a
+// different pipeline (different [manifest.Output.PipelineID])
+// OR entries whose source package was not loaded by the current
+// run. Entries the current run did own (same PipelineID + in
+// scope) are either replaced by current or dropped as orphans
+// (e.g. user removed a `+gen:*` directive and re-ran).
 //
 // A nil prior reduces to current verbatim.
-func mergeManifestPreservingOutOfScope(prev, current *manifest.Manifest, scope map[string]struct{}) *manifest.Manifest {
+//
+// The merged Outputs slice is sorted by
+// (Dir, Filename, Package, ImportPath, PipelineID) for a total
+// ordering — keeps the on-disk JSON byte-stable across runs
+// even when several pipelines coexist in one manifest.
+func mergeManifestPreservingOutOfScope(
+	prev, current *manifest.Manifest,
+	scope map[string]struct{},
+	pipelineID string,
+) *manifest.Manifest {
 	if prev == nil {
 		return current
 	}
 	merged := manifest.New(current.RunID)
 	merged.Brand = current.Brand
-	seen := map[emit.Target]struct{}{}
+	type key struct {
+		target     emit.Target
+		pipelineID string
+	}
+	seen := map[key]struct{}{}
 	for _, o := range prev.Outputs {
-		if entryInScope(o, scope) {
+		if entryOwnedByThisRun(o, scope, pipelineID) {
 			continue
 		}
 		merged.Add(o)
-		seen[o.Target] = struct{}{}
+		seen[key{o.Target, o.PipelineID}] = struct{}{}
 	}
 	for _, o := range current.Outputs {
-		if _, dup := seen[o.Target]; dup {
+		if _, dup := seen[key{o.Target, o.PipelineID}]; dup {
 			continue
 		}
 		merged.Add(o)
@@ -177,17 +190,28 @@ func mergeManifestPreservingOutOfScope(prev, current *manifest.Manifest, scope m
 		if c := cmp.Compare(a.Target.Package, b.Target.Package); c != 0 {
 			return c
 		}
-		return cmp.Compare(a.Target.ImportPath, b.Target.ImportPath)
+		if c := cmp.Compare(a.Target.ImportPath, b.Target.ImportPath); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.PipelineID, b.PipelineID)
 	})
 	return merged
 }
 
-// entryInScope reports whether o's target lives in a package the
-// current run loaded. Matches the exact ImportPath plus the
-// framework's `<pkg>_test` auto-shift variant. Entries with no
-// ImportPath are reported out-of-scope so the merge preserves
-// them (safer default than dropping unattributed entries).
-func entryInScope(o manifest.Output, scope map[string]struct{}) bool {
+// entryOwnedByThisRun reports whether the current run had
+// authority over o — true iff o's PipelineID matches the
+// current pipeline's ID AND o's target lives in a package the
+// current run loaded (matching the exact ImportPath or the
+// framework's `<pkg>_test` auto-shift variant).
+//
+// PipelineID mismatch always preserves: another pipeline owns
+// the entry. Same PipelineID with out-of-scope import path also
+// preserves: this pipeline produced it on a prior wider-scope
+// run that the current narrow run hasn't reconsidered.
+func entryOwnedByThisRun(o manifest.Output, scope map[string]struct{}, pipelineID string) bool {
+	if o.PipelineID != pipelineID {
+		return false
+	}
 	path := o.Target.ImportPath
 	if path == "" {
 		return false

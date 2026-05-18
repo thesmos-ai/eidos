@@ -14,8 +14,16 @@ import "go.thesmos.sh/eidos/emit"
 // Order is preserved from prev so iteration is deterministic for
 // the same input. Nil manifests are treated as empty: a nil prev
 // returns no candidates (no previous run to diff against); a nil
-// current treats every prev output as stale.
-func Prune(prev, current *Manifest) []emit.Target {
+// current treats every prev output owned by pipelineID as stale.
+//
+// pipelineID scopes the diff: only prev entries whose
+// [Output.PipelineID] matches the supplied id participate. Other
+// pipelines' entries are out of bounds — they're produced by a
+// different pipeline that prune has no authority over. An empty
+// pipelineID disables the scope filter (every prev entry is in
+// scope) — the legacy single-pipeline behaviour for callers that
+// have not migrated to multi-pipeline awareness.
+func Prune(prev, current *Manifest, pipelineID string) []emit.Target {
 	if prev == nil || len(prev.Outputs) == 0 {
 		return nil
 	}
@@ -27,6 +35,9 @@ func Prune(prev, current *Manifest) []emit.Target {
 	}
 	out := make([]emit.Target, 0, len(prev.Outputs))
 	for _, o := range prev.Outputs {
+		if pipelineID != "" && o.PipelineID != pipelineID {
+			continue
+		}
 		if _, ok := claimed[o.Target]; !ok {
 			out = append(out, o.Target)
 		}
