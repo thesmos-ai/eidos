@@ -9,6 +9,7 @@ require (
 	go.thesmos.sh/eidos/cli v1.0.2
 	go.thesmos.sh/eidos/frontend/golang v1.0.2
 	go.thesmos.sh/eidos/frontend/protobuf v1.0.2
+	go.thesmos.sh/eidos/plugins v1.0.2
 	go.thesmos.sh/eidos/reference v1.0.2
 )
 
@@ -28,5 +29,6 @@ replace (
 	go.thesmos.sh/eidos/cli => ../../cli
 	go.thesmos.sh/eidos/frontend/golang => ../../frontend/golang
 	go.thesmos.sh/eidos/frontend/protobuf => ../../frontend/protobuf
+	go.thesmos.sh/eidos/plugins => ../../plugins
 	go.thesmos.sh/eidos/reference => ../../reference
 )
