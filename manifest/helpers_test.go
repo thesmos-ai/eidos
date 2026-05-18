@@ -21,3 +21,10 @@ func assertNoError(t *testing.T, err error) {
 func targetAt(dir, file string) emit.Target {
 	return emit.Target{Dir: dir, Filename: file, Package: "x"}
 }
+
+// targetAtPath returns a populated [emit.Target] with an
+// explicit ImportPath — required by tests that exercise the
+// scope-aware Prune filter (which keys on Target.ImportPath).
+func targetAtPath(dir, file, importPath string) emit.Target {
+	return emit.Target{Dir: dir, Filename: file, Package: "x", ImportPath: importPath}
+}

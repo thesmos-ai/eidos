@@ -64,6 +64,7 @@ func (p *Pipeline) Run(ctx context.Context, patterns ...string) error {
 	// run end. The wrapper writes through to the inner sink so
 	// backend output still reaches its destination.
 	recorder := newRecordingSink(p.sink)
+	p.lastRecorder.Store(recorder)
 
 	s := store.New()
 	p.lastStore.Store(s)
@@ -110,7 +111,11 @@ func (p *Pipeline) writeManifest(rec *recordingSink, s *store.Store) {
 	}
 	current := rec.asManifest(time.Now().UTC().Format(time.RFC3339), s, p.pluginNames(), p)
 	prev, _ := manifest.Read(p.manifestPath)
-	merged := mergeManifestPreservingOutOfScope(prev, current, scopeImportPathsForRun(s), p.pipelineID)
+	merged := mergeManifestPreservingOutOfScope(prev, current)
+	p.lastManifest.Store(merged)
+	if p.dryRun {
+		return
+	}
 	if prev != nil && manifestContentEqual(prev, merged) {
 		return
 	}
@@ -119,15 +124,18 @@ func (p *Pipeline) writeManifest(rec *recordingSink, s *store.Store) {
 	}
 }
 
-// scopeImportPathsForRun returns the set of source-package import
-// paths the current run loaded. Used by
-// [mergeManifestPreservingOutOfScope] to identify which prior-
-// manifest entries this run had authority over: entries whose
-// [emit.Target.ImportPath] matches a loaded package (allowing the
-// framework's `<pkg>_test` auto-shift) were "in scope" and the
-// current run's outputs replace them; entries outside the scope
-// are preserved verbatim.
-func scopeImportPathsForRun(s *store.Store) map[string]struct{} {
+// ScopeImportPaths returns the set of source-package import
+// paths the most recent [Pipeline.Run] loaded. The prune
+// subcommand consults this so its orphan-identification only
+// considers manifest entries whose source package the current
+// pipeline actually re-scanned — narrow `run ./sub/...`
+// invocations don't trigger prune of entries from packages the
+// run didn't load. Returns nil before Run has been called.
+func (p *Pipeline) ScopeImportPaths() map[string]struct{} {
+	s := p.Store()
+	if s == nil {
+		return nil
+	}
 	out := map[string]struct{}{}
 	for _, pkg := range s.Nodes().Packages().Items() {
 		if pkg.Path != "" {
@@ -137,25 +145,27 @@ func scopeImportPathsForRun(s *store.Store) map[string]struct{} {
 	return out
 }
 
-// mergeManifestPreservingOutOfScope returns a manifest that pairs
-// every output from current with every prior output that the
-// current run had no authority over — entries produced by a
-// different pipeline (different [manifest.Output.PipelineID])
-// OR entries whose source package was not loaded by the current
-// run. Entries the current run did own (same PipelineID + in
-// scope) are either replaced by current or dropped as orphans
-// (e.g. user removed a `+gen:*` directive and re-ran).
+// mergeManifestPreservingOutOfScope returns a manifest that adds
+// or refreshes every entry from current onto prior — never drops.
+// Prior entries the current run did not re-emit stay with their
+// existing [manifest.Output.LastSeenRun] stamp; current entries
+// replace prior at the same Target+PipelineID key with the fresh
+// LastSeenRun pinned to this run's RunID.
+//
+// Run's job is ADD / UPDATE only. Identifying orphans (entries
+// whose source no longer claims them) and deleting their files
+// is prune's job — prune diffs entries' LastSeenRun against the
+// manifest's current RunID, scoped by pipeline ID and the current
+// run's loaded package set.
 //
 // A nil prior reduces to current verbatim.
 //
 // The merged Outputs slice is sorted by
 // (Dir, Filename, Package, ImportPath, PipelineID) for a total
-// ordering — keeps the on-disk JSON byte-stable across runs
-// even when several pipelines coexist in one manifest.
+// ordering — keeps the on-disk JSON byte-stable across runs even
+// when several pipelines coexist in one manifest.
 func mergeManifestPreservingOutOfScope(
 	prev, current *manifest.Manifest,
-	scope map[string]struct{},
-	pipelineID string,
 ) *manifest.Manifest {
 	if prev == nil {
 		return current
@@ -166,18 +176,17 @@ func mergeManifestPreservingOutOfScope(
 		target     emit.Target
 		pipelineID string
 	}
-	seen := map[key]struct{}{}
+	currentKeys := map[key]struct{}{}
+	for _, o := range current.Outputs {
+		currentKeys[key{o.Target, o.PipelineID}] = struct{}{}
+	}
 	for _, o := range prev.Outputs {
-		if entryOwnedByThisRun(o, scope, pipelineID) {
+		if _, replaced := currentKeys[key{o.Target, o.PipelineID}]; replaced {
 			continue
 		}
 		merged.Add(o)
-		seen[key{o.Target, o.PipelineID}] = struct{}{}
 	}
 	for _, o := range current.Outputs {
-		if _, dup := seen[key{o.Target, o.PipelineID}]; dup {
-			continue
-		}
 		merged.Add(o)
 	}
 	slices.SortFunc(merged.Outputs, func(a, b manifest.Output) int {
@@ -196,35 +205,6 @@ func mergeManifestPreservingOutOfScope(
 		return cmp.Compare(a.PipelineID, b.PipelineID)
 	})
 	return merged
-}
-
-// entryOwnedByThisRun reports whether the current run had
-// authority over o — true iff o's PipelineID matches the
-// current pipeline's ID AND o's target lives in a package the
-// current run loaded (matching the exact ImportPath or the
-// framework's `<pkg>_test` auto-shift variant).
-//
-// PipelineID mismatch always preserves: another pipeline owns
-// the entry. Same PipelineID with out-of-scope import path also
-// preserves: this pipeline produced it on a prior wider-scope
-// run that the current narrow run hasn't reconsidered.
-func entryOwnedByThisRun(o manifest.Output, scope map[string]struct{}, pipelineID string) bool {
-	if o.PipelineID != pipelineID {
-		return false
-	}
-	path := o.Target.ImportPath
-	if path == "" {
-		return false
-	}
-	if _, ok := scope[path]; ok {
-		return true
-	}
-	if stripped, ok := strings.CutSuffix(path, "_test"); ok {
-		if _, hit := scope[stripped]; hit {
-			return true
-		}
-	}
-	return false
 }
 
 // manifestContentEqual reports whether prev and current describe the

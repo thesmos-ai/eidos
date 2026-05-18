@@ -63,7 +63,7 @@ func buildPipeline(
 	if err != nil {
 		return nil, err
 	}
-	b := pipeline.New().WithBrand(env.Brand)
+	b := pipeline.New().WithBrand(env.Brand).WithDryRun(override.DryRun)
 	for _, p := range enabled {
 		registerPlugin(b, p)
 	}
@@ -119,13 +119,20 @@ type pipelineOverride struct {
 	NoCache bool
 	Verbose bool
 	// SinkOverride, when non-nil, replaces the sink built from the
-	// config file. Used by `check` to swap for an in-memory sink.
+	// config file. Used by `check` and `prune --dry-run` to swap
+	// for an in-memory sink.
 	SinkOverride sink.Sink
 	// Routing carries the resolved routing-layer flag overrides
 	// (post-Infer, post-Validate) that the Command's Execute path
 	// applies onto the Builder before [pipeline.Builder.Build]
 	// runs.
 	Routing RoutingFlags
+	// DryRun threads [pipeline.Builder.WithDryRun] through. The
+	// `prune --dry-run` flag sets this so the pipeline computes
+	// what it WOULD produce without persisting the manifest. Pair
+	// with SinkOverride = sink.NewMemory() to also suppress file
+	// writes from the backend.
+	DryRun bool
 }
 
 // filterEnabledPlugins returns the subset of plugins enabled per

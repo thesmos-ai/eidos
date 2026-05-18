@@ -19,8 +19,8 @@ import (
 // Version 2 added the required [Output.PipelineID] field so a
 // single manifest can host outputs from several pipelines sharing
 // one workdir (the testkit-style "one binary, multiple pipelines"
-// pattern). Version 1 manifests are not read; rerun the pipeline
-// to regenerate.
+// pattern). Older versions are not read; rerun the pipeline to
+// regenerate.
 const Version = 2
 
 // PluginAttribution names one plugin's contribution to a

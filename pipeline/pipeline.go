@@ -100,6 +100,9 @@ type Pipeline struct {
 	manifestPath string
 	pipelineID   string
 	brand        string
+	dryRun       bool
+	lastManifest atomic.Pointer[manifest.Manifest]
+	lastRecorder atomic.Pointer[recordingSink]
 	command      string
 	sourceRoot   string
 	// policy is the default [LayoutPolicy] returned by
@@ -164,6 +167,33 @@ type Pipeline struct {
 // between phases, and reusing the Pipeline for another Run replaces
 // the cached store with the next run's instance.
 func (p *Pipeline) Store() *store.Store { return p.lastStore.Load() }
+
+// EmittedTargets returns the set of [emit.Target] values the
+// most recent [Pipeline.Run] actually wrote to the sink — the
+// "current claims" view the prune subcommand diffs against the
+// prior manifest. Targets in prev that are absent from this
+// set (and whose pipeline / scope match) are orphans.
+//
+// Returns an empty map before Run has been called or when the
+// last run produced no outputs.
+func (p *Pipeline) EmittedTargets() map[emit.Target]struct{} {
+	rec := p.lastRecorder.Load()
+	if rec == nil {
+		return map[emit.Target]struct{}{}
+	}
+	return rec.emittedTargets()
+}
+
+// LastManifest returns the merged manifest the most recent
+// [Pipeline.Run] invocation produced, or nil when Run has not
+// been called or the manifest path was unconfigured. The
+// returned manifest is the post-merge view — every prior entry
+// plus every current entry with its [manifest.Output.LastSeenRun]
+// refreshed. Tooling that wants to know "what would this run
+// have produced" without consulting disk reads from here; the
+// prune subcommand uses it under `--dry-run` so the manifest
+// stays untouched.
+func (p *Pipeline) LastManifest() *manifest.Manifest { return p.lastManifest.Load() }
 
 // PipelineID returns the stable identifier the manifest tags
 // each [Output] with. Either the explicit value supplied via

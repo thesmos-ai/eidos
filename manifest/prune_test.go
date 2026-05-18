@@ -6,83 +6,125 @@ package manifest_test
 import (
 	"testing"
 
+	"go.thesmos.sh/eidos/emit"
 	"go.thesmos.sh/eidos/manifest"
 )
 
 func TestPrune(t *testing.T) {
 	t.Parallel()
 
-	t.Run("returns targets in prev but not in current", func(t *testing.T) {
-		t.Parallel()
-		prev := manifest.New("prev")
-		prev.Add(manifest.Output{Target: targetAt("a", "kept.go")})
-		prev.Add(manifest.Output{Target: targetAt("a", "stale.go")})
-		current := manifest.New("current")
-		current.Add(manifest.Output{Target: targetAt("a", "kept.go")})
+	scope := map[string]struct{}{"example.com/a": {}}
 
-		got := manifest.Prune(prev, current, "")
-		if len(got) != 1 || got[0].Filename != "stale.go" {
-			t.Fatalf("Prune mismatch: %+v", got)
+	t.Run("returns entries the current run did not re-emit", func(t *testing.T) {
+		t.Parallel()
+		prev := manifest.New("run-2")
+		freshEntry := manifest.Output{
+			Target:     targetAtPath("a", "fresh.go", "example.com/a"),
+			PipelineID: "p",
+		}
+		staleEntry := manifest.Output{
+			Target:     targetAtPath("a", "stale.go", "example.com/a"),
+			PipelineID: "p",
+		}
+		prev.Add(freshEntry)
+		prev.Add(staleEntry)
+		// Current run emitted only the fresh target.
+		emitted := map[emit.Target]struct{}{freshEntry.Target: {}}
+
+		got := manifest.Prune(prev, emitted, scope, "p")
+		if len(got) != 1 || got[0].Target.Filename != "stale.go" {
+			t.Fatalf("Prune should return only the un-claimed entry; got %+v", got)
 		}
 	})
 
-	t.Run("preserves prev's order in the returned slice", func(t *testing.T) {
+	t.Run("scope filter excludes out-of-scope entries", func(t *testing.T) {
 		t.Parallel()
-		prev := manifest.New("prev")
-		prev.Add(manifest.Output{Target: targetAt("a", "first.go")})
-		prev.Add(manifest.Output{Target: targetAt("a", "second.go")})
-		prev.Add(manifest.Output{Target: targetAt("a", "third.go")})
-		current := manifest.New("current")
-		// current claims none of them — every prev target is stale.
-		got := manifest.Prune(prev, current, "")
-		if len(got) != 3 || got[0].Filename != "first.go" || got[2].Filename != "third.go" {
-			t.Fatalf("Prune should preserve prev order; got %+v", got)
+		prev := manifest.New("run-2")
+		prev.Add(manifest.Output{
+			Target:     targetAtPath("b", "stale.go", "example.com/b"),
+			PipelineID: "p",
+		})
+		// Un-emitted, but its import path is outside the scope set —
+		// current run did not load this package, so prune must not
+		// consider it an orphan.
+		emitted := map[emit.Target]struct{}{}
+		if got := manifest.Prune(prev, emitted, scope, "p"); got != nil {
+			t.Errorf("out-of-scope entry must not be returned; got %+v", got)
 		}
 	})
 
-	t.Run("returns nil when prev is nil", func(t *testing.T) {
+	t.Run("test-shifted import path matches non-test scope entry", func(t *testing.T) {
 		t.Parallel()
-		current := manifest.New("current")
-		current.Add(manifest.Output{Target: targetAt("a", "x.go")})
-		if got := manifest.Prune(nil, current, ""); got != nil {
-			t.Fatalf("Prune with nil prev should be nil; got %+v", got)
-		}
-	})
-
-	t.Run("returns nil when prev is empty", func(t *testing.T) {
-		t.Parallel()
-		if got := manifest.Prune(manifest.New("prev"), manifest.New("current"), ""); got != nil {
-			t.Fatalf("Prune with empty prev should be nil; got %+v", got)
-		}
-	})
-
-	t.Run("treats nil current as empty (every prev target is stale)", func(t *testing.T) {
-		t.Parallel()
-		prev := manifest.New("prev")
-		prev.Add(manifest.Output{Target: targetAt("a", "x.go")})
-		got := manifest.Prune(prev, nil, "")
+		prev := manifest.New("run-2")
+		prev.Add(manifest.Output{
+			Target:     targetAtPath("a", "x_test.go", "example.com/a_test"),
+			PipelineID: "p",
+		})
+		emitted := map[emit.Target]struct{}{}
+		got := manifest.Prune(prev, emitted, scope, "p")
 		if len(got) != 1 {
-			t.Fatalf("Prune with nil current should treat all prev as stale; got %+v", got)
+			t.Fatalf("`<pkg>_test` auto-shift entry must match non-test scope; got %+v", got)
 		}
 	})
 
-	t.Run("non-empty pipelineID scopes to that pipeline's entries", func(t *testing.T) {
+	t.Run("PipelineID mismatch excludes the entry", func(t *testing.T) {
 		t.Parallel()
-		// prev holds one entry from "bench" pipeline and one from
-		// "suite" pipeline; current has neither (both pipelines have
-		// fully unclaimed their files). Prune for "bench" must
-		// return ONLY the bench entry — the suite entry is owned by
-		// a different pipeline and is off-limits.
-		prev := manifest.New("prev")
+		prev := manifest.New("run-2")
 		prev.Add(manifest.Output{
-			Target: targetAt("a", "x_bench_test.go"), PipelineID: "bench",
+			Target:     targetAtPath("a", "x_bench.go", "example.com/a"),
+			PipelineID: "bench",
+		})
+		// Un-emitted, in scope, but owned by a different pipeline —
+		// prune for "suite" must not touch it.
+		emitted := map[emit.Target]struct{}{}
+		if got := manifest.Prune(prev, emitted, scope, "suite"); got != nil {
+			t.Errorf("other-pipeline entry must not be returned; got %+v", got)
+		}
+	})
+
+	t.Run("empty pipelineID returns nil (refuses to scope without identity)", func(t *testing.T) {
+		t.Parallel()
+		prev := manifest.New("run-2")
+		prev.Add(manifest.Output{
+			Target: targetAtPath("a", "x.go", "example.com/a"),
+		})
+		emitted := map[emit.Target]struct{}{}
+		if got := manifest.Prune(prev, emitted, scope, ""); got != nil {
+			t.Errorf("empty pipelineID must not return candidates; got %+v", got)
+		}
+	})
+
+	t.Run("nil prev / nil scope / nil emitted all return nil", func(t *testing.T) {
+		t.Parallel()
+		if got := manifest.Prune(nil, map[emit.Target]struct{}{}, scope, "p"); got != nil {
+			t.Errorf("nil prev must return nil; got %+v", got)
+		}
+		if got := manifest.Prune(manifest.New("r"), map[emit.Target]struct{}{}, nil, "p"); got != nil {
+			t.Errorf("nil scope must return nil; got %+v", got)
+		}
+		if got := manifest.Prune(manifest.New("r"), nil, scope, "p"); got != nil {
+			t.Errorf("nil emitted must return nil; got %+v", got)
+		}
+	})
+
+	t.Run("preserves manifest order in the returned slice", func(t *testing.T) {
+		t.Parallel()
+		prev := manifest.New("run-2")
+		prev.Add(manifest.Output{
+			Target:     targetAtPath("a", "first.go", "example.com/a"),
+			PipelineID: "p",
 		})
 		prev.Add(manifest.Output{
-			Target: targetAt("a", "x_suite_test.go"), PipelineID: "suite",
+			Target:     targetAtPath("a", "second.go", "example.com/a"),
+			PipelineID: "p",
 		})
-		got := manifest.Prune(prev, manifest.New("current"), "bench")
-		if len(got) != 1 || got[0].Filename != "x_bench_test.go" {
-			t.Errorf("scoped Prune must only return bench entries; got %+v", got)
+		emitted := map[emit.Target]struct{}{}
+		got := manifest.Prune(prev, emitted, scope, "p")
+		if len(got) != 2 ||
+			got[0].Target.Filename != "first.go" ||
+			got[1].Target.Filename != "second.go" {
+
+			t.Fatalf("Prune must preserve order; got %+v", got)
 		}
 	})
 }

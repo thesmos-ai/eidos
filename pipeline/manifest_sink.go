@@ -37,6 +37,22 @@ func newRecordingSink(inner sink.Sink) *recordingSink {
 	return &recordingSink{inner: inner, files: map[emit.Target][]byte{}}
 }
 
+// emittedTargets returns the set of [emit.Target] values the
+// recordingSink saw [recordingSink.Write] calls for during this
+// run. The set is the prune subcommand's "current claims" view
+// — entries in the prior manifest whose Target is absent from
+// this set (and whose pipeline / scope match) are orphans the
+// current source no longer claims. Concurrent-safe.
+func (r *recordingSink) emittedTargets() map[emit.Target]struct{} {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make(map[emit.Target]struct{}, len(r.files))
+	for t := range r.files {
+		out[t] = struct{}{}
+	}
+	return out
+}
+
 // Write delegates to the inner sink and, on success, captures a
 // copy of the payload keyed by target for later manifest assembly.
 // Write errors from the inner sink propagate verbatim; no capture

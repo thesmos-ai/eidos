@@ -46,6 +46,7 @@ type Builder struct {
 	manifestPath    string
 	pipelineID      string
 	brand           string
+	dryRun          bool
 	options         map[string]map[string]string
 	command         string
 	sourceRoot      string
@@ -115,6 +116,19 @@ func (b *Builder) WithParallel(phases ...Phase) *Builder {
 // hashed. Empty path (the default) disables manifest writing.
 func (b *Builder) WithManifestPath(path string) *Builder {
 	b.manifestPath = path
+	return b
+}
+
+// WithDryRun toggles compute-only mode: the pipeline still runs
+// every phase end-to-end (so plugins, diagnostics, and the
+// in-memory captured-outputs view are populated normally), but
+// the manifest is NOT persisted to disk. Pair with a memory
+// sink to suppress disk writes from the backend too. Used by
+// the prune subcommand's `--dry-run` flag and any caller that
+// wants to inspect what a run WOULD do without touching the
+// workdir.
+func (b *Builder) WithDryRun(dryRun bool) *Builder {
+	b.dryRun = dryRun
 	return b
 }
 
@@ -502,6 +516,7 @@ func (b *Builder) Build() (*Pipeline, error) {
 		manifestPath:       b.manifestPath,
 		pipelineID:         resolvePipelineID(b),
 		brand:              b.brand,
+		dryRun:             b.dryRun,
 		command:            b.command,
 		sourceRoot:         b.resolveSourceRoot(),
 		defaultPolicy:      defaultPolicy,

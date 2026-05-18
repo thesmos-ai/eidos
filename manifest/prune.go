@@ -3,54 +3,75 @@
 
 package manifest
 
-import "go.thesmos.sh/eidos/emit"
+import (
+	"strings"
 
-// Prune returns the list of [emit.Target] values present in prev
-// but not in current — the files the previous run produced that
-// the current configuration no longer claims. The CLI's "eidos
-// prune" command deletes the corresponding files; the "eidos
-// check" gate reports them as drift without deleting.
+	"go.thesmos.sh/eidos/emit"
+)
+
+// Prune returns the list of orphan [Output] entries in prev —
+// entries the current run had authority over but did NOT
+// re-emit. The CLI's "eidos prune" command deletes the
+// corresponding files; the "eidos check" gate reports them as
+// drift without deleting.
 //
-// Order is preserved from prev so iteration is deterministic for
-// the same input. Nil manifests are treated as empty: a nil prev
-// returns no candidates (no previous run to diff against); a nil
-// current treats every prev output owned by pipelineID as stale.
+// An entry is an orphan iff all three conditions hold:
 //
-// pipelineID scopes the diff: only prev entries whose
-// [Output.PipelineID] matches the supplied id participate. Other
-// pipelines' entries are out of bounds — they're produced by a
-// different pipeline that prune has no authority over. An empty
-// pipelineID disables the scope filter (every prev entry is in
-// scope) — the legacy single-pipeline behaviour for callers that
-// have not migrated to multi-pipeline awareness.
-func Prune(prev, current *Manifest, pipelineID string) []emit.Target {
-	if prev == nil || len(prev.Outputs) == 0 {
+//  1. [Output.PipelineID] equals pipelineID. Other pipelines'
+//     entries are off-limits; their owning pipeline manages
+//     their lifecycle.
+//  2. The entry's [emit.Target.ImportPath] (or its `<pkg>_test`
+//     auto-shift variant) is in scope — i.e. the current
+//     pipeline loaded that source package. Narrow runs that did
+//     not load the source package don't get to call its outputs
+//     orphans.
+//  3. The entry's Target is NOT in the emitted set — i.e. the
+//     current run did not write to that target. Targets that
+//     the current run produced are not orphans.
+//
+// Order is preserved from prev so iteration is deterministic
+// for the same input. A nil prev manifest, an empty pipelineID,
+// a nil scope, or a nil emitted set all return nil (nothing
+// identifiable as an orphan).
+func Prune(
+	prev *Manifest,
+	emitted map[emit.Target]struct{},
+	scope map[string]struct{},
+	pipelineID string,
+) []Output {
+	if prev == nil || pipelineID == "" || scope == nil || emitted == nil {
 		return nil
 	}
-	claimed := make(map[emit.Target]struct{}, currentLen(current))
-	if current != nil {
-		for _, o := range current.Outputs {
-			claimed[o.Target] = struct{}{}
-		}
-	}
-	out := make([]emit.Target, 0, len(prev.Outputs))
+	var out []Output
 	for _, o := range prev.Outputs {
-		if pipelineID != "" && o.PipelineID != pipelineID {
+		if o.PipelineID != pipelineID {
 			continue
 		}
-		if _, ok := claimed[o.Target]; !ok {
-			out = append(out, o.Target)
+		if !inScope(o.Target.ImportPath, scope) {
+			continue
 		}
+		if _, claimed := emitted[o.Target]; claimed {
+			continue
+		}
+		out = append(out, o)
 	}
 	return out
 }
 
-// currentLen returns the output count of m, treating nil as zero.
-// Used to size the claimed-set map; the helper avoids a nil-deref
-// branch inline at the call site.
-func currentLen(m *Manifest) int {
-	if m == nil {
-		return 0
+// inScope reports whether the supplied import path lives in the
+// scope set — exact match plus the framework's `<pkg>_test`
+// auto-shift variant. Empty input is out of scope.
+func inScope(path string, scope map[string]struct{}) bool {
+	if path == "" {
+		return false
 	}
-	return len(m.Outputs)
+	if _, ok := scope[path]; ok {
+		return true
+	}
+	if stripped, ok := strings.CutSuffix(path, "_test"); ok {
+		if _, hit := scope[stripped]; hit {
+			return true
+		}
+	}
+	return false
 }
